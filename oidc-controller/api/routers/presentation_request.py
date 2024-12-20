@@ -9,7 +9,7 @@ from ..authSessions.crud import AuthSessionCRUD
 from ..authSessions.models import AuthSession, AuthSessionState
 
 from ..core.config import settings
-from ..routers.socketio import sio, connections_reload
+from ..routers.socketio import buffered_emit, connections_reload
 from ..routers.oidc import gen_deep_link
 from ..db.session import get_db
 
@@ -22,10 +22,7 @@ async def toggle_pending(db, auth_session: AuthSession):
     # We need to set this to pending now
     auth_session.proof_status = AuthSessionState.PENDING
     await AuthSessionCRUD(db).patch(auth_session.id, auth_session)
-    connections = connections_reload()
-    sid = connections.get(str(auth_session.id))
-    if sid:
-        await sio.emit("status", {"status": "pending"}, to=sid)
+    await buffered_emit("status", {"status": "pending"}, to_pid=auth_session.id)
 
 
 @router.get("/url/pres_exch/{pres_exch_id}")
@@ -62,10 +59,6 @@ async def send_connectionless_proof_req(
     auth_session: AuthSession = await AuthSessionCRUD(db).get_by_pres_exch_id(
         pres_exch_id
     )
-
-    # Get the websocket session
-    connections = connections_reload()
-    sid = connections.get(str(auth_session.id))
 
     # If the qrcode has been scanned, toggle the pending flag
     if auth_session.proof_status is AuthSessionState.NOT_STARTED:

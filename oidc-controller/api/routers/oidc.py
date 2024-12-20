@@ -31,7 +31,7 @@ from ..core.oidc.issue_token_service import Token
 from ..db.session import get_db
 
 # Access to the websocket
-from ..routers.socketio import connections_reload, sio
+from ..routers.socketio import buffered_emit, connections_reload
 
 from ..verificationConfigs.crud import VerificationConfigCRUD
 from ..verificationConfigs.helpers import VariableSubstitutionError
@@ -58,8 +58,6 @@ async def poll_pres_exch_complete(pid: str, db: Database = Depends(get_db)):
     auth_session = await AuthSessionCRUD(db).get(pid)
 
     pid = str(auth_session.id)
-    connections = connections_reload()
-    sid = connections.get(pid)
 
     """
      Check if proof is expired. But only if the proof has not been started.
@@ -75,8 +73,7 @@ async def poll_pres_exch_complete(pid: str, db: Database = Depends(get_db)):
             str(auth_session.id), AuthSessionPatch(**auth_session.model_dump())
         )
         # Send message through the websocket.
-        if sid:
-            await sio.emit("status", {"status": "expired"}, to=sid)
+        await buffered_emit("status", {"status": "expired"}, to_pid=pid)
 
     return {"proof_status": auth_session.proof_status}
 
