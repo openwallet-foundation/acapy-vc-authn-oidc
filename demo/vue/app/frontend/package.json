@@ -20,7 +20,7 @@
     "@babel/eslint-parser": "^7.25.9",
     "@vue/eslint-config-prettier": "^10.1.0",
     "axios": "^1.7.9",
-    "core-js": "^3.39.0",
+    "core-js": "^3.40.0",
     "eslint": "^8.57.0",
     "eslint-plugin-prettier": "^5.2.1",
     "keycloak-js": "^15.1.1",
