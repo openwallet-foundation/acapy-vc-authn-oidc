@@ -18,7 +18,7 @@
   },
   "dependencies": {
     "@babel/eslint-parser": "^7.25.9",
-    "@vue/eslint-config-prettier": "^10.1.0",
+    "@vue/eslint-config-prettier": "^10.2.0",
     "axios": "^1.7.9",
     "core-js": "^3.39.0",
     "eslint": "^8.57.0",
