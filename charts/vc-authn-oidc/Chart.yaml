@@ -20,7 +20,7 @@ dependencies:
     version: 16.4.1
     repository: "https://charts.bitnami.com/bitnami"
   - name: postgresql
-    version: 16.4.3
+    version: 11.9.13
     repository: https://charts.bitnami.com/bitnami/
     condition: postgresql.enabled
   - name: common

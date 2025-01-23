@@ -51,7 +51,7 @@ services:
       - vc_auth
 
   controller-db:
-    image: mongo:7.0
+    image: mongo:8.0
     environment:
       - MONGO_INITDB_ROOT_USERNAME=${OIDC_CONTROLLER_DB_USER}
       - MONGO_INITDB_ROOT_PASSWORD=${OIDC_CONTROLLER_DB_USER_PWD}
@@ -92,7 +92,7 @@ services:
       - vc_auth
 
   keycloak-db:
-    image: postgres:15.1-alpine
+    image: postgres:15-alpine
     environment:
       - POSTGRES_USER=${KEYCLOAK_DB_USER}
       - POSTGRES_PASSWORD=${KEYCLOAK_DB_PASSWORD}
