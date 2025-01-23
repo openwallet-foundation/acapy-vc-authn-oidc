@@ -1,4 +1,3 @@
-version: "3"
 services:
   controller:
     image: acapy-vc-authn-oidc-controller
@@ -103,7 +102,7 @@ services:
       - vc_auth
 
   aca-py:
-    image: ghcr.io/openwallet-foundation/acapy-agent:py3.12-1.1.0
+    image: ghcr.io/openwallet-foundation/acapy-agent:py3.12-1.2.1
     environment:
       - ACAPY_LABEL=${AGENT_NAME}
       - ACAPY_ENDPOINT=${AGENT_ENDPOINT}
