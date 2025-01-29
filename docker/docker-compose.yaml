@@ -91,7 +91,7 @@ services:
       - vc_auth
 
   keycloak-db:
-    image: postgres:15.1-alpine
+    image: postgres:15-alpine
     environment:
       - POSTGRES_USER=${KEYCLOAK_DB_USER}
       - POSTGRES_PASSWORD=${KEYCLOAK_DB_PASSWORD}

@@ -17,7 +17,7 @@ appVersion: "2.2.2"
 # Charts the vc-authn-oidc service depends on
 dependencies:
   - name: mongodb
-    version: 15.4.3
+    version: 16.4.1
     repository: "https://charts.bitnami.com/bitnami"
   - name: postgresql
     version: 11.9.13
