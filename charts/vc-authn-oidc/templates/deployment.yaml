@@ -39,6 +39,9 @@ spec:
         - name: controller-config
           configMap:
             name: {{ include "global.fullname" . }}-controller-config
+        - name: controller-templates
+          configMap:
+            name: {{ include "global.fullname" . }}-template-overrides
       containers:
         - name: {{ .Chart.Name }}
           securityContext:
@@ -72,6 +75,8 @@ spec:
               value: {{ .Values.controller.presentationExpireTime | quote }}
             - name: CONTROLLER_SESSION_TIMEOUT_CONFIG_FILE
               value: /etc/controller-config/sessiontimeout.json
+            - name: CONTROLLER_TEMPLATE_DIR
+              value: /etc/templates
             - name: CONTROLLER_VARIABLE_SUBSTITUTION_OVERRIDE
               value: /etc/controller-config/user_variable_substitution.py
             - name: CONTROLLER_PRESENTATION_CLEANUP_TIME
@@ -134,6 +139,8 @@ spec:
               mountPath: /opt/token
             - name: controller-config
               mountPath: /etc/controller-config
+            - name: controller-templates
+              mountPath: /etc/templates
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
