@@ -11,9 +11,9 @@ Make sure to read the [best practices](/docs/BestPractices.md) to be used when p
 ## TL;DR
 
 ```console
-helm repo add vc-authn-oidc https://bcgov.github.io/vc-authn-oidc
+helm repo add acapy-vc-authn-oidc	https://openwallet-foundation.github.io/acapy-vc-authn-oidc/
 helm repo update
-helm install my-release vc-authn-oidc/vc-authn-oidc
+helm install my-release acapy-vc-authn-oidc/vc-authn-oidc
 ```
 
 ## Prerequisites
