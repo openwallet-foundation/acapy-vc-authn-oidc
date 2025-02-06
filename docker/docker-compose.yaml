@@ -46,7 +46,6 @@ services:
     volumes:
       - ../oidc-controller:/app:rw
       - ./oidc-controller/config/sessiontimeout.json:/etc/controller-config/sessiontimeout.json
-      - ../charts/vc-authn-oidc/html-templates:/etc/templates:rw
     networks:
       - vc_auth
 

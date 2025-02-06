@@ -233,7 +233,9 @@ class GlobalConfig(BaseSettings):
     CONTROLLER_VARIABLE_SUBSTITUTION_OVERRIDE: str | None = os.environ.get(
         "CONTROLLER_VARIABLE_SUBSTITUTION_OVERRIDE"
     )
-    CONTROLLER_TEMPLATE_DIR: str | None = os.environ.get("CONTROLLER_TEMPLATE_DIR")
+    CONTROLLER_TEMPLATE_DIR: str = os.environ.get(
+        "CONTROLLER_TEMPLATE_DIR", "/tmp/templates"
+    )
     model_config = ConfigDict(case_sensitive=True)
 
 

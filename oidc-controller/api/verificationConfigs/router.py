@@ -14,6 +14,7 @@ from .models import (
 from ..core.auth import get_api_key
 from ..core.models import GenericErrorMessage, StatusMessage
 from ..db.session import get_db
+from ..core.config import settings
 
 router = APIRouter()
 

@@ -50,6 +50,7 @@ controller:
       - expired
       - failed
       - abandoned
+  templateDirectory: /tmp/templates
   userVariableSubsitution: |-
     # This is a default placeholder Python file 
     # Add any extensions to user variables here. Example below:
@@ -578,8 +579,8 @@ mongodb:
     app: vc-authn-oidc
     role: database
   ## @param mongodb.image.registry image registry
-  image:
-    registry: artifacts.developer.gov.bc.ca/docker-remote
+  # image:
+  #   registry: artifacts.developer.gov.bc.ca/docker-remote
   ## @param mongodb.architecture MongoDB(&reg;) architecture (`standalone` or `replicaset`)
   ##
   architecture: replicaset
@@ -607,7 +608,7 @@ mongodb:
     ## If undefined (the default) or set to null, no storageClassName spec is
     ## set, choosing the default provisioner.
     ##
-    storageClass: netapp-block-standard
+    storageClass: "standard"
   ## ServiceAccount
   ## ref: https://kubernetes.io/docs/tasks/configure-pod-container/configure-service-account/
   ##
