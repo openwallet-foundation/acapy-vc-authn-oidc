@@ -14,4 +14,3 @@ kind: ConfigMap
 metadata:
   name: {{ include "global.fullname" . }}-template-overrides
 data:
-  {{ (.Files.Glob "html-templates/**").AsConfig | indent 2 }}
