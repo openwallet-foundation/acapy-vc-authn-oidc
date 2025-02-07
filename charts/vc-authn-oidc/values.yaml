@@ -165,9 +165,7 @@ ingress:
 ## @param resources.requests.cpu The requested cpu for the controller containers
 ##
 resources:
-  limits:
-    cpu: 100m
-    memory: 512Mi
+  limits: {}
   requests:
     cpu: 10m
     memory: 128Mi
@@ -426,9 +424,7 @@ acapy:
   ## @param acapy.resources.requests.cpu The requested cpu for the Acapy containers
   ##
   resources:
-    limits:
-      cpu: "1"
-      memory: 1000Mi
+    limits: {}
     requests:
       cpu: 250m
       memory: 384Mi
@@ -692,9 +688,7 @@ postgresql:
     ## @param postgresql.primary.resources.requests.cpu The requested cpu for the PostgreSQL Primary containers
     ##
     resources:
-      limits:
-        cpu: 600m
-        memory: 2600Mi
+      limits: {}
       requests:
         cpu: 300m
         memory: 1300Mi
