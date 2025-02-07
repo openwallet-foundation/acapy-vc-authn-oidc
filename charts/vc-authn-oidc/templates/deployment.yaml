@@ -39,6 +39,11 @@ spec:
         - name: controller-config
           configMap:
             name: {{ include "global.fullname" . }}-controller-config
+        - name: controller-templates
+          projected:
+            sources:
+              - configMap:
+                  name: {{ include "global.fullname" . }}-template-overrides
       containers:
         - name: {{ .Chart.Name }}
           securityContext:
@@ -76,6 +81,8 @@ spec:
               value: /etc/controller-config/user_variable_substitution.py
             - name: CONTROLLER_PRESENTATION_CLEANUP_TIME
               value: {{ .Values.controller.sessionTimeout.duration | quote }}
+            - name: CONTROLLER_TEMPLATE_DIR
+              value: {{ .Values.controller.templateDirectory | quote }}
             - name: ACAPY_AGENT_URL
               value: {{ include "acapy.agent.url" . }}
             - name: ACAPY_ADMIN_URL
@@ -134,6 +141,8 @@ spec:
               mountPath: /opt/token
             - name: controller-config
               mountPath: /etc/controller-config
+            - name: controller-templates
+              mountPath: {{ .Values.controller.templateDirectory }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
