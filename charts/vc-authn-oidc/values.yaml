@@ -604,7 +604,7 @@ mongodb:
     ## If undefined (the default) or set to null, no storageClassName spec is
     ## set, choosing the default provisioner.
     ##
-    storageClass: "netapp-block-standard"
+    storageClass: netapp-block-standard
   ## ServiceAccount
   ## ref: https://kubernetes.io/docs/tasks/configure-pod-container/configure-service-account/
   ##
