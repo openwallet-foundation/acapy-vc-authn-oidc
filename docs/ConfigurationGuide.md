@@ -172,15 +172,15 @@ indication of this will also be logged
 By default the QR page shown to users uses OpenWallet branding users
 are capable of overriding any of these files using the
 `{{ include "global.fullname" . }}-template-overrides`
-[ConfigMap](../charts/vc-authn-oidc/templates/configmap.yaml) in the
+[ConfigMap](../charts/vc-authn-oidc/templates/configmap.yaml)
 in the helm charts. These files will override the existing files seen
 in [html-templates](../html-templates/).
 
 ## Complete Directory Overrides
 
 In addition to allow for more flexibility users are welcome to build
-an image based on `ghcr.io/bcgov/vc-authn-oidc` mounting their a
-complete directory with new assets.
+an image based on `ghcr.io/openwallet-foundation/acapy-vc-authn-oidc`
+mounting their complete directory with new assets.
 
 To inform the oidc controller of this new directory update
 [.Values.controller.templateDirectory](../charts/vc-authn-oidc/values.yaml)
