@@ -183,7 +183,7 @@ configureEnvironment() {
   export CONTROLLER_VARIABLE_SUBSTITUTION_OVERRIDE="/etc/controller-config/user_variable_substitution.py"
 
   # template configuration
-  export CONTROLLER_TEMPLATE_DIR="/etc/templates"
+  export CONTROLLER_TEMPLATE_DIR="/etc/controller-config/templates"
 
   #controller app settings
   export INVITATION_LABEL=${INVITATION_LABEL:-"VC-AuthN"}

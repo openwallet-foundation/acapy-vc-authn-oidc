@@ -50,7 +50,7 @@ controller:
       - expired
       - failed
       - abandoned
-  templateDirectory: /etc/templates
+  templateDirectory: /etc/controller-config/templates
   userVariableSubsitution: |-
     # This is a default placeholder Python file 
     # Add any extensions to user variables here. Example below:

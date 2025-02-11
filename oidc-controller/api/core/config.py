@@ -234,7 +234,7 @@ class GlobalConfig(BaseSettings):
         "CONTROLLER_VARIABLE_SUBSTITUTION_OVERRIDE"
     )
     CONTROLLER_TEMPLATE_DIR: str = os.environ.get(
-        "CONTROLLER_TEMPLATE_DIR", "/etc/templates"
+        "CONTROLLER_TEMPLATE_DIR", "/etc/controller-config/templates"
     )
     model_config = ConfigDict(case_sensitive=True)
 
