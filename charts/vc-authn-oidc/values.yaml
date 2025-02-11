@@ -11,7 +11,7 @@ fullnameOverride: ""
 ## @param image.tag Overrides the image tag which defaults to the chart appVersion.
 ##
 image:
-  repository: ghcr.io/bcgov/vc-authn-oidc
+  repository: ghcr.io/openwallet-foundation/acapy-vc-authn-oidc
   pullPolicy: IfNotPresent
   pullSecrets: []
   tag: ""
