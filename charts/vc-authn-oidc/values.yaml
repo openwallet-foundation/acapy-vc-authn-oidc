@@ -11,7 +11,7 @@ fullnameOverride: ""
 ## @param image.tag Overrides the image tag which defaults to the chart appVersion.
 ##
 image:
-  repository: ghcr.io/bcgov/vc-authn-oidc
+  repository: ghcr.io/openwallet-foundation/acapy-vc-authn-oidc
   pullPolicy: IfNotPresent
   pullSecrets: []
   tag: ""
@@ -50,6 +50,7 @@ controller:
       - expired
       - failed
       - abandoned
+  templateDirectory: /etc/controller-config/templates
   userVariableSubsitution: |-
     # This is a default placeholder Python file 
     # Add any extensions to user variables here. Example below:
