@@ -47,7 +47,11 @@ def get_application() -> FastAPI:
 app = get_application()
 
 # Serve static assets for the frontend
-app.mount("/static", StaticFiles(directory="api/templates/assets"), name="static")
+app.mount(
+    "/static",
+    StaticFiles(directory=(settings.CONTROLLER_TEMPLATE_DIR + "/assets")),
+    name="static",
+)
 
 # Include routers
 app.include_router(ver_configs_router, prefix="/ver_configs", tags=["ver_configs"])

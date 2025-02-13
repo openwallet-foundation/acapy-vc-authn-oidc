@@ -372,6 +372,7 @@ If no file is found no auth session cleanup is applied. If this config file is c
 
 The environment variable `CONTROLLER_PRESENTATION_CLEANUP_TIME` determined the frequency at which these sessions are deleted. It's value should contain an integer indicating the number of seconds each session will remain. By default it is set to `86400` (one day).
 
+
 ## Un-Answered questions
 
 - SIOP instead of DIDComm for the requests between the RP and IW?
