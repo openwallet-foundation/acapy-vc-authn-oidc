@@ -66,10 +66,10 @@ controller:
     # variable_substitution_map.add_variable_substitution(
     #     r"\$sub_days_plus_one_(\d+)", sub_days_plus_one
     # )
-  htmlFileOverrides:
-    ver_config_explorer.html: ""
-    verified_credentials.html: ""
-    wallet_howto.html: ""
+  # htmlFileOverrides:
+  #   ver_config_explorer.html: ""
+  #   verified_credentials.html: ""
+  #   wallet_howto.html: ""
 ## @param useHTTPS Prepend Agent and Admin URLs with `https`
 useHTTPS: true
 ## @param logLevel Accepts one of the following values: CRITICAL, ERROR, WARNING, INFO, DEBUG
