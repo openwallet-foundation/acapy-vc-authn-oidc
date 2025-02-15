@@ -1,8 +1,8 @@
-[tool.poetry]
+[project]
 name = "acapy-vc-authn-oidc"
 version = "0.2.2"
 description = "Verifiable Credential Identity Provider for OpenID Connect."
-authors = ["Government of British Columbia <[DItrust@gov.bc.ca](mailto:DItrust@gov.bc.ca)>"]
+authors = [ { name = "Government of British Columbia", email = "DItrust@gov.bc.ca" } ]
 license = "Apache-2.0"
 readme = "README.md"
 classifiers = [
@@ -45,5 +45,5 @@ asyncio_default_fixture_loop_scope = "function"
 pythonVersion = "3.12"
 
 [build-system]
-requires = ["poetry-core"]
+requires = ["poetry-core>=2.0"]
 build-backend = "poetry.core.masonry.api"
