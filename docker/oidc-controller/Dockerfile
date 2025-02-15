@@ -9,6 +9,7 @@ COPY pyproject.toml poetry.lock README.md ./
 RUN poetry install --no-root --only main
 
 COPY ./oidc-controller .
+COPY ./html-templates /etc/controller-config/templates
 
 EXPOSE 5000
 
