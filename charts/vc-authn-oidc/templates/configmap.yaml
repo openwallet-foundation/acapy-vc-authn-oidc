@@ -8,14 +8,3 @@ data:
     {{ .Values.controller.sessionTimeout.config | toJson }}
   user_variable_substitution.py: |
     {{ .Values.controller.userVariableSubsitution | nindent 4 }}
----
-{{- if .Values.controller.htmlFileOverrides }}
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: {{ include "global.fullname" . }}-template-overrides
-data:
-  {{- range $key, $value := .Values.controller.htmlFileOverrides }}
-  {{ $key }}: {{ $value | quote }}
-  {{- end }}
-{{- end }}

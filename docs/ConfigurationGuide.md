@@ -170,11 +170,35 @@ indication of this will also be logged
 ## ConfigMap Based Overrides
 
 By default the QR page shown to users uses OpenWallet branding users
-are capable of overriding any of these files using the
-`controller.htmlFileOverrides` value in
+are capable of overriding any of these files using a custom ConfigMap.
+
+Users can modify [configmap.yaml](charts/vc-authn-oidc/templates/configmap.yaml)
+and adding a new config map over riding any of the HTML files in [html-templates](../html-templates/). Specifically you can replace:
+- [verified_credentials.html](../html-templates/verified_credentials.html)
+- [wallet_howto.html](../html-templates/wallet_howto.html)
+- [ver_config_explorer.html](../html-templates/ver_config_explorer.html)
+
+One example of the new ConfigMap would be
+
+```yaml
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: user-template-overrides
+data:
+  verified_credentials.html: "<p>New contents of the verified_credentials.html page</p>"
+  wallet_howto.html: "<p>New contents of the wallet_howto.html page</p>"
+  ver_config_explorer.html: "<p>New contents of the ver_config_explorer.html page</p>"
+```
+
+The name of this new ConfigMap needs to be added to
+`controller.customHtmlConfigMapName` value in
 [values.yaml](charts/vc-authn-oidc/values.yaml).
+
 These files will override the existing files seen in
 [html-templates](../html-templates/).
+
 
 ## Complete Directory Overrides
 

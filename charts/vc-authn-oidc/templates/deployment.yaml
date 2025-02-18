@@ -39,12 +39,12 @@ spec:
         - name: controller-config
           configMap:
             name: {{ include "global.fullname" . }}-controller-config
-        {{- if .Values.controller.htmlFileOverrides }}
+        {{- if (not (empty .Values.controller.customHtmlConfigMapName)) }}
         - name: controller-templates
           projected:
             sources:
               - configMap:
-                  name: {{ include "global.fullname" . }}-template-overrides
+                  name: {{ .Values.controller.customHtmlConfigMapName | quote }}
         {{- end }}
       containers:
         - name: {{ .Chart.Name }}
@@ -142,8 +142,12 @@ spec:
             - name: jwt-token
               mountPath: /opt/token
             - name: controller-config
-              mountPath: /etc/controller-config
-            {{- if .Values.controller.htmlFileOverrides }}
+              mountPath: /etc/controller-config/sessiontimeout.json
+              subPath: sessiontimeout.json
+            - name: controller-config
+              mountPath: /etc/controller-config/user_variable_substitution.py
+              subPath: user_variable_substitution.py
+            {{- if (not (empty .Values.controller.customHtmlConfigMapName)) }}
             - name: controller-templates
               mountPath: {{ .Values.controller.templateDirectory }}
             {{- end }}
