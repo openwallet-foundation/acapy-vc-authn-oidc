@@ -1,7 +1,4 @@
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-
-[![unit-tests](https://github.com/openwallet-foundation/acapy-vc-authn-oidc/actions/workflows/controller_unittests.yml/badge.svg?branch=main&event=push)](https://github.com/openwallet-foundation/acapy-vc-authn-oidc/actions/workflows/controller_unittests.yml)
-[![Coverage Status](https://coveralls.io/repos/github/openwallet-foundation/acapy-vc-authn-oidc/badge.svg?branch=main)](https://coveralls.io/repos/github/openwallet-foundation/acapy-vc-authn-oidc/badge.svg?branch=main)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE) [![unit-tests](https://github.com/openwallet-foundation/acapy-vc-authn-oidc/actions/workflows/controller_unittests.yml/badge.svg?branch=main&event=push)](https://github.com/openwallet-foundation/acapy-vc-authn-oidc/actions/workflows/controller_unittests.yml) [![Coverage Status](https://coveralls.io/repos/github/openwallet-foundation/acapy-vc-authn-oidc/badge.svg?branch=main)](https://coveralls.io/github/openwallet-foundation/acapy-vc-authn-oidc?branch=main)
 
 # Verifiable Credential Authentication with OpenID Connect (VC-AuthN OIDC)
 
