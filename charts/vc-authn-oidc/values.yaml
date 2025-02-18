@@ -41,7 +41,7 @@ walletDeepLinkPrefix: bcwallet://aries_proof-request
 ## @param controller.sessionTimeout.duration The number of seconds an auth_sessions in the states defined in controllerSessionTimeoutConfig is kept for
 ## @param controller.sessionTimeout.config The json list of auth session states that are safe for deletion
 ## @param controller.uservariablesubsitution The placeholder for the user variable substitution file that can be used to add substitution variables
-## @param controller.htmlFileOverrides files users would like to override in the HTML templates (Left undefined by default)
+## @param controller.customHtmlConfigMapName ConfigMap file used to define the HTML file overrides
 controller:
   cameraRedirectUrl: wallet_howto
   presentationExpireTime: 300
