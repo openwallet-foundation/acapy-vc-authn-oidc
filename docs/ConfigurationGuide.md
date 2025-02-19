@@ -164,3 +164,71 @@ After loading the python file during the service startup each new user
 defined variable is logged for confirmation. Any failures to load
 these changes will be logged. If no new definitions are found
 indication of this will also be logged
+
+# User Customized QR Page
+
+## ConfigMap Based Overrides
+
+By default the QR page shown to users uses OpenWallet branding users
+are capable of overriding any of these files using a custom ConfigMap.
+
+A custom configmap overriding any of the HTML files in [html-templates](../html-templates/) can be used to customize the UI. The keys to be used to override each html component are:
+- [verified_credentials.html](../html-templates/verified_credentials.html)
+- [wallet_howto.html](../html-templates/wallet_howto.html)
+- [ver_config_explorer.html](../html-templates/ver_config_explorer.html)
+
+One example of the new ConfigMap would be
+
+```yaml
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: user-template-overrides
+data:
+  verified_credentials.html: "<p>New contents of the verified_credentials.html page</p>"
+  wallet_howto.html: "<p>New contents of the wallet_howto.html page</p>"
+  ver_config_explorer.html: "<p>New contents of the ver_config_explorer.html page</p>"
+```
+
+The name of this new/existing ConfigMap needs to be added to
+`controller.customHtmlConfigMapName` value in
+[values.yaml](charts/vc-authn-oidc/values.yaml) for it to be mounted.
+
+These files will override the existing files seen in
+[html-templates](../html-templates/).
+
+
+## Complete Directory Overrides
+
+In addition, to allow for more flexibility users are welcome to build
+an image based on `ghcr.io/openwallet-foundation/acapy-vc-authn-oidc`
+mounting their complete directory with new assets.
+
+To inform the oidc controller of this new directory update
+[.Values.controller.templateDirectory](../charts/vc-authn-oidc/values.yaml)
+to the location of this new directory
+
+## HTML Template Formats
+
+The HTML templates use [Jinja2](https://pypi.org/project/Jinja2/) to
+insert the necessary information from the oidc controller.
+
+The provided template sections are
+
+- image_contents: a base64 encoded image used as the QR code
+- url_to_message: URL the QR code points to
+- callback_url: URL used when verification is complete
+- pres_exch_id: id of the presentation exchange for this authsession
+- pid: auth_session id 
+- controller_host: URL pointing to this controller
+- challenge_poll_uri: URL used for polling the authsessions state
+- wallet_deep_link: deep link used to integrate with bcwallet for mobile users
+- title: Title of the current proof request
+- claims: List of claims requested in this proof request
+
+For more information please see
+- [oidc.py](../oidc-controller/api/routers/oidc.py) and
+- [verified_credentials.html](../html-templates/verified_credentials.html)
+- [wallet_howto.html](../html-templates/wallet_howto.html)
+- [ver_config_explorer.html](../html-templates/ver_config_explorer.html)

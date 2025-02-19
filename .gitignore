@@ -337,3 +337,4 @@ oidc-controller/static/
 oidc-controller/signing-keys/
 
 wallet.txt
+/charts/vc-authn-oidc/charts/.helm_ls_cache/

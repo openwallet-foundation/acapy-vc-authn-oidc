@@ -41,7 +41,8 @@ async def send_connectionless_proof_req(
         response = RedirectResponse(settings.CONTROLLER_CAMERA_REDIRECT_URL)
     else:
         template_file = open(
-            f"api/templates/{settings.CONTROLLER_CAMERA_REDIRECT_URL}.html", "r"
+            f"{settings.CONTROLLER_TEMPLATE_DIR}/{settings.CONTROLLER_CAMERA_REDIRECT_URL}.html",
+            "r",
         ).read()
 
         auth_session: AuthSession = await AuthSessionCRUD(db).get_by_pres_exch_id(
