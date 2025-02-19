@@ -191,9 +191,9 @@ data:
   ver_config_explorer.html: "<p>New contents of the ver_config_explorer.html page</p>"
 ```
 
-The name of this new ConfigMap needs to be added to
+The name of this new/existing ConfigMap needs to be added to
 `controller.customHtmlConfigMapName` value in
-[values.yaml](charts/vc-authn-oidc/values.yaml).
+[values.yaml](charts/vc-authn-oidc/values.yaml) for it to be mounted.
 
 These files will override the existing files seen in
 [html-templates](../html-templates/).
