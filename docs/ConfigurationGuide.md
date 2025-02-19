@@ -172,8 +172,7 @@ indication of this will also be logged
 By default the QR page shown to users uses OpenWallet branding users
 are capable of overriding any of these files using a custom ConfigMap.
 
-Users can modify [configmap.yaml](charts/vc-authn-oidc/templates/configmap.yaml)
-and adding a new config map over riding any of the HTML files in [html-templates](../html-templates/). Specifically you can replace:
+A custom configmap overriding any of the HTML files in [html-templates](../html-templates/) can be used to customize the UI. The keys to be used to override each html component are:
 - [verified_credentials.html](../html-templates/verified_credentials.html)
 - [wallet_howto.html](../html-templates/wallet_howto.html)
 - [ver_config_explorer.html](../html-templates/ver_config_explorer.html)
