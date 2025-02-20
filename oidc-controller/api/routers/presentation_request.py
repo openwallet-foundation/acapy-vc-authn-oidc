@@ -18,6 +18,16 @@ logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
 router = APIRouter()
 
 
+async def toggle_pending(db, auth_session: AuthSession):
+    # We need to set this to pending now
+    auth_session.proof_status = AuthSessionState.PENDING
+    await AuthSessionCRUD(db).patch(auth_session.id, auth_session)
+    connections = connections_reload()
+    sid = connections.get(str(auth_session.id))
+    if sid:
+        await sio.emit("status", {"status": "pending"}, to=sid)
+
+
 @router.get("/url/pres_exch/{pres_exch_id}")
 async def send_connectionless_proof_req(
     pres_exch_id: str, req: Request, db: Database = Depends(get_db)
@@ -40,6 +50,9 @@ async def send_connectionless_proof_req(
         )
         wallet_deep_link = gen_deep_link(auth_session)
         template = Template(template_file)
+
+        # If the qrcode was scanned by mobile phone camera toggle the pending flag
+        await toggle_pending(db, auth_session)
         response = HTMLResponse(template.render({"wallet_deep_link": wallet_deep_link}))
 
     if "text/html" in req.headers.get("accept"):
@@ -54,12 +67,9 @@ async def send_connectionless_proof_req(
     connections = connections_reload()
     sid = connections.get(str(auth_session.id))
 
-    # If the qrcode has been scanned, toggle the verified flag
+    # If the qrcode has been scanned, toggle the pending flag
     if auth_session.proof_status is AuthSessionState.NOT_STARTED:
-        auth_session.proof_status = AuthSessionState.PENDING
-        await AuthSessionCRUD(db).patch(auth_session.id, auth_session)
-        if sid:
-            await sio.emit("status", {"status": "pending"}, to=sid)
+        await toggle_pending(db, auth_session)
 
     msg = auth_session.presentation_request_msg
 
