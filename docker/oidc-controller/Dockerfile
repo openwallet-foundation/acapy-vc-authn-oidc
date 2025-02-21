@@ -1,6 +1,6 @@
 FROM python:3.12 AS main
 
-WORKDIR /app/code
+WORKDIR /app/src
 
 ENV POETRY_VIRTUALENVS_CREATE=false
 RUN pip3 install --no-cache-dir poetry==2.0
