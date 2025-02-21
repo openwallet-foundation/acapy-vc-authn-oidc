@@ -44,7 +44,7 @@ services:
       - ${CONTROLLER_SERVICE_PORT}:5000
       - 5678:5678
     volumes:
-      - ../oidc-controller:/app:rw
+      - ../oidc-controller:/app/src:rw
       - ./oidc-controller/config/user_variable_substitution.py:/app/controller-config/user_variable_substitution.py
       - ./oidc-controller/config/sessiontimeout.json:/app/controller-config/sessiontimeout.json
     networks:
