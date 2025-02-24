@@ -1,4 +1,5 @@
 from pydantic import BaseModel, ConfigDict, Field
+
 from .service_decorator import OOBServiceDecorator
 
 
@@ -17,7 +18,7 @@ class OutOfBandMessage(BaseModel):
         default="https://didcomm.org/out-of-band/1.1/invitation",
         alias="@type",
     )
-    goal_code: str = Field(default="request-proof")
+    goal_code: str = Field(default="aries.vc.verifier.once")
     label: str = Field(
         default="acapy-vc-authn Out-of-Band present-proof authorization request"
     )
