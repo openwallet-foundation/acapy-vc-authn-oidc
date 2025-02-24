@@ -78,9 +78,9 @@ spec:
             - name: CONTROLLER_PRESENTATION_EXPIRE_TIME
               value: {{ .Values.controller.presentationExpireTime | quote }}
             - name: CONTROLLER_SESSION_TIMEOUT_CONFIG_FILE
-              value: /etc/controller-config/sessiontimeout.json
+              value: /app/controller-config/sessiontimeout.json
             - name: CONTROLLER_VARIABLE_SUBSTITUTION_OVERRIDE
-              value: /etc/controller-config/user_variable_substitution.py
+              value: /app/controller-config/user_variable_substitution.py
             - name: CONTROLLER_PRESENTATION_CLEANUP_TIME
               value: {{ .Values.controller.sessionTimeout.duration | quote }}
             - name: CONTROLLER_TEMPLATE_DIR
@@ -142,10 +142,10 @@ spec:
             - name: jwt-token
               mountPath: /opt/token
             - name: controller-config
-              mountPath: /etc/controller-config/sessiontimeout.json
+              mountPath: /app/controller-config/sessiontimeout.json
               subPath: sessiontimeout.json
             - name: controller-config
-              mountPath: /etc/controller-config/user_variable_substitution.py
+              mountPath: /app/controller-config/user_variable_substitution.py
               subPath: user_variable_substitution.py
             {{- if (not (empty .Values.controller.customHtmlConfigMapName)) }}
             - name: controller-templates
