@@ -24,8 +24,8 @@ jobs:
       - name: Install dependencies
         working-directory: ./oidc-controller
         run: |
-          pip3 install --no-cache-dir poetry==1.8.3
-          poetry install
+          pip3 install --no-cache-dir poetry==2.0.0
+          poetry install --no-root
       - name: Lint with black
         working-directory: ./oidc-controller
         run: |

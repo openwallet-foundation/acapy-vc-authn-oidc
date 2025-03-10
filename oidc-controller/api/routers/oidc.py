@@ -223,7 +223,9 @@ async def get_authorize(request: Request, db: Database = Depends(get_db)):
     }
 
     # Prepare the template
-    template_file = open("api/templates/verified_credentials.html", "r").read()
+    template_file = open(
+        settings.CONTROLLER_TEMPLATE_DIR + "/verified_credentials.html", "r"
+    ).read()
     template = Template(template_file)
 
     # Render and return the template

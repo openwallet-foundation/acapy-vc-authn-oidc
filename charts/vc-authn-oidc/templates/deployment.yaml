@@ -39,6 +39,13 @@ spec:
         - name: controller-config
           configMap:
             name: {{ include "global.fullname" . }}-controller-config
+        {{- if (not (empty .Values.controller.customHtmlConfigMapName)) }}
+        - name: controller-templates
+          projected:
+            sources:
+              - configMap:
+                  name: {{ .Values.controller.customHtmlConfigMapName | quote }}
+        {{- end }}
       containers:
         - name: {{ .Chart.Name }}
           securityContext:
@@ -71,11 +78,13 @@ spec:
             - name: CONTROLLER_PRESENTATION_EXPIRE_TIME
               value: {{ .Values.controller.presentationExpireTime | quote }}
             - name: CONTROLLER_SESSION_TIMEOUT_CONFIG_FILE
-              value: /etc/controller-config/sessiontimeout.json
+              value: /app/controller-config/sessiontimeout.json
             - name: CONTROLLER_VARIABLE_SUBSTITUTION_OVERRIDE
-              value: /etc/controller-config/user_variable_substitution.py
+              value: /app/controller-config/user_variable_substitution.py
             - name: CONTROLLER_PRESENTATION_CLEANUP_TIME
               value: {{ .Values.controller.sessionTimeout.duration | quote }}
+            - name: CONTROLLER_TEMPLATE_DIR
+              value: {{ .Values.controller.templateDirectory | quote }}
             - name: ACAPY_AGENT_URL
               value: {{ include "acapy.agent.url" . }}
             - name: ACAPY_ADMIN_URL
@@ -133,7 +142,15 @@ spec:
             - name: jwt-token
               mountPath: /opt/token
             - name: controller-config
-              mountPath: /etc/controller-config
+              mountPath: /app/controller-config/sessiontimeout.json
+              subPath: sessiontimeout.json
+            - name: controller-config
+              mountPath: /app/controller-config/user_variable_substitution.py
+              subPath: user_variable_substitution.py
+            {{- if (not (empty .Values.controller.customHtmlConfigMapName)) }}
+            - name: controller-templates
+              mountPath: {{ .Values.controller.templateDirectory }}
+            {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

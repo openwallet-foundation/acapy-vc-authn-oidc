@@ -11,7 +11,7 @@ fullnameOverride: ""
 ## @param image.tag Overrides the image tag which defaults to the chart appVersion.
 ##
 image:
-  repository: ghcr.io/bcgov/vc-authn-oidc
+  repository: ghcr.io/openwallet-foundation/acapy-vc-authn-oidc
   pullPolicy: IfNotPresent
   pullSecrets: []
   tag: ""
@@ -41,6 +41,7 @@ walletDeepLinkPrefix: bcwallet://aries_proof-request
 ## @param controller.sessionTimeout.duration The number of seconds an auth_sessions in the states defined in controllerSessionTimeoutConfig is kept for
 ## @param controller.sessionTimeout.config The json list of auth session states that are safe for deletion
 ## @param controller.uservariablesubsitution The placeholder for the user variable substitution file that can be used to add substitution variables
+## @param controller.customHtmlConfigMapName ConfigMap file used to define the HTML file overrides
 controller:
   cameraRedirectUrl: wallet_howto
   presentationExpireTime: 300
@@ -50,6 +51,7 @@ controller:
       - expired
       - failed
       - abandoned
+  templateDirectory: /app/controller-config/templates
   userVariableSubsitution: |-
     # This is a default placeholder Python file 
     # Add any extensions to user variables here. Example below:
@@ -64,6 +66,8 @@ controller:
     # variable_substitution_map.add_variable_substitution(
     #     r"\$sub_days_plus_one_(\d+)", sub_days_plus_one
     # )
+  customHtmlConfigMapName: ""
+
 ## @param useHTTPS Prepend Agent and Admin URLs with `https`
 useHTTPS: true
 ## @param logLevel Accepts one of the following values: CRITICAL, ERROR, WARNING, INFO, DEBUG
@@ -241,7 +245,7 @@ acapy:
     repository: ghcr.io/openwallet-foundation/acapy-agent
     pullPolicy: IfNotPresent
     pullSecrets: []
-    tag: py3.12-1.2.2
+    tag: py3.12-1.2.3
 
   ## ServiceAccount configuration
   ## ref: https://kubernetes.io/docs/tasks/configure-pod-container/configure-service-account/

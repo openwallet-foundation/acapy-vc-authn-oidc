@@ -27,6 +27,7 @@ services:
       - CONTROLLER_PRESENTATION_CLEANUP_TIME=${CONTROLLER_PRESENTATION_CLEANUP_TIME}
       - CONTROLLER_SESSION_TIMEOUT_CONFIG_FILE=${CONTROLLER_SESSION_TIMEOUT_CONFIG_FILE}
       - CONTROLLER_VARIABLE_SUBSTITUTION_OVERRIDE=${CONTROLLER_VARIABLE_SUBSTITUTION_OVERRIDE}
+      - CONTROLLER_TEMPLATE_DIR=${CONTROLLER_TEMPLATE_DIR}
       - ACAPY_TENANCY=${AGENT_TENANT_MODE}
       - ACAPY_AGENT_URL=${AGENT_ENDPOINT}
       - ACAPY_ADMIN_URL=${AGENT_ADMIN_URL}
@@ -43,9 +44,9 @@ services:
       - ${CONTROLLER_SERVICE_PORT}:5000
       - 5678:5678
     volumes:
-      - ../oidc-controller:/app:rw
-      - ./oidc-controller/config/sessiontimeout.json:/etc/controller-config/sessiontimeout.json
-      - ./oidc-controller/config/user_variable_substitution.py:/etc/controller-config/user_variable_substitution.py
+      - ../oidc-controller:/app/src:rw
+      - ./oidc-controller/config/user_variable_substitution.py:/app/controller-config/user_variable_substitution.py
+      - ./oidc-controller/config/sessiontimeout.json:/app/controller-config/sessiontimeout.json
     networks:
       - vc_auth
 
@@ -102,7 +103,7 @@ services:
       - vc_auth
 
   aca-py:
-    image: ghcr.io/openwallet-foundation/acapy-agent:py3.12-1.2.2
+    image: ghcr.io/openwallet-foundation/acapy-agent:py3.12-1.2.3
     environment:
       - ACAPY_LABEL=${AGENT_NAME}
       - ACAPY_ENDPOINT=${AGENT_ENDPOINT}
