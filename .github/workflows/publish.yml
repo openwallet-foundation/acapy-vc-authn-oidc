@@ -1,14 +1,10 @@
 name: Publish ACAPy VC-AuthN Image
-run-name: Publish ACAPy VC-AuthN ${{ inputs.tag || github.event.release.tag_name }} Image
+run-name: Publish ACAPy VC-AuthN ${{ github.ref_name || github.event.release.tag_name }} Image
 on:
   release:
     types: [published]
   workflow_call:
     inputs:
-      tag:
-        description: "Image tag"
-        required: true
-        type: string
       platforms:
         description: "Platforms - Comma separated list of the platforms to support."
         required: true
@@ -28,14 +24,10 @@ on:
 
   workflow_dispatch:
     inputs:
-      tag:
-        description: "Image tag"
-        required: true
-        type: string
       platforms:
         description: "Platforms - Comma separated list of the platforms to support."
         required: true
-        default: linux/amd64
+        default: linux/amd64,linux/arm64
         type: string
       ref:
         description: "Optional - The branch, tag or SHA to checkout."

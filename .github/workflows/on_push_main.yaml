@@ -14,6 +14,5 @@ jobs:
     if: github.repository_owner == 'openwallet-foundation'
     uses: ./.github/workflows/publish.yml
     with:
-      tag: "dev"
       ref: "main"
       platforms: "linux/amd64,linux/arm64"
