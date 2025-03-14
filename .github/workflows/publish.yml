@@ -1,18 +1,14 @@
 name: Publish ACAPy VC-AuthN Image
-run-name: Publish ACAPy VC-AuthN ${{ inputs.tag || github.event.release.tag_name }} Image
+run-name: Publish ACAPy VC-AuthN ${{ github.ref_name || github.event.release.tag_name }} Image
 on:
   release:
     types: [published]
   workflow_call:
     inputs:
-      tag:
-        description: "Image tag"
-        required: true
-        type: string
       platforms:
         description: "Platforms - Comma separated list of the platforms to support."
         required: true
-        default: linux/amd64
+        default: linux/amd64,linux/arm64
         type: string
       ref:
         description: "Optional - The branch, tag or SHA to checkout."
@@ -28,14 +24,10 @@ on:
 
   workflow_dispatch:
     inputs:
-      tag:
-        description: "Image tag"
-        required: true
-        type: string
       platforms:
         description: "Platforms - Comma separated list of the platforms to support."
         required: true
-        default: linux/amd64
+        default: linux/amd64,linux/arm64
         type: string
       ref:
         description: "Optional - The branch, tag or SHA to checkout."
@@ -94,8 +86,11 @@ jobs:
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=ref,event=pr
-            type=sha
+            # set dev tag when building from the default branch (main)
+            type=raw,value=dev,enable={{is_default_branch}}
+            # set latest tag for published release
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/') }}
+            
 
       - name: Build and Push Image to ghcr.io
         uses: docker/build-push-action@v6

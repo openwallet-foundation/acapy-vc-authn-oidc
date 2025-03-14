@@ -1,16 +1,20 @@
-name: Build, Update Config, and Deploy Development
+name: Build latest development image
 on:
   workflow_dispatch:
   push:
     branches:
       - main
+    paths:
+      - "docker/oidc-controller/**"
+      - "oidc-controller/**"
+      - "html-templates/**"
+      - "pyproject.toml"
+      - "poetry.lock"
 jobs:
   build:
     name: "Build ACAPy VC-AuthN"
     if: github.repository_owner == 'openwallet-foundation'
     uses: ./.github/workflows/publish.yml
     with:
-      tag: "dev"
       ref: "main"
-      platforms: "linux/amd64"
-
+      platforms: "linux/amd64,linux/arm64"
