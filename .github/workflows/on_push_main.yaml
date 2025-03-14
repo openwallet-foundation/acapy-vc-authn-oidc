@@ -8,6 +8,8 @@ on:
       - "docker/oidc-controller/**"
       - "oidc-controller/**"
       - "html-templates/**"
+      - "pyproject.toml"
+      - "poetry.lock"
 jobs:
   build:
     name: "Build ACAPy VC-AuthN"
