@@ -1,9 +1,13 @@
-name: Build, Update Config, and Deploy Development
+name: Build latest development image
 on:
   workflow_dispatch:
   push:
     branches:
       - main
+    paths:
+      - "docker/oidc-controller/**"
+      - "oidc-controller/**"
+      - "html-templates/**"
 jobs:
   build:
     name: "Build ACAPy VC-AuthN"
@@ -12,5 +16,4 @@ jobs:
     with:
       tag: "dev"
       ref: "main"
-      platforms: "linux/amd64"
-
+      platforms: "linux/amd64,linux/arm64"
