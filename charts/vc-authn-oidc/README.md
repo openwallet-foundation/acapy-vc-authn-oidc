@@ -1,6 +1,6 @@
 # VC-AuthN OIDC
 
-![Version: 0.2.5](https://img.shields.io/badge/Version-0.2.5-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 2.2.2](https://img.shields.io/badge/AppVersion-2.2.2-informational?style=flat-square)
+![Version: 0.3.1](https://img.shields.io/badge/Version-0.3.1-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 2.2.3](https://img.shields.io/badge/AppVersion-2.2.3-informational?style=flat-square)
 
 A Helm chart to deploy Verifiable Credential Identity Provider for OpenID Connect.
 
@@ -84,7 +84,7 @@ kubectl delete secret,pvc --selector "app.kubernetes.io/instance"=my-release
 | `image.repository`  |                                                                                                                                                                                  | `ghcr.io/bcgov/vc-authn-oidc`   |
 | `image.pullPolicy`  |                                                                                                                                                                                  | `IfNotPresent`                  |
 | `image.pullSecrets` |                                                                                                                                                                                  | `[]`                            |
-| `image.tag`         | Overrides the image tag which defaults to the chart appVersion.                                                                                                                  | `2.2.2`                         |
+| `image.tag`         | Overrides the image tag which defaults to the chart appVersion.                                                                                                                  | `2.2.3`                         |
 | `ingressSuffix`     | Domain suffix to be used for default hostpaths in ingress                                                                                                                        | `.apps.silver.devops.gov.bc.ca` |
 
 ### Controller Configuration

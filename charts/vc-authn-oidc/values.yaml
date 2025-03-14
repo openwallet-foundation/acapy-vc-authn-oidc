@@ -17,7 +17,7 @@ image:
   tag: ""
 
 ## @param ingressSuffix Domain suffix to be used for default hostpaths in ingress
-ingressSuffix: .apps.silver.devops.gov.bc.ca
+ingressSuffix: .example.com
 
 ## @section Controller Configuration
 ##
