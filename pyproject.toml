@@ -17,11 +17,11 @@ python = ">=3.12,<4.0"
 fastapi = "^0.115.11"
 jinja2 = "^3.1.6"
 oic = "^1.7.0"
-pymongo = "^4.10.1"
+pymongo = "^4.11.2"
 pyop = "^3.4.1"
 python-multipart = "^0.0.20" # required by fastapi to serve/upload files
 qrcode = { version = "^8.0", extras = ["pil"]}
-structlog = "^25.1.0"
+structlog = "^25.2.0"
 uvicorn = { version = "^0.34.0", extras = ["standard"] }
 python-socketio = "^5.12.1" # required to run websockets
 canonicaljson = "^2.0.0" # used to provide unique consistent user identifiers"
@@ -35,7 +35,7 @@ pytest-asyncio = "^0.25.3"
 pytest-cov = "^6.0.0"
 pytest = "^8.3.5"
 requests-mock = "^1.12.1"
-setuptools = "^75.8.2"
+setuptools = "^76.0.0"
 
 [tool.pytest.ini_options]
 testpaths = "oidc-controller"

@@ -245,7 +245,7 @@ acapy:
     repository: ghcr.io/openwallet-foundation/acapy-agent
     pullPolicy: IfNotPresent
     pullSecrets: []
-    tag: py3.12-1.2.3
+    tag: py3.12-1.2.4
 
   ## ServiceAccount configuration
   ## ref: https://kubernetes.io/docs/tasks/configure-pod-container/configure-service-account/
