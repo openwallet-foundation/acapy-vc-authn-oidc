@@ -40,7 +40,8 @@ walletDeepLinkPrefix: bcwallet://aries_proof-request
 ## @param controller.presentationExpireTime The number of time in seconds a proof request will be valid for
 ## @param controller.sessionTimeout.duration The number of seconds an auth_sessions in the states defined in controllerSessionTimeoutConfig is kept for
 ## @param controller.sessionTimeout.config The json list of auth session states that are safe for deletion
-## @param controller.uservariablesubsitution The placeholder for the user variable substitution file that can be used to add substitution variables
+## @param controller.templateDirectory The directory where the controller templates are stored
+## @param controller.userVariableSubsitution The placeholder for the user variable substitution file that can be used to add substitution variables
 ## @param controller.customHtmlConfigMapName ConfigMap file used to define the HTML file overrides
 controller:
   cameraRedirectUrl: wallet_howto
@@ -84,7 +85,7 @@ auth:
       filename: jwt-token.pem
       existingSecret: ""
 
-## @param database.secret.existingSecret Specify existing secret containing the keys `mongodb-root-password`, `mongodb-replica-set-key`, and `mongodb-passwords`. `database.secret.create` must be set to `false` when using existing secret.
+## @param database.existingSecret Specify existing secret containing the keys `mongodb-root-password`, `mongodb-replica-set-key`, and `mongodb-passwords`. `database.secret.create` must be set to `false` when using existing secret.
 database:
   existingSecret: ""
 
@@ -162,8 +163,7 @@ ingress:
 
 ## Controller resource requests and limits
 ## ref: https://kubernetes.io/docs/user-guide/compute-resources/
-## @param resources.limits.memory The memory limit for the controller containers
-## @param resources.limits.cpu The cpu limit for the controller containers
+## @param resources.limits The cpu and memory limit for the controller containers
 ## @param resources.requests.memory The requested memory for the controller containers
 ## @param resources.requests.cpu The requested cpu for the controller containers
 ##
@@ -337,7 +337,7 @@ acapy:
     webhook-url: '{{ include "vc-authn-oidc.host" . }}'
 
   ## @param acapy.ledgers.yml [object]
-  ledgers.yml:
+  ledgers.yml: |-
     - id: BCovrinTest
       is_production: true
       genesis_url: "http://test.bcovrin.vonx.io/genesis"
@@ -421,8 +421,7 @@ acapy:
   ## @section Acapy common configurations
   ## Acapy resource requests and limits
   ## ref: https://kubernetes.io/docs/user-guide/compute-resources/
-  ## @param acapy.resources.limits.memory The memory limit for the Acapy containers
-  ## @param acapy.resources.limits.cpu The cpu limit for the Acapy containers
+  ## @param acapy.resources.limits The cpu and memory limit for the Acapy containers
   ## @param acapy.resources.requests.memory The requested memory for the Acapy containers
   ## @param acapy.resources.requests.cpu The requested cpu for the Acapy containers
   ##
@@ -577,9 +576,7 @@ mongodb:
   commonLabels:
     app: vc-authn-oidc
     role: database
-  ## @param mongodb.image.registry image registry
-  image:
-    registry: artifacts.developer.gov.bc.ca/docker-remote
+  
   ## @param mongodb.architecture MongoDB(&reg;) architecture (`standalone` or `replicaset`)
   ##
   architecture: replicaset
@@ -607,7 +604,7 @@ mongodb:
     ## If undefined (the default) or set to null, no storageClassName spec is
     ## set, choosing the default provisioner.
     ##
-    storageClass: netapp-block-standard
+    storageClass: default
   ## ServiceAccount
   ## ref: https://kubernetes.io/docs/tasks/configure-pod-container/configure-service-account/
   ##
@@ -685,8 +682,7 @@ postgresql:
       enabled: false
     ## PostgreSQL Primary resource requests and limits
     ## ref: https://kubernetes.io/docs/user-guide/compute-resources/
-    ## @param postgresql.primary.resources.limits.memory The memory limit for the PostgreSQL Primary containers
-    ## @param postgresql.primary.resources.limits.cpu The cpu limit for the PostgreSQL Primary containers
+    ## @param postgresql.primary.resources.limits The cpu and memory limits for the PostgreSQL Primary containers
     ## @param postgresql.primary.resources.requests.memory The requested memory for the PostgreSQL Primary containers
     ## @param postgresql.primary.resources.requests.cpu The requested cpu for the PostgreSQL Primary containers
     ##
@@ -700,9 +696,8 @@ postgresql:
     service:
       ports:
         postgresql: 5432
-        ## @param postgresql.primary.extendedConfiguration Extended PostgreSQL Primary configuration (appended to main or default configuration)
-        ## ref: https://github.com/bitnami/containers/tree/main/bitnami/postgresql#allow-settings-to-be-loaded-from-files-other-than-the-default-postgresqlconf
-        ##
-        primary:
-          extendedConfiguration: |
-            max_connections = 500
+    ## @param postgresql.primary.extendedConfiguration Extended PostgreSQL Primary configuration (appended to main or default configuration)
+    ## ref: https://github.com/bitnami/containers/tree/main/bitnami/postgresql#allow-settings-to-be-loaded-from-files-other-than-the-default-postgresqlconf
+    ##
+    extendedConfiguration: |
+      max_connections = 500
