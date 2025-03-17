@@ -50,13 +50,16 @@ a {
 	border-radius: 25px;
 	border: 5px dashed var(--bc-primary);
 }
+.qr-fade {
+	opacity: 0.1;
+}
 .qr-button {
 	position: absolute;
 	top: 10px;
 	left: 10px;
 	height: 90%;
 	width: 90%;
-	background-color: rgba(255, 255, 255, 0.9);
+	background-color: rgba(255, 255, 255, 0);
 	display: flex;
 	flex-direction: column;
 	align-items: center;
