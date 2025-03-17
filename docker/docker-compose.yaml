@@ -47,6 +47,7 @@ services:
       - ../oidc-controller:/app/src:rw
       - ./oidc-controller/config/user_variable_substitution.py:/app/controller-config/user_variable_substitution.py
       - ./oidc-controller/config/sessiontimeout.json:/app/controller-config/sessiontimeout.json
+      - ../html-templates:/app/controller-config/templates:rw
     networks:
       - vc_auth
 
