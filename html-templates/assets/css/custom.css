@@ -47,7 +47,7 @@ a {
 	position: relative;
 }
 .qr-code-img-border {
-	padding: 5px;
+	margin-left: -5px; /* offset to avoid shifting qr right with boarder */
 	display: inline-block;
 	border-radius: 25px;
 	border: 5px dashed var(--bc-primary);
