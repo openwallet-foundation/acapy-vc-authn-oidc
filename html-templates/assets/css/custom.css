@@ -46,17 +46,24 @@ a {
 .qr-code-container {
 	position: relative;
 }
-.qr-code-container .qr-code-img {
+.qr-code-img-border {
+	margin-left: -5px; /* offset to avoid shifting qr right with boarder */
+	display: inline-block;
 	border-radius: 25px;
 	border: 5px dashed var(--bc-primary);
 }
+.qr-code-container .qr-code-img {
+	border-radius: 25px;
+}
+.qr-fade {
+	opacity: 0.1;
+}
 .qr-button {
 	position: absolute;
-	top: 10px;
-	left: 10px;
-	height: 90%;
-	width: 90%;
-	background-color: rgba(255, 255, 255, 0.9);
+	z-index: 10; /* Ensure it is on top of the image */
+	height: 300px;
+	width: 300px;
+	background-color: rgba(255, 255, 255, 0);
 	display: flex;
 	flex-direction: column;
 	align-items: center;
