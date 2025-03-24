@@ -54,6 +54,6 @@
     "eslint-plugin-prettier": "^5.2.3",
     "jest": "^29.7.0",
     "nodemon": "^3.1.9",
-    "supertest": "^7.0.0"
+    "supertest": "^7.1.0"
   }
 }
