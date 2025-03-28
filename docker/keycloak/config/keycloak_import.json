@@ -1099,7 +1099,9 @@
       "linkOnly": false,
       "firstBrokerLoginFlowAlias": "first broker login",
       "config": {
+        "hideOnLoginPage": "false",
         "validateSignature": "true",
+        "acceptsPromptNoneForwardFromClient": "false",
         "clientId": "keycloak",
         "forwardParameters": "pres_req_conf_id,back_to_url",
         "tokenUrl": "http://controller:5000/token",
@@ -1110,7 +1112,9 @@
         "clientSecret": "**********",
         "disableUserInfo": "",
         "defaultScope": "vc_authn",
-        "useJwksUrl": "true"
+        "useJwksUrl": "true",
+        "pkceMethod": "S256",
+        "pkceEnabled": "true"
       }
     }
   ],
