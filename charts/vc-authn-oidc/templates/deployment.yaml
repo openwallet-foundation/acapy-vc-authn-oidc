@@ -91,10 +91,6 @@ spec:
               value: {{ include "acapy.internal.admin.url" . }}
             - name: INVITATION_LABEL
               value: {{ .Values.invitationLabel | quote }}
-            - name: USE_OOB_PRESENT_PROOF
-              value: {{ .Values.useOobPresentProof | quote }}
-            - name: USE_URL_DEEP_LINK
-              value: {{ .Values.useUrlDeepLink | quote }}
             - name: WALLET_DEEP_LINK_PREFIX
               value: {{ .Values.walletDeepLinkPrefix }}
             - name: SET_NON_REVOKED
