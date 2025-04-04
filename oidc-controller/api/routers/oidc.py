@@ -137,7 +137,7 @@ async def get_authorize(request: Request, db: Database = Depends(get_db)):
 
     pres_exch_dict = response.model_dump()
 
-    # Prepear the presentation request
+    # Prepare the presentation request
     use_public_did = not settings.USE_OOB_LOCAL_DID_SERVICE
     oob_invite_response = client.oob_create_invitation(pres_exch_dict, use_public_did)
     msg_contents = oob_invite_response.invitation
