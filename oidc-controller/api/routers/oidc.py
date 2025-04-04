@@ -86,15 +86,9 @@ def gen_deep_link(auth_session: AuthSession) -> str:
     url_to_message = (
         controller_host + "/url/pres_exch/" + str(auth_session.pres_exch_id)
     )
-    if settings.USE_URL_DEEP_LINK:
-        suffix = f"""_url={base64.urlsafe_b64encode(
-            url_to_message.encode("utf-8")).decode("utf-8")}"""
-    else:
-        formated_msg = json.dumps(auth_session.presentation_request_msg)
-        suffix = f"""c_i={base64.urlsafe_b64encode(
-                formated_msg.encode("utf-8")).decode("utf-8")}"""
     WALLET_DEEP_LINK_PREFIX = settings.WALLET_DEEP_LINK_PREFIX
-    wallet_deep_link = f"{WALLET_DEEP_LINK_PREFIX}?{suffix}"
+    wallet_deep_link = f"""{WALLET_DEEP_LINK_PREFIX}?_url={base64.urlsafe_b64encode(
+        url_to_message.encode("utf-8")).decode("utf-8")}"""
     return wallet_deep_link
 
 
@@ -143,39 +137,10 @@ async def get_authorize(request: Request, db: Database = Depends(get_db)):
 
     pres_exch_dict = response.model_dump()
 
-    # Prepeare the presentation request
+    # Prepare the presentation request
     use_public_did = not settings.USE_OOB_LOCAL_DID_SERVICE
-
-    msg = None
-    if settings.USE_OOB_PRESENT_PROOF:
-        oob_invite_response = client.oob_create_invitation(
-            pres_exch_dict, use_public_did
-        )
-        msg_contents = oob_invite_response.invitation
-    else:
-        wallet_did = client.get_wallet_did(public=use_public_did)
-
-        byo_attachment = PresentProofv20Attachment(
-            # As of present proof 2.0 the pres_exch_dict already
-            # contains a complete attachment so we only need to
-            # extract the base64 encoded data
-            data=pres_exch_dict["pres_request"]["request_presentations~attach"][0][
-                "data"
-            ]
-        )
-
-        s_d = ServiceDecorator(
-            service_endpoint=client.service_endpoint, recipient_keys=[wallet_did.verkey]
-        )
-        msg = PresentationRequestMessage(
-            id=pres_exch_dict["thread_id"],
-            formats=[
-                {"attach_id": byo_attachment.id, "format": "hlindy/proof-req@v2.0"}
-            ],
-            request=[byo_attachment],
-            service=s_d,
-        )
-        msg_contents = msg
+    oob_invite_response = client.oob_create_invitation(pres_exch_dict, use_public_did)
+    msg_contents = oob_invite_response.invitation
 
     # Create and save OIDC AuthSession
     new_auth_session = AuthSessionCreate(

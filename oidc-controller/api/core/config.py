@@ -218,13 +218,9 @@ class GlobalConfig(BaseSettings):
     # OIDC Controller Settings
     INVITATION_LABEL: str = os.environ.get("INVITATION_LABEL", "VC-AuthN")
     CONTROLLER_API_KEY: str = os.environ.get("CONTROLLER_API_KEY", "")
-    USE_OOB_PRESENT_PROOF: bool = strtobool(
-        os.environ.get("USE_OOB_PRESENT_PROOF", False)
-    )
     USE_OOB_LOCAL_DID_SERVICE: bool = strtobool(
         os.environ.get("USE_OOB_LOCAL_DID_SERVICE", True)
     )
-    USE_URL_DEEP_LINK: bool = strtobool(os.environ.get("USE_URL_DEEP_LINK", False))
     WALLET_DEEP_LINK_PREFIX: str = os.environ.get(
         "WALLET_DEEP_LINK_PREFIX", "bcwallet://aries_proof-request"
     )
