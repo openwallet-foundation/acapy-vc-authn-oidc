@@ -22,7 +22,7 @@
     "axios": "^1.8.4",
     "core-js": "^3.41.0",
     "eslint": "^8.57.0",
-    "eslint-plugin-prettier": "^5.2.6",
+    "eslint-plugin-prettier": "^5.4.0",
     "keycloak-js": "^15.1.1",
     "nprogress": "^0.2.0",
     "vue": "^2.7.16",
