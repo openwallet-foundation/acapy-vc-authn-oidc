@@ -11,6 +11,7 @@ from ..authSessions.models import AuthSession, AuthSessionPatch, AuthSessionStat
 from ..db.session import get_db
 
 from ..core.config import settings
+from ..core.acapy.client import AcapyClient
 from ..routers.socketio import sio, connections_reload
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
@@ -32,7 +33,7 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
         case "present_proof_v2_0":
             webhook_body = await _parse_webhook_body(request)
             logger.info(f">>>> pres_exch_id: {webhook_body['pres_ex_id']}")
-            # logger.info(f">>>> web hook: {webhook_body}")
+            logger.info(f">>>> web hook: {webhook_body}")
             auth_session: AuthSession = await AuthSessionCRUD(db).get_by_pres_exch_id(
                 webhook_body["pres_ex_id"]
             )
@@ -42,7 +43,6 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
             connections = connections_reload()
             sid = connections.get(pid)
             logger.debug(f"sid: {sid} found for pid: {pid}")
-
             if webhook_body["state"] == "presentation-received":
                 logger.info("presentation-received")
 
@@ -54,9 +54,24 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                     if sid:
                         await sio.emit("status", {"status": "verified"}, to=sid)
                 else:
-                    auth_session.proof_status = AuthSessionState.FAILED
+                    client = AcapyClient()
+                    logger.info(
+                        f"MY RESULT {webhook_body['by_format']['pres']['indy']['identifiers'][0]['rev_reg_id']}"
+                    )
+                    rev = client.is_revoked(
+                        webhook_body["by_format"]["pres"]["indy"]["identifiers"][0][
+                            "rev_reg_id"
+                        ]
+                    )
+                    logger.info(f"Credential was revoked {rev}")
+
+                    auth_session.proof_status = (
+                        AuthSessionState.REVOKED if rev else AuthSessionState.FAILED
+                    )
                     if sid:
-                        await sio.emit("status", {"status": "failed"}, to=sid)
+                        await sio.emit(
+                            "status", {"status": auth_session.proof_status}, to=sid
+                        )
 
                 await AuthSessionCRUD(db).patch(
                     str(auth_session.id), AuthSessionPatch(**auth_session.model_dump())

@@ -80,6 +80,28 @@ class AcapyClient:
         logger.debug(f"<<< get_presentation_request -> {resp}")
         return resp
 
+    def is_revoked(self, rev_reg_id=str):
+        logger.debug(">>> is_revoked")
+        resp_raw = requests.get(
+            self.acapy_host + f"/revocation/registry/{rev_reg_id}/issued/indy_recs",
+            headers=self.agent_config.get_headers(),
+        )
+
+        # TODO: Determine if this should assert it received a json object
+        assert (
+            resp_raw.status_code == 200
+        ), f"{resp_raw.status_code}::{resp_raw.content}"
+
+        resp = json.loads(resp_raw.content)
+
+        try:
+            revoked = resp["rev_reg_delta"]["value"].get("revoked", None)
+        except KeyError:
+            return False
+
+        logger.debug(f"<<< is_revoked -> {revoked}")
+        return True if revoked else False
+
     def get_wallet_did(self, public=False) -> WalletDid:
         logger.debug(">>> get_wallet_did")
         url = None

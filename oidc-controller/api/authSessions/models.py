@@ -13,6 +13,7 @@ class AuthSessionState(StrEnum):
     EXPIRED = auto()
     VERIFIED = auto()
     FAILED = auto()
+    REVOKED = auto()
     ABANDONED = auto()
 
 
