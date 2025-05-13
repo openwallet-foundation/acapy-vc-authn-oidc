@@ -55,15 +55,15 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                         await sio.emit("status", {"status": "verified"}, to=sid)
                 else:
                     client = AcapyClient()
-                    logger.info(
-                        f"MY RESULT {webhook_body['by_format']['pres']['indy']['identifiers'][0]['rev_reg_id']}"
+                    logger.debug(
+                        f"rev_reg_id: {webhook_body['by_format']['pres']['indy']['identifiers'][0]['rev_reg_id']}"
                     )
                     rev = client.is_revoked(
                         webhook_body["by_format"]["pres"]["indy"]["identifiers"][0][
                             "rev_reg_id"
                         ]
                     )
-                    logger.info(f"Credential was revoked {rev}")
+                    logger.warning(f"Credential was revoked {rev}")
 
                     auth_session.proof_status = (
                         AuthSessionState.REVOKED if rev else AuthSessionState.FAILED
