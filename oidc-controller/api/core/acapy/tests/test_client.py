@@ -201,3 +201,150 @@ async def test_get_wallet_did_not_public_returns_on_correct_url_and_processes_ar
         client.agent_config.get_headers = mock.MagicMock(return_value={"x-api-key": ""})
         wallet_resp = client.get_wallet_did(public=False)
         assert wallet_resp is not None
+
+
+@pytest.mark.asyncio
+async def test_is_revoked_returns_true_when_revoked_list_is_present_and_not_empty(
+    requests_mock,
+):
+    rev_reg_id = "test_rev_reg_id"
+    mock_response_json = {
+        "rev_reg_delta": {"value": {"revoked": [123, 456]}}
+    }  # Example: revoked list is not empty
+    requests_mock.get(
+        settings.ACAPY_ADMIN_URL
+        + f"/revocation/registry/{rev_reg_id}/issued/indy_recs",
+        json=mock_response_json,
+        status_code=200,
+    )
+
+    client = AcapyClient()
+    client.agent_config.get_headers = mock.MagicMock(return_value={"x-api-key": ""})
+    result = client.is_revoked(rev_reg_id)
+    assert result is True
+
+
+@pytest.mark.asyncio
+async def test_is_revoked_returns_false_when_revoked_list_is_empty(requests_mock):
+    rev_reg_id = "test_rev_reg_id"
+    mock_response_json = {
+        "rev_reg_delta": {"value": {"revoked": []}}
+    }  # Revoked list is empty
+    requests_mock.get(
+        settings.ACAPY_ADMIN_URL
+        + f"/revocation/registry/{rev_reg_id}/issued/indy_recs",
+        json=mock_response_json,
+        status_code=200,
+    )
+
+    client = AcapyClient()
+    client.agent_config.get_headers = mock.MagicMock(return_value={"x-api-key": ""})
+    result = client.is_revoked(rev_reg_id)
+    assert result is False
+
+
+@pytest.mark.asyncio
+async def test_is_revoked_returns_false_when_revoked_key_is_none(requests_mock):
+    rev_reg_id = "test_rev_reg_id"
+    mock_response_json = {
+        "rev_reg_delta": {"value": {"revoked": None}}
+    }  # Revoked key is None
+    requests_mock.get(
+        settings.ACAPY_ADMIN_URL
+        + f"/revocation/registry/{rev_reg_id}/issued/indy_recs",
+        json=mock_response_json,
+        status_code=200,
+    )
+
+    client = AcapyClient()
+    client.agent_config.get_headers = mock.MagicMock(return_value={"x-api-key": ""})
+    result = client.is_revoked(rev_reg_id)
+    assert result is False
+
+
+@pytest.mark.asyncio
+async def test_is_revoked_returns_false_when_revoked_key_is_missing(requests_mock):
+    rev_reg_id = "test_rev_reg_id"
+    mock_response_json = {"rev_reg_delta": {"value": {}}}  # "revoked" key missing
+    requests_mock.get(
+        settings.ACAPY_ADMIN_URL
+        + f"/revocation/registry/{rev_reg_id}/issued/indy_recs",
+        json=mock_response_json,
+        status_code=200,
+    )
+
+    client = AcapyClient()
+    client.agent_config.get_headers = mock.MagicMock(return_value={"x-api-key": ""})
+    result = client.is_revoked(rev_reg_id)
+    assert result is False
+
+
+@pytest.mark.asyncio
+async def test_is_revoked_returns_false_when_value_key_is_missing(requests_mock):
+    rev_reg_id = "test_rev_reg_id"
+    mock_response_json = {"rev_reg_delta": {}}  # "value" key missing
+    requests_mock.get(
+        settings.ACAPY_ADMIN_URL
+        + f"/revocation/registry/{rev_reg_id}/issued/indy_recs",
+        json=mock_response_json,
+        status_code=200,
+    )
+
+    client = AcapyClient()
+    client.agent_config.get_headers = mock.MagicMock(return_value={"x-api-key": ""})
+    result = client.is_revoked(rev_reg_id)
+    assert result is False
+
+
+@pytest.mark.asyncio
+async def test_is_revoked_returns_false_when_rev_reg_delta_key_is_missing(
+    requests_mock,
+):
+    rev_reg_id = "test_rev_reg_id"
+    mock_response_json = {}  # "rev_reg_delta" key missing
+    requests_mock.get(
+        settings.ACAPY_ADMIN_URL
+        + f"/revocation/registry/{rev_reg_id}/issued/indy_recs",
+        json=mock_response_json,
+        status_code=200,
+    )
+
+    client = AcapyClient()
+    client.agent_config.get_headers = mock.MagicMock(return_value={"x-api-key": ""})
+    result = client.is_revoked(rev_reg_id)
+    assert result is False
+
+
+@pytest.mark.asyncio
+async def test_is_revoked_throws_assertion_error_on_non_200_response(requests_mock):
+    rev_reg_id = "test_rev_reg_id"
+    requests_mock.get(
+        settings.ACAPY_ADMIN_URL
+        + f"/revocation/registry/{rev_reg_id}/issued/indy_recs",
+        json={"error": "something went wrong"},
+        status_code=500,
+    )
+
+    client = AcapyClient()
+    client.agent_config.get_headers = mock.MagicMock(return_value={"x-api-key": ""})
+    with pytest.raises(AssertionError) as excinfo:
+        client.is_revoked(rev_reg_id)
+    assert "500::" in str(excinfo.value)
+
+
+@pytest.mark.asyncio
+async def test_is_revoked_throws_json_decode_error_on_invalid_json_response(
+    requests_mock,
+):
+    rev_reg_id = "test_rev_reg_id"
+    requests_mock.get(
+        settings.ACAPY_ADMIN_URL
+        + f"/revocation/registry/{rev_reg_id}/issued/indy_recs",
+        text="not a valid json",
+        status_code=200,
+    )
+
+    client = AcapyClient()
+    client.agent_config.get_headers = mock.MagicMock(return_value={"x-api-key": ""})
+    with pytest.raises(json.JSONDecodeError):
+        client.is_revoked(rev_reg_id)
