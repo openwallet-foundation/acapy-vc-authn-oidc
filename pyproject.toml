@@ -21,7 +21,7 @@ pymongo = "^4.12.1"
 pyop = "^3.4.1"
 python-multipart = "^0.0.20" # required by fastapi to serve/upload files
 qrcode = { version = "^8.2", extras = ["pil"]}
-structlog = "^25.3.0"
+structlog = "^25.4.0"
 uvicorn = { version = "^0.34.2", extras = ["standard"] }
 python-socketio = "^5.13.0" # required to run websockets
 canonicaljson = "^2.0.0" # used to provide unique consistent user identifiers"
