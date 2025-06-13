@@ -15,7 +15,7 @@ updates:
   
   # Maintain dependencies for Python packages
   - package-ecosystem: "pip"
-    directory: "/oidc-controller"
+    directory: "/"
     schedule:
       interval: "weekly"
       day: "monday"
