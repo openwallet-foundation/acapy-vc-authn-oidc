@@ -14,28 +14,28 @@ repository = "https://github.com/openwallet-foundation/acapy-vc-authn-oidc"
 
 [tool.poetry.dependencies]
 python = ">=3.12,<4.0"
-fastapi = "^0.115.12"
+fastapi = "^0.115.14"
 jinja2 = "^3.1.6"
 oic = "^1.7.0"
-pymongo = "^4.12.1"
+pymongo = "^4.13.2"
 pyop = "^3.4.1"
 python-multipart = "^0.0.20" # required by fastapi to serve/upload files
 qrcode = { version = "^8.2", extras = ["pil"]}
-structlog = "^25.3.0"
-uvicorn = { version = "^0.34.2", extras = ["standard"] }
+structlog = "^25.4.0"
+uvicorn = { version = "^0.35.0", extras = ["standard"] }
 python-socketio = "^5.13.0" # required to run websockets
 canonicaljson = "^2.0.0" # used to provide unique consistent user identifiers"
-pydantic-settings = "^2.9.1"
+pydantic-settings = "^2.10.1"
 
 [tool.poetry.group.dev.dependencies]
 black = "^25.1.0"
 mock = "^5.2.0"
 mongomock = "^4.3.0"
 pytest-asyncio = "^0.26.0"
-pytest-cov = "^6.1.1"
-pytest = "^8.3.5"
+pytest-cov = "^6.2.1"
+pytest = "^8.4.1"
 requests-mock = "^1.12.1"
-setuptools = "^80.3.1"
+setuptools = "^80.9.0"
 
 [tool.pytest.ini_options]
 testpaths = "oidc-controller"
