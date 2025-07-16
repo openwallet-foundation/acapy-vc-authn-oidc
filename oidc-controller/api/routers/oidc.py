@@ -168,7 +168,6 @@ async def get_authorize(request: Request, db: Database = Depends(get_db)):
         # Use invitation message ID as temporary unique identifier
         pres_ex_id = f"pending-{oob_invite_response.invi_msg_id}"
     else:
-        assert False
         # EXISTING: Out-of-band verification flow
         response = client.create_presentation_request(proof_request)
         pres_exch_dict = response.model_dump()
