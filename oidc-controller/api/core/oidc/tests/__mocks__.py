@@ -1,8 +1,11 @@
 from datetime import datetime, timedelta
 
 from api.authSessions.models import AuthSession
-from api.verificationConfigs.models import (MetaData, VerificationConfig,
-                                            VerificationProofRequest)
+from api.verificationConfigs.models import (
+    MetaData,
+    VerificationConfig,
+    VerificationProofRequest,
+)
 
 # Presentation returned from the debug webhook
 presentation = {
