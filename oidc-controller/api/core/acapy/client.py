@@ -330,7 +330,7 @@ class AcapyClient:
     ) -> OobCreateInvitationResponse:
         """
         Create an out-of-band invitation for either ephemeral or persistent connections.
-        
+
         Args:
             ephemeral: Whether this is an ephemeral (single-use) connection (default: True)
             presentation_exchange: Optional presentation exchange to attach to invitation
@@ -338,7 +338,7 @@ class AcapyClient:
             alias: Optional alias for the connection (default: None)
             auto_accept: Whether to auto-accept the connection (default: None - use configuration)
             metadata: Optional metadata to attach to the connection (default: None)
-            
+
         Returns:
             OobCreateInvitationResponse: The response containing invitation details
         """
@@ -361,12 +361,12 @@ class AcapyClient:
             "goal_code": goal_code,
             "goal": goal,
         }
-        
+
         # Add handshake protocols if no presentation attachment is provided
         if not presentation_exchange:
             create_invitation_payload["handshake_protocols"] = [
                 "https://didcomm.org/didexchange/1.0",
-                "https://didcomm.org/connections/1.0"
+                "https://didcomm.org/connections/1.0",
             ]
 
         # Add presentation exchange attachment if provided
@@ -418,11 +418,13 @@ class AcapyClient:
     ) -> OobCreateInvitationResponse:
         """
         DEPRECATED: Use create_connection_invitation(ephemeral=False) instead.
-        
+
         Create a reusable out-of-band invitation without presentation exchange attachment.
         This is used for establishing persistent connections that can be reused.
         """
-        logger.warning("create_reusable_invitation is deprecated. Use create_connection_invitation(ephemeral=False) instead.")
+        logger.warning(
+            "create_reusable_invitation is deprecated. Use create_connection_invitation(ephemeral=False) instead."
+        )
         return self.create_connection_invitation(
             ephemeral=False,
             presentation_exchange=None,

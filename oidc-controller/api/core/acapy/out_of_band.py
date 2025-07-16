@@ -26,6 +26,8 @@ class OutOfBandMessage(BaseModel):
         alias="requests~attach", default=None
     )
     services: list[OOBServiceDecorator | str] = Field(alias="services")
-    handshake_protocols: list[str] | None = Field(alias="handshake_protocols", default=None)
+    handshake_protocols: list[str] | None = Field(
+        alias="handshake_protocols", default=None
+    )
 
     model_config = ConfigDict(populate_by_name=True)

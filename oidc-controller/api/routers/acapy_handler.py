@@ -168,16 +168,25 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                 )
 
                 # Cleanup connection after verification is complete (for connection-based flow)
-                if settings.USE_CONNECTION_BASED_VERIFICATION and auth_session.connection_id:
+                if (
+                    settings.USE_CONNECTION_BASED_VERIFICATION
+                    and auth_session.connection_id
+                ):
                     try:
                         client = AcapyClient()
                         success = client.delete_connection(auth_session.connection_id)
                         if success:
-                            logger.info(f"Cleaned up connection {auth_session.connection_id} after verification")
+                            logger.info(
+                                f"Cleaned up connection {auth_session.connection_id} after verification"
+                            )
                         else:
-                            logger.warning(f"Failed to cleanup connection {auth_session.connection_id}")
+                            logger.warning(
+                                f"Failed to cleanup connection {auth_session.connection_id}"
+                            )
                     except Exception as e:
-                        logger.error(f"Error cleaning up connection {auth_session.connection_id}: {e}")
+                        logger.error(
+                            f"Error cleaning up connection {auth_session.connection_id}: {e}"
+                        )
 
             # abandoned state
             if webhook_body["state"] == "abandoned":
@@ -192,16 +201,25 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                 )
 
                 # Cleanup connection after verification is abandoned (for connection-based flow)
-                if settings.USE_CONNECTION_BASED_VERIFICATION and auth_session.connection_id:
+                if (
+                    settings.USE_CONNECTION_BASED_VERIFICATION
+                    and auth_session.connection_id
+                ):
                     try:
                         client = AcapyClient()
                         success = client.delete_connection(auth_session.connection_id)
                         if success:
-                            logger.info(f"Cleaned up connection {auth_session.connection_id} after abandonment")
+                            logger.info(
+                                f"Cleaned up connection {auth_session.connection_id} after abandonment"
+                            )
                         else:
-                            logger.warning(f"Failed to cleanup connection {auth_session.connection_id}")
+                            logger.warning(
+                                f"Failed to cleanup connection {auth_session.connection_id}"
+                            )
                     except Exception as e:
-                        logger.error(f"Error cleaning up connection {auth_session.connection_id}: {e}")
+                        logger.error(
+                            f"Error cleaning up connection {auth_session.connection_id}: {e}"
+                        )
 
             # Calcuate the expiration time of the proof
             now_time = datetime.now()
@@ -230,16 +248,25 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                 )
 
                 # Cleanup connection after verification expires (for connection-based flow)
-                if settings.USE_CONNECTION_BASED_VERIFICATION and auth_session.connection_id:
+                if (
+                    settings.USE_CONNECTION_BASED_VERIFICATION
+                    and auth_session.connection_id
+                ):
                     try:
                         client = AcapyClient()
                         success = client.delete_connection(auth_session.connection_id)
                         if success:
-                            logger.info(f"Cleaned up connection {auth_session.connection_id} after expiration")
+                            logger.info(
+                                f"Cleaned up connection {auth_session.connection_id} after expiration"
+                            )
                         else:
-                            logger.warning(f"Failed to cleanup connection {auth_session.connection_id}")
+                            logger.warning(
+                                f"Failed to cleanup connection {auth_session.connection_id}"
+                            )
                     except Exception as e:
-                        logger.error(f"Error cleaning up connection {auth_session.connection_id}: {e}")
+                        logger.error(
+                            f"Error cleaning up connection {auth_session.connection_id}: {e}"
+                        )
 
             pass
         case _:
