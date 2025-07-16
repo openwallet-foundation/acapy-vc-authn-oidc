@@ -15,7 +15,9 @@ WALLET_DID_URI = "/wallet/did"
 PUBLIC_WALLET_DID_URI = "/wallet/did/public"
 CREATE_PRESENTATION_REQUEST_URL = "/present-proof-2.0/create-request"
 PRESENT_PROOF_RECORDS = "/present-proof-2.0/records"
+SEND_PRESENTATION_REQUEST_URL = "/present-proof-2.0/send-request"
 OOB_CREATE_INVITATION = "/out-of-band/create-invitation"
+CONNECTIONS_URI = "/connections"
 
 
 class AcapyClient:
@@ -139,3 +141,293 @@ class AcapyClient:
 
         logger.debug("<<< oob_create_invitation")
         return result
+
+    def create_invitation(
+        self,
+        presentation_exchange: dict,
+        goal_code: str,
+        use_public_did: bool = False,
+        alias: str | None = None,
+        auto_accept: bool | None = None,
+        multi_use: bool = False,
+        metadata: dict | None = None,
+    ) -> OobCreateInvitationResponse:
+        """
+        Create a new out-of-band invitation with presentation exchange attachment.
+
+        Args:
+            presentation_exchange: Dictionary containing the presentation exchange configuration
+            use_public_did: Whether to use public DID for the invitation (default: False)
+            alias: Optional alias for the connection (default: None)
+            auto_accept: Whether to auto-accept the connection (default: None - use configuration)
+            multi_use: Whether the invitation should be reusable (default: False - single use)
+            metadata: Optional metadata to attach to the connection (default: None)
+            goal_code: the context-specific goal of the the invitation
+
+        Returns:
+            OobCreateInvitationResponse: The response containing invitation details
+        """
+        logger.debug(">>> create_invitation")
+
+        # Prepare the payload for the invitation creation
+        create_invitation_payload = {
+            "attachments": [
+                {
+                    "id": presentation_exchange["pres_ex_id"],
+                    "type": "present-proof",
+                    "data": {"json": presentation_exchange},
+                }
+            ],
+            "use_public_did": use_public_did,
+            "my_label": settings.INVITATION_LABEL,
+        }
+
+        # Add optional parameters if provided
+        if alias is not None:
+            create_invitation_payload["alias"] = alias
+        if auto_accept is not None:
+            create_invitation_payload["auto_accept"] = auto_accept
+        if multi_use:
+            create_invitation_payload["multi_use"] = multi_use
+        if metadata:
+            create_invitation_payload["metadata"] = metadata
+        if goal_code:
+            create_invitation_payload["goal_code"] = goal_code
+
+        # Make the request to ACA-Py
+        resp_raw = requests.post(
+            self.acapy_host + OOB_CREATE_INVITATION,
+            headers=self.agent_config.get_headers(),
+            json=create_invitation_payload,
+        )
+
+        # Validate the response
+        assert resp_raw.status_code == 200, resp_raw.content
+
+        # Parse and validate the response
+        resp = json.loads(resp_raw.content)
+        result = OobCreateInvitationResponse.model_validate(resp)
+
+        logger.debug("<<< create_invitation")
+        return result
+
+    def send_presentation_request_by_connection(
+        self, connection_id: str, presentation_request_configuration: dict
+    ) -> CreatePresentationResponse:
+        """
+        Send a presentation request to an existing connection.
+
+        Args:
+            connection_id: The ID of the established connection
+            presentation_request_configuration: The presentation request configuration
+
+        Returns:
+            CreatePresentationResponse: The response containing presentation exchange details
+        """
+        logger.debug(">>> send_presentation_request_by_connection")
+
+        present_proof_payload = {
+            "connection_id": connection_id,
+            "presentation_request": {"indy": presentation_request_configuration},
+        }
+
+        resp_raw = requests.post(
+            self.acapy_host + SEND_PRESENTATION_REQUEST_URL,
+            headers=self.agent_config.get_headers(),
+            json=present_proof_payload,
+        )
+
+        assert resp_raw.status_code == 200, resp_raw.content
+
+        resp = json.loads(resp_raw.content)
+        result = CreatePresentationResponse.model_validate(resp)
+
+        logger.debug("<<< send_presentation_request_by_connection")
+        return result
+
+    def get_connection(self, connection_id: str) -> dict:
+        """
+        Get details of a specific connection.
+
+        Args:
+            connection_id: The ID of the connection to retrieve
+
+        Returns:
+            dict: Connection details
+        """
+        logger.debug(">>> get_connection")
+
+        resp_raw = requests.get(
+            self.acapy_host + CONNECTIONS_URI + "/" + connection_id,
+            headers=self.agent_config.get_headers(),
+        )
+
+        assert resp_raw.status_code == 200, resp_raw.content
+
+        resp = json.loads(resp_raw.content)
+        logger.debug(f"<<< get_connection -> {resp}")
+        return resp
+
+    def list_connections(self, state: str | None = None) -> list[dict]:
+        """
+        List all connections, optionally filtered by state.
+
+        Args:
+            state: Optional state filter (e.g., "active", "completed")
+
+        Returns:
+            list[dict]: List of connection records
+        """
+        logger.debug(">>> list_connections")
+
+        params = {}
+        if state:
+            params["state"] = state
+
+        resp_raw = requests.get(
+            self.acapy_host + CONNECTIONS_URI,
+            headers=self.agent_config.get_headers(),
+            params=params,
+        )
+
+        assert resp_raw.status_code == 200, resp_raw.content
+
+        resp = json.loads(resp_raw.content)
+        connections = resp.get("results", [])
+
+        logger.debug(f"<<< list_connections -> {len(connections)} connections")
+        return connections
+
+    def delete_connection(self, connection_id: str) -> bool:
+        """
+        Delete a connection.
+
+        Args:
+            connection_id: The ID of the connection to delete
+
+        Returns:
+            bool: True if deletion was successful
+        """
+        logger.debug(">>> delete_connection")
+
+        resp_raw = requests.delete(
+            self.acapy_host + CONNECTIONS_URI + "/" + connection_id,
+            headers=self.agent_config.get_headers(),
+        )
+
+        success = resp_raw.status_code == 200
+        logger.debug(f"<<< delete_connection -> {success}")
+        return success
+
+    def create_connection_invitation(
+        self,
+        ephemeral: bool = True,
+        presentation_exchange: dict | None = None,
+        use_public_did: bool = False,
+        alias: str | None = None,
+        auto_accept: bool | None = None,
+        metadata: dict | None = None,
+    ) -> OobCreateInvitationResponse:
+        """
+        Create an out-of-band invitation for either ephemeral or persistent connections.
+        
+        Args:
+            ephemeral: Whether this is an ephemeral (single-use) connection (default: True)
+            presentation_exchange: Optional presentation exchange to attach to invitation
+            use_public_did: Whether to use public DID for the invitation (default: False)
+            alias: Optional alias for the connection (default: None)
+            auto_accept: Whether to auto-accept the connection (default: None - use configuration)
+            metadata: Optional metadata to attach to the connection (default: None)
+            
+        Returns:
+            OobCreateInvitationResponse: The response containing invitation details
+        """
+        logger.debug(">>> create_connection_invitation")
+
+        # Determine connection type and goal code
+        if ephemeral:
+            goal_code = "aries.vc.verify.once"
+            goal = "Verify credentials for single-use authentication"
+            multi_use = False
+        else:
+            goal_code = "aries.vc.verify"
+            goal = "Verify credentials for authentication"
+            multi_use = True
+
+        # Prepare the payload for the invitation creation
+        create_invitation_payload = {
+            "use_public_did": use_public_did,
+            "my_label": settings.INVITATION_LABEL,
+            "goal_code": goal_code,
+            "goal": goal,
+        }
+        
+        # Add handshake protocols if no presentation attachment is provided
+        if not presentation_exchange:
+            create_invitation_payload["handshake_protocols"] = [
+                "https://didcomm.org/didexchange/1.0",
+                "https://didcomm.org/connections/1.0"
+            ]
+
+        # Add presentation exchange attachment if provided
+        if presentation_exchange:
+            create_invitation_payload["attachments"] = [
+                {
+                    "id": presentation_exchange["pres_ex_id"],
+                    "type": "present-proof",
+                    "data": {"json": presentation_exchange},
+                }
+            ]
+
+        # Add optional body parameters if provided
+        if alias is not None:
+            create_invitation_payload["alias"] = alias
+        if metadata:
+            create_invitation_payload["metadata"] = metadata
+
+        # Prepare query parameters
+        params = {"multi_use": str(multi_use).lower()}
+        if auto_accept is not None:
+            params["auto_accept"] = str(auto_accept).lower()
+
+        # Make the request to ACA-Py
+        resp_raw = requests.post(
+            self.acapy_host + OOB_CREATE_INVITATION,
+            headers=self.agent_config.get_headers(),
+            json=create_invitation_payload,
+            params=params,
+        )
+
+        # Validate the response
+        assert resp_raw.status_code == 200, resp_raw.content
+
+        # Parse and validate the response
+        resp = json.loads(resp_raw.content)
+        result = OobCreateInvitationResponse.model_validate(resp)
+
+        logger.debug("<<< create_connection_invitation")
+        return result
+
+    def create_reusable_invitation(
+        self,
+        goal_code: str = "aries.vc.verify",
+        use_public_did: bool = False,
+        alias: str | None = None,
+        auto_accept: bool | None = None,
+        metadata: dict | None = None,
+    ) -> OobCreateInvitationResponse:
+        """
+        DEPRECATED: Use create_connection_invitation(ephemeral=False) instead.
+        
+        Create a reusable out-of-band invitation without presentation exchange attachment.
+        This is used for establishing persistent connections that can be reused.
+        """
+        logger.warning("create_reusable_invitation is deprecated. Use create_connection_invitation(ephemeral=False) instead.")
+        return self.create_connection_invitation(
+            ephemeral=False,
+            presentation_exchange=None,
+            use_public_did=use_public_did,
+            alias=alias,
+            auto_accept=auto_accept,
+            metadata=metadata,
+        )

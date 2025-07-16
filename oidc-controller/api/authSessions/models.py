@@ -17,7 +17,7 @@ class AuthSessionState(StrEnum):
 
 
 class AuthSessionBase(BaseModel):
-    pres_exch_id: str
+    pres_exch_id: str | None = None  # Optional for connection-based flow
     expired_timestamp: datetime = Field(
         default=datetime.now()
         + timedelta(seconds=settings.CONTROLLER_PRESENTATION_EXPIRE_TIME)
@@ -27,6 +27,8 @@ class AuthSessionBase(BaseModel):
     pyop_auth_code: str
     response_url: str
     presentation_request_msg: dict | None = None
+    connection_id: str | None = None  # NEW: Track connection ID
+    proof_request: dict | None = None  # NEW: Store proof request for later use
     model_config = ConfigDict(populate_by_name=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
 

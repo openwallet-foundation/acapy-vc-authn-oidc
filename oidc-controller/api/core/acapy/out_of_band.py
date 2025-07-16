@@ -22,10 +22,10 @@ class OutOfBandMessage(BaseModel):
     label: str = Field(
         default="acapy-vc-authn Out-of-Band present-proof authorization request"
     )
-    request_attachments: list[OutOfBandPresentProofAttachment] = Field(
-        alias="requests~attach"
+    request_attachments: list[OutOfBandPresentProofAttachment] | None = Field(
+        alias="requests~attach", default=None
     )
     services: list[OOBServiceDecorator | str] = Field(alias="services")
-    handshake_protocols: list[str] = Field(alias="handshake_protocols", default=None)
+    handshake_protocols: list[str] | None = Field(alias="handshake_protocols", default=None)
 
     model_config = ConfigDict(populate_by_name=True)
