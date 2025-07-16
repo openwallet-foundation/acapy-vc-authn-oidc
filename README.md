@@ -54,19 +54,20 @@ curl -X 'POST' \
   -H 'accept: application/json' \
   -H 'Content-Type: application/json' \
   -d '{
-  "ver_config_id": "test-proof",
+  "ver_config_id": "showcase-person",
   "subject_identifier": "",
   "generate_consistent_identifier": true,
   "proof_request": {
-    "name": "Test Proof-Request",
+    "name": "BC Wallet Showcase Person",
     "version": "1.0",
     "requested_attributes": [
 
       {
-        "names": ["attr1", "attr2", "attr3"],
+        "names": ["given_names", "family_name", "country"],
         "restrictions": [
           {
-              "schema_name": "test-schema"
+            "schema_name": "Person",
+            "issuer_did": "QEquAHkM35w4XVT3Ku5yat"
           }
         ]
       }
