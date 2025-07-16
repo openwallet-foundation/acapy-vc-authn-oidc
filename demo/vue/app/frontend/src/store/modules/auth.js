@@ -19,7 +19,6 @@ export default {
     // In most cases, when this becomes populated, we end up doing a redirect flow,
     // so when we return to the app, it is fresh again and undefined
     redirectUri: undefined,
-    presReqConfId: 'test-proof', //TODO: load this via config response
   },
   getters: {
     authenticated: () => Vue.prototype.$keycloak.authenticated,
@@ -77,7 +76,7 @@ export default {
         window.location.replace(
           getters.createLoginUrl(options) +
             '&pres_req_conf_id=' +
-            getters.presReqConfId
+            getters.presReqConfId,
         );
       }
     },
@@ -86,7 +85,7 @@ export default {
         window.location.replace(
           getters.createLogoutUrl({
             redirectUri: `${location.origin}/${Vue.prototype.$config.basePath}`,
-          })
+          }),
         );
       }
     },
