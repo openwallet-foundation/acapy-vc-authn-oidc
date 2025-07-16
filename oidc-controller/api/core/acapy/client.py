@@ -16,6 +16,9 @@ PUBLIC_WALLET_DID_URI = "/wallet/did/public"
 CREATE_PRESENTATION_REQUEST_URL = "/present-proof-2.0/create-request"
 PRESENT_PROOF_RECORDS = "/present-proof-2.0/records"
 SEND_PRESENTATION_REQUEST_URL = "/present-proof-2.0/send-request"
+PRESENT_PROOF_PROBLEM_REPORT_URL = (
+    "/present-proof-2.0/records/{pres_ex_id}/problem-report"
+)
 OOB_CREATE_INVITATION = "/out-of-band/create-invitation"
 CONNECTIONS_URI = "/connections"
 
@@ -318,6 +321,43 @@ class AcapyClient:
         success = resp_raw.status_code == 200
         logger.debug(f"<<< delete_connection -> {success}")
         return success
+
+    def send_problem_report(self, pres_ex_id: str, description: str) -> bool:
+        """
+        Send a problem report for a presentation exchange.
+
+        Args:
+            pres_ex_id: The presentation exchange ID
+            description: Description of the problem
+
+        Returns:
+            bool: True if problem report was sent successfully
+        """
+        logger.debug(">>> send_problem_report")
+
+        problem_report_payload = {"description": description}
+
+        try:
+            resp_raw = requests.post(
+                self.acapy_host
+                + PRESENT_PROOF_PROBLEM_REPORT_URL.format(pres_ex_id=pres_ex_id),
+                json=problem_report_payload,
+                headers=self.agent_config.get_headers(),
+            )
+
+            success = resp_raw.status_code == 200
+            logger.debug(f"<<< send_problem_report -> {success}")
+
+            if not success:
+                logger.error(
+                    f"Failed to send problem report: {resp_raw.status_code} - {resp_raw.content}"
+                )
+
+            return success
+
+        except Exception as e:
+            logger.error(f"Error sending problem report: {e}")
+            return False
 
     def create_connection_invitation(
         self,

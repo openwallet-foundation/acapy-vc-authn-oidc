@@ -124,7 +124,35 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                                 logger.error(
                                     f"Failed to send presentation request: {e}"
                                 )
-                                # Could set auth session to failed state here
+                                # Set auth session to failed state
+                                auth_session.proof_status = AuthSessionState.FAILED
+                                await AuthSessionCRUD(db).patch(
+                                    str(auth_session.id),
+                                    AuthSessionPatch(**auth_session.model_dump()),
+                                )
+
+                                # Send problem report if we have a presentation exchange ID
+                                if auth_session.pres_exch_id:
+                                    try:
+                                        client.send_problem_report(
+                                            auth_session.pres_exch_id,
+                                            f"Failed to send presentation request: {str(e)}",
+                                        )
+                                        logger.info(
+                                            f"Problem report sent for pres_ex_id: {auth_session.pres_exch_id}"
+                                        )
+                                    except Exception as problem_report_error:
+                                        logger.error(
+                                            f"Failed to send problem report: {problem_report_error}"
+                                        )
+
+                                # Emit failure status to frontend
+                                connections = connections_reload()
+                                sid = connections.get(str(auth_session.id))
+                                if sid:
+                                    await sio.emit(
+                                        "status", {"status": "failed"}, to=sid
+                                    )
                         else:
                             logger.warning(
                                 f"Auth session found but no proof_request: {auth_session.id}"
@@ -163,6 +191,25 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                     if sid:
                         await sio.emit("status", {"status": "failed"}, to=sid)
 
+                    # Send problem report for failed verification in connection-based flow
+                    if (
+                        settings.USE_CONNECTION_BASED_VERIFICATION
+                        and auth_session.pres_exch_id
+                    ):
+                        try:
+                            client = AcapyClient()
+                            client.send_problem_report(
+                                auth_session.pres_exch_id,
+                                f"Presentation verification failed: {webhook_body.get('error_msg', 'Unknown error')}",
+                            )
+                            logger.info(
+                                f"Problem report sent for failed verification: {auth_session.pres_exch_id}"
+                            )
+                        except Exception as problem_report_error:
+                            logger.error(
+                                f"Failed to send problem report for failed verification: {problem_report_error}"
+                            )
+
                 await AuthSessionCRUD(db).patch(
                     str(auth_session.id), AuthSessionPatch(**auth_session.model_dump())
                 )
@@ -195,6 +242,25 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                 auth_session.proof_status = AuthSessionState.ABANDONED
                 if sid:
                     await sio.emit("status", {"status": "abandoned"}, to=sid)
+
+                # Send problem report for abandoned presentation in connection-based flow
+                if (
+                    settings.USE_CONNECTION_BASED_VERIFICATION
+                    and auth_session.pres_exch_id
+                ):
+                    try:
+                        client = AcapyClient()
+                        client.send_problem_report(
+                            auth_session.pres_exch_id,
+                            f"Presentation abandoned: {webhook_body.get('error_msg', 'Unknown error')}",
+                        )
+                        logger.info(
+                            f"Problem report sent for abandoned presentation: {auth_session.pres_exch_id}"
+                        )
+                    except Exception as problem_report_error:
+                        logger.error(
+                            f"Failed to send problem report for abandoned presentation: {problem_report_error}"
+                        )
 
                 await AuthSessionCRUD(db).patch(
                     str(auth_session.id), AuthSessionPatch(**auth_session.model_dump())
@@ -242,6 +308,25 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                 auth_session.proof_status = AuthSessionState.EXPIRED
                 if sid:
                     await sio.emit("status", {"status": "expired"}, to=sid)
+
+                # Send problem report for expired presentation in connection-based flow
+                if (
+                    settings.USE_CONNECTION_BASED_VERIFICATION
+                    and auth_session.pres_exch_id
+                ):
+                    try:
+                        client = AcapyClient()
+                        client.send_problem_report(
+                            auth_session.pres_exch_id,
+                            f"Presentation expired: timeout after {settings.CONTROLLER_PRESENTATION_EXPIRE_TIME} seconds",
+                        )
+                        logger.info(
+                            f"Problem report sent for expired presentation: {auth_session.pres_exch_id}"
+                        )
+                    except Exception as problem_report_error:
+                        logger.error(
+                            f"Failed to send problem report for expired presentation: {problem_report_error}"
+                        )
 
                 await AuthSessionCRUD(db).patch(
                     str(auth_session.id), AuthSessionPatch(**auth_session.model_dump())
