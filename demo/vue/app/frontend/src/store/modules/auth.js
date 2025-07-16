@@ -19,7 +19,7 @@ export default {
     // In most cases, when this becomes populated, we end up doing a redirect flow,
     // so when we return to the app, it is fresh again and undefined
     redirectUri: undefined,
-    presReqConfId: 'test-proof', //TODO: load this via config response
+    presReqConfId: 'showcase-person', //TODO: load this via config response
   },
   getters: {
     authenticated: () => Vue.prototype.$keycloak.authenticated,

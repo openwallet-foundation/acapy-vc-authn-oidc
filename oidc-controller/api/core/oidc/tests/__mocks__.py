@@ -1,11 +1,8 @@
 from datetime import datetime, timedelta
 
-from api.verificationConfigs.models import (
-    VerificationConfig,
-    VerificationProofRequest,
-    MetaData,
-)
 from api.authSessions.models import AuthSession
+from api.verificationConfigs.models import (MetaData, VerificationConfig,
+                                            VerificationProofRequest)
 
 # Presentation returned from the debug webhook
 presentation = {
@@ -1326,7 +1323,7 @@ presentation = {
 auth_session = AuthSession(
     pres_exch_id="e444bc3e-346d-47d1-882d-39c014b8978c",
     expired_timestamp=datetime.now() + timedelta(seconds=3000),
-    ver_config_id="test-proof",
+    ver_config_id="showcase-person",
     request_parameters={
         "scope": "openid vc_authn",
         "state": "oFLNfUyzDtWHmc61dNiQZkVZRsRUUXZ5KZIiQBeQuJQ.xfaKQBh1xfQ.T02DEr3QRTmMUfjegc9fQQ",
