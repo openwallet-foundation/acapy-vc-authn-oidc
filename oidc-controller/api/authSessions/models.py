@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 from enum import StrEnum, auto
 
 from api.core.models import UUIDModel
@@ -30,7 +30,7 @@ class AuthSessionBase(BaseModel):
     connection_id: str | None = None  # NEW: Track connection ID
     proof_request: dict | None = None  # NEW: Store proof request for later use
     model_config = ConfigDict(populate_by_name=True)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class AuthSession(AuthSessionBase, UUIDModel):
