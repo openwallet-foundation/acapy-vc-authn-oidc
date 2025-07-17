@@ -221,6 +221,9 @@ class GlobalConfig(BaseSettings):
     USE_OOB_LOCAL_DID_SERVICE: bool = strtobool(
         os.environ.get("USE_OOB_LOCAL_DID_SERVICE", True)
     )
+    USE_CONNECTION_BASED_VERIFICATION: bool = strtobool(
+        os.environ.get("USE_CONNECTION_BASED_VERIFICATION", True)
+    )
     WALLET_DEEP_LINK_PREFIX: str = os.environ.get(
         "WALLET_DEEP_LINK_PREFIX", "bcwallet://aries_proof-request"
     )
