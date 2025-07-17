@@ -53,6 +53,7 @@ def sample_auth_session_data():
         "presentation_exchange": {},
         "proof_status": AuthSessionState.NOT_STARTED,
         "proof_request": {"test": "proof_request"},
+        "multi_use": False,
     }
 
 
@@ -67,6 +68,7 @@ def sample_auth_session_create():
         pyop_auth_code="test-auth-code",
         response_url="http://test.com/callback",
         proof_request={"test": "proof_request"},
+        multi_use=False,
     )
 
 
@@ -81,6 +83,7 @@ def sample_auth_session_patch():
         request_parameters={"test": "params"},
         pyop_auth_code="test-auth-code",
         response_url="http://test.com/callback",
+        multi_use=False,
     )
 
 

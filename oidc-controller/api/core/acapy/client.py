@@ -361,7 +361,7 @@ class AcapyClient:
 
     def create_connection_invitation(
         self,
-        ephemeral: bool = True,
+        multi_use: bool = False,
         presentation_exchange: dict | None = None,
         use_public_did: bool = False,
         alias: str | None = None,
@@ -372,7 +372,7 @@ class AcapyClient:
         Create an out-of-band invitation for either ephemeral or persistent connections.
 
         Args:
-            ephemeral: Whether this is an ephemeral (single-use) connection (default: True)
+            multi_use: Whether this is an non ephemeral (multi_use) connection (default: False)
             presentation_exchange: Optional presentation exchange to attach to invitation
             use_public_did: Whether to use public DID for the invitation (default: False)
             alias: Optional alias for the connection (default: None)
@@ -385,15 +385,14 @@ class AcapyClient:
         logger.debug(">>> create_connection_invitation")
 
         # Determine connection type and goal code
-        if ephemeral:
-            goal_code = "aries.vc.verify.once"
-            goal = "Verify credentials for single-use authentication"
-            multi_use = False
-        else:
+        if multi_use:
             goal_code = "aries.vc.verify"
             goal = "Verify credentials for authentication"
             multi_use = True
-
+        else:
+            goal_code = "aries.vc.verify.once"
+            goal = "Verify credentials for single-use authentication"
+            multi_use = False
         # Prepare the payload for the invitation creation
         create_invitation_payload = {
             "use_public_did": use_public_did,
@@ -447,29 +446,3 @@ class AcapyClient:
 
         logger.debug("<<< create_connection_invitation")
         return result
-
-    def create_reusable_invitation(
-        self,
-        goal_code: str = "aries.vc.verify",
-        use_public_did: bool = False,
-        alias: str | None = None,
-        auto_accept: bool | None = None,
-        metadata: dict | None = None,
-    ) -> OobCreateInvitationResponse:
-        """
-        DEPRECATED: Use create_connection_invitation(ephemeral=False) instead.
-
-        Create a reusable out-of-band invitation without presentation exchange attachment.
-        This is used for establishing persistent connections that can be reused.
-        """
-        logger.warning(
-            "create_reusable_invitation is deprecated. Use create_connection_invitation(ephemeral=False) instead."
-        )
-        return self.create_connection_invitation(
-            ephemeral=False,
-            presentation_exchange=None,
-            use_public_did=use_public_did,
-            alias=alias,
-            auto_accept=auto_accept,
-            metadata=metadata,
-        )
