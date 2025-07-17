@@ -218,22 +218,31 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                 if (
                     settings.USE_CONNECTION_BASED_VERIFICATION
                     and auth_session.connection_id
+                    and not auth_session.multi_use  # Only delete single-use connections
                 ):
                     try:
                         client = AcapyClient()
                         success = client.delete_connection(auth_session.connection_id)
                         if success:
                             logger.info(
-                                f"Cleaned up connection {auth_session.connection_id} after verification"
+                                f"Cleaned up single-use connection {auth_session.connection_id} after verification"
                             )
                         else:
                             logger.warning(
-                                f"Failed to cleanup connection {auth_session.connection_id}"
+                                f"Failed to cleanup single-use connection {auth_session.connection_id}"
                             )
                     except Exception as e:
                         logger.error(
-                            f"Error cleaning up connection {auth_session.connection_id}: {e}"
+                            f"Error cleaning up single-use connection {auth_session.connection_id}: {e}"
                         )
+                elif (
+                    settings.USE_CONNECTION_BASED_VERIFICATION
+                    and auth_session.connection_id
+                    and auth_session.multi_use
+                ):
+                    logger.info(
+                        f"Preserving multi-use connection {auth_session.connection_id} for future use"
+                    )
 
             # abandoned state
             if webhook_body["state"] == "abandoned":

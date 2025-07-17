@@ -79,22 +79,34 @@ async def poll_pres_exch_complete(pid: str, db: Database = Depends(get_db)):
             await sio.emit("status", {"status": "expired"}, to=sid)
 
         # Cleanup connection after verification expires (for connection-based flow)
-        if settings.USE_CONNECTION_BASED_VERIFICATION and auth_session.connection_id:
+        if (
+            settings.USE_CONNECTION_BASED_VERIFICATION
+            and auth_session.connection_id
+            and not auth_session.multi_use  # Only delete single-use connections
+        ):
             try:
                 client = AcapyClient()
                 success = client.delete_connection(auth_session.connection_id)
                 if success:
                     logger.info(
-                        f"Cleaned up connection {auth_session.connection_id} after expiration"
+                        f"Cleaned up single-use connection {auth_session.connection_id} after expiration"
                     )
                 else:
                     logger.warning(
-                        f"Failed to cleanup connection {auth_session.connection_id}"
+                        f"Failed to cleanup single-use connection {auth_session.connection_id}"
                     )
             except Exception as e:
                 logger.error(
-                    f"Error cleaning up connection {auth_session.connection_id}: {e}"
+                    f"Error cleaning up single-use connection {auth_session.connection_id}: {e}"
                 )
+        elif (
+            settings.USE_CONNECTION_BASED_VERIFICATION
+            and auth_session.connection_id
+            and auth_session.multi_use
+        ):
+            logger.info(
+                f"Preserving multi-use connection {auth_session.connection_id} after expiration"
+            )
 
     return {"proof_status": auth_session.proof_status}
 
@@ -156,7 +168,7 @@ async def get_authorize(request: Request, db: Database = Depends(get_db)):
     if settings.USE_CONNECTION_BASED_VERIFICATION:
         # NEW: Connection-based verification flow
         oob_invite_response = client.create_connection_invitation(
-            ephemeral=True,
+            multi_use=False,
             presentation_exchange=None,  # No attachment - establish connection first
             use_public_did=use_public_did,
             auto_accept=True,  # Auto-accept connections to avoid manual acceptance
@@ -168,6 +180,7 @@ async def get_authorize(request: Request, db: Database = Depends(get_db)):
         # Use invitation message ID as temporary unique identifier
         pres_ex_id = f"pending-{oob_invite_response.invi_msg_id}"
     else:
+        assert False
         # EXISTING: Out-of-band verification flow
         response = client.create_presentation_request(proof_request)
         pres_exch_dict = response.model_dump()
@@ -195,6 +208,7 @@ async def get_authorize(request: Request, db: Database = Depends(get_db)):
         proof_request=(
             proof_request if settings.USE_CONNECTION_BASED_VERIFICATION else None
         ),
+        multi_use=False,  # Currently all connections are single-use
     )
     auth_session = await AuthSessionCRUD(db).create(new_auth_session)
 

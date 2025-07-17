@@ -32,6 +32,7 @@ def mock_auth_session():
     auth_session.pyop_auth_code = "test-auth-code"
     auth_session.response_url = "http://test.com/callback"
     auth_session.presentation_exchange = {}
+    auth_session.multi_use = False
     auth_session.model_dump = MagicMock(
         return_value={
             "id": "test-session-id",
@@ -44,6 +45,7 @@ def mock_auth_session():
             "pyop_auth_code": "test-auth-code",
             "response_url": "http://test.com/callback",
             "presentation_exchange": {},
+            "multi_use": False,
         }
     )
     return auth_session
@@ -216,6 +218,73 @@ class TestConnectionBasedVerificationWebhooks:
         )
         mock_sio.emit.assert_called_once_with(
             "status", {"status": "failed"}, to="test-socket-id"
+        )
+
+    @pytest.mark.asyncio
+    @patch("api.routers.acapy_handler.settings.USE_CONNECTION_BASED_VERIFICATION", True)
+    @patch("api.routers.acapy_handler.AuthSessionCRUD")
+    @patch("api.routers.acapy_handler.AcapyClient")
+    @patch("api.routers.acapy_handler.sio")
+    @patch("api.routers.acapy_handler.connections_reload")
+    async def test_multi_use_connection_preservation_on_verification_success(
+        self,
+        mock_connections_reload,
+        mock_sio,
+        mock_acapy_client,
+        mock_auth_session_crud,
+        mock_request,
+        mock_db,
+        mock_auth_session,
+    ):
+        """Test that multi-use connections are preserved after successful verification."""
+        # Setup mocks
+        webhook_body = {
+            "pres_ex_id": "test-pres-ex-id",
+            "state": "done",
+            "verified": "true",
+            "by_format": {"test": "presentation"},
+        }
+
+        mock_request.body.return_value = json.dumps(webhook_body).encode("ascii")
+
+        # Configure auth session as multi-use
+        mock_auth_session.multi_use = True
+        mock_auth_session.model_dump = MagicMock(
+            return_value={
+                "id": "test-session-id",
+                "pres_exch_id": "test-pres-ex-id",
+                "connection_id": "test-connection-id",
+                "proof_request": {"test": "proof_request"},
+                "proof_status": AuthSessionState.NOT_STARTED,
+                "ver_config_id": "test-ver-config-id",
+                "request_parameters": {"test": "params"},
+                "pyop_auth_code": "test-auth-code",
+                "response_url": "http://test.com/callback",
+                "presentation_exchange": {},
+                "multi_use": True,
+            }
+        )
+
+        mock_auth_session_crud.return_value.get_by_pres_exch_id = AsyncMock(
+            return_value=mock_auth_session
+        )
+        mock_auth_session_crud.return_value.patch = AsyncMock()
+
+        mock_client_instance = MagicMock()
+        mock_acapy_client.return_value = mock_client_instance
+
+        mock_connections_reload.return_value = {"test-session-id": "test-socket-id"}
+        mock_sio.emit = AsyncMock()
+
+        # Execute
+        result = await post_topic(mock_request, "present_proof_v2_0", mock_db)
+
+        # Verify
+        assert result == {}
+        # Verify connection was NOT deleted
+        mock_client_instance.delete_connection.assert_not_called()
+        mock_sio.emit.assert_called_once_with(
+            "status", {"status": "verified"}, to="test-socket-id"
         )
 
     @pytest.mark.asyncio
@@ -401,6 +470,7 @@ class TestConnectionBasedVerificationWebhooks:
         mock_auth_session_no_pres_id.id = "test-session-id"
         mock_auth_session_no_pres_id.pres_exch_id = None
         mock_auth_session_no_pres_id.connection_id = "test-connection-id"
+        mock_auth_session_no_pres_id.multi_use = False
         mock_auth_session_no_pres_id.model_dump = MagicMock(
             return_value={
                 "id": "test-session-id",
@@ -411,6 +481,7 @@ class TestConnectionBasedVerificationWebhooks:
                 "pyop_auth_code": "test-auth-code",
                 "response_url": "http://test.com/callback",
                 "presentation_exchange": {},
+                "multi_use": False,
             }
         )
 

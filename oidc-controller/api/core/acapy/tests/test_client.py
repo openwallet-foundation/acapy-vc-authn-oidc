@@ -431,7 +431,7 @@ async def test_create_connection_invitation_ephemeral_returns_successfully(
 
     client = AcapyClient()
     client.agent_config.get_headers = mock.MagicMock(return_value={"x-api-key": ""})
-    result = client.create_connection_invitation(ephemeral=True)
+    result = client.create_connection_invitation(multi_use=False)
     assert result is not None
 
     # Verify the request payload for ephemeral connection
@@ -468,7 +468,7 @@ async def test_create_connection_invitation_persistent_returns_successfully(
 
     client = AcapyClient()
     client.agent_config.get_headers = mock.MagicMock(return_value={"x-api-key": ""})
-    result = client.create_connection_invitation(ephemeral=False)
+    result = client.create_connection_invitation(multi_use=True)
     assert result is not None
 
     # Verify the request payload for persistent connection
