@@ -166,7 +166,7 @@ async def get_authorize(request: Request, db: Database = Depends(get_db)):
     use_public_did = not settings.USE_OOB_LOCAL_DID_SERVICE
 
     if settings.USE_CONNECTION_BASED_VERIFICATION:
-        # NEW: Connection-based verification flow
+        # Connection-based verification flow
         oob_invite_response = client.create_connection_invitation(
             multi_use=False,
             presentation_exchange=None,  # No attachment - establish connection first

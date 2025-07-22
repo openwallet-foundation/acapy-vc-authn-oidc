@@ -44,7 +44,7 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                     )
 
                 if webhook_body.get("state") in ["active", "completed"]:
-                    # NEW: Connection established, now send presentation request
+                    # Connection established, now send presentation request
                     connection_id = webhook_body.get("connection_id")
                     invitation_msg_id = webhook_body.get("invitation_msg_id")
 

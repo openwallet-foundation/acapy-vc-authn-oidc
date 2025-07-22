@@ -27,11 +27,9 @@ class AuthSessionBase(BaseModel):
     pyop_auth_code: str
     response_url: str
     presentation_request_msg: dict | None = None
-    connection_id: str | None = None  # NEW: Track connection ID
-    proof_request: dict | None = None  # NEW: Store proof request for later use
-    multi_use: bool = (
-        False  # NEW: Track if connection is multi-use (default: single-use)
-    )
+    connection_id: str | None = None  # Track connection ID
+    proof_request: dict | None = None  # Store proof request for later use
+    multi_use: bool = False  # Track if connection is multi-use (default: single-use)
     model_config = ConfigDict(populate_by_name=True)
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
