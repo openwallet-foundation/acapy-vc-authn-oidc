@@ -76,12 +76,12 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                     # If still not found, try searching by pres_exch_id pattern
                     if not auth_session and search_id:
                         logger.info(
-                            f"Trying to find auth session by pres_exch_id pattern: pending-{search_id}"
+                            f"Trying to find auth session by pres_exch_id pattern: {search_id}"
                         )
                         try:
                             auth_session = await AuthSessionCRUD(
                                 db
-                            ).get_by_pres_exch_id(f"pending-{search_id}")
+                            ).get_by_pres_exch_id(f"{search_id}")
                         except:
                             pass  # This lookup might fail if the pattern doesn't match
 

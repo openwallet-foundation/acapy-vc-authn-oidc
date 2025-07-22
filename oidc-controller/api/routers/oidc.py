@@ -178,7 +178,12 @@ async def get_authorize(request: Request, db: Database = Depends(get_db)):
         # We'll create the presentation request after connection is established
         pres_exch_dict = None
         # Use invitation message ID as temporary unique identifier
-        pres_ex_id = f"pending-{oob_invite_response.invi_msg_id}"
+        if not oob_invite_response.invi_msg_id:
+            raise HTTPException(
+                status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to create OOB invitation message; missing invitation message ID",
+            )
+        pres_ex_id = f"{oob_invite_response.invi_msg_id}"
     else:
         assert False
         # EXISTING: Out-of-band verification flow
