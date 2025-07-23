@@ -48,8 +48,8 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                     connection_id = webhook_body.get("connection_id")
                     invitation_msg_id = webhook_body.get("invitation_msg_id")
 
-                    logger.info(f"Full webhook body: {webhook_body}")
-                    logger.info(f"Available keys: {list(webhook_body.keys())}")
+                    logger.debug(f"Full webhook body: {webhook_body}")
+                    logger.debug(f"Available keys: {list(webhook_body.keys())}")
 
                     # Try multiple possible fields for invitation message ID
                     search_id = (
@@ -154,11 +154,11 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                                         "status", {"status": "failed"}, to=sid
                                     )
                         else:
-                            logger.warning(
+                            logger.debug(
                                 f"Auth session found but no proof_request: {auth_session.id}"
                             )
                     else:
-                        logger.warning(
+                        logger.debug(
                             f"No auth session found for invitation_msg_id: {invitation_msg_id}"
                         )
 
