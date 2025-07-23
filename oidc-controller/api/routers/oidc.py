@@ -2,7 +2,7 @@ import base64
 import io
 import json
 import uuid
-from datetime import datetime
+from datetime import datetime, UTC
 from typing import cast
 from urllib.parse import urlencode
 
@@ -66,7 +66,7 @@ async def poll_pres_exch_complete(pid: str, db: Database = Depends(get_db)):
      NOTE: This should eventually be moved to a background task.
     """
     if (
-        auth_session.expired_timestamp < datetime.now()
+        auth_session.expired_timestamp < datetime.now(UTC)
         and auth_session.proof_status == AuthSessionState.NOT_STARTED
     ):
         logger.info("PROOF EXPIRED")

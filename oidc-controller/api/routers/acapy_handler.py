@@ -1,7 +1,7 @@
 import json
 from pydantic.plugin import Any
 import structlog
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 
 from fastapi import APIRouter, Depends, Request
 from pymongo.database import Database
@@ -297,7 +297,7 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                         )
 
             # Calcuate the expiration time of the proof
-            now_time = datetime.now()
+            now_time = datetime.now(UTC)
             expired_time = now_time + timedelta(
                 seconds=settings.CONTROLLER_PRESENTATION_EXPIRE_TIME
             )
