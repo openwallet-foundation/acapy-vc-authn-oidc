@@ -65,10 +65,15 @@ async def poll_pres_exch_complete(pid: str, db: Database = Depends(get_db)):
      Check if proof is expired. But only if the proof has not been started.
      NOTE: This should eventually be moved to a background task.
     """
-    if (
-        auth_session.expired_timestamp < datetime.now(UTC)
-        and auth_session.proof_status == AuthSessionState.NOT_STARTED
-    ):
+    # Handle comparison between timezone-aware and naive datetimes
+    now = datetime.now()
+    expired_time = auth_session.expired_timestamp
+
+    # If expired_time is timezone-aware, convert now to UTC for comparison
+    if expired_time.tzinfo is not None:
+        now = datetime.now(UTC)
+
+    if expired_time < now and auth_session.proof_status == AuthSessionState.NOT_STARTED:
         logger.info("PROOF EXPIRED")
         auth_session.proof_status = AuthSessionState.EXPIRED
         await AuthSessionCRUD(db).patch(

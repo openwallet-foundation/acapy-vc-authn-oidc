@@ -309,6 +309,14 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
             )
 
             # Check if expired. But only if the proof has not been started.
+            # Handle comparison between timezone-aware and naive datetimes
+            if auth_session.expired_timestamp.tzinfo is not None:
+                # Use timezone-aware comparison if database has timezone-aware timestamp
+                expired_time = datetime.now(UTC) + timedelta(
+                    seconds=settings.CONTROLLER_PRESENTATION_EXPIRE_TIME
+                )
+                now_time = datetime.now(UTC)
+
             if (
                 expired_time < now_time
                 and auth_session.proof_status == AuthSessionState.NOT_STARTED
