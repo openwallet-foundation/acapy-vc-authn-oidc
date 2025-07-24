@@ -85,6 +85,8 @@ spec:
               value: {{ .Values.controller.sessionTimeout.duration | quote }}
             - name: CONTROLLER_TEMPLATE_DIR
               value: {{ .Values.controller.templateDirectory | quote }}
+            - name: USE_CONNECTION_BASED_VERIFICATION
+              value: {{ .Values.controller.useConnectionBasedVerification | quote }}
             - name: ACAPY_AGENT_URL
               value: {{ include "acapy.agent.url" . }}
             - name: ACAPY_ADMIN_URL

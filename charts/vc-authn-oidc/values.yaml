@@ -39,6 +39,7 @@ walletDeepLinkPrefix: bcwallet://aries_proof-request
 ## @param controller.templateDirectory The directory where the controller templates are stored
 ## @param controller.userVariableSubsitution The placeholder for the user variable substitution file that can be used to add substitution variables
 ## @param controller.customHtmlConfigMapName ConfigMap file used to define the HTML file overrides
+## @param controller.useConnectionBasedVerification Whether to use connection-based proofs. If false connectionless OOB invites contain the proof.
 controller:
   cameraRedirectUrl: wallet_howto
   presentationExpireTime: 300
@@ -64,6 +65,7 @@ controller:
     #     r"\$sub_days_plus_one_(\d+)", sub_days_plus_one
     # )
   customHtmlConfigMapName: ""
+  useConnectionBasedVerification: true
 
 ## @param useHTTPS Prepend Agent and Admin URLs with `https`
 useHTTPS: true
