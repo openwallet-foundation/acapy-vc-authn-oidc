@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 from enum import StrEnum, auto
 
 from api.core.models import UUIDModel
@@ -17,9 +17,9 @@ class AuthSessionState(StrEnum):
 
 
 class AuthSessionBase(BaseModel):
-    pres_exch_id: str
+    pres_exch_id: str | None = None  # Optional for connection-based flow
     expired_timestamp: datetime = Field(
-        default=datetime.now()
+        default_factory=lambda: datetime.now(UTC)
         + timedelta(seconds=settings.CONTROLLER_PRESENTATION_EXPIRE_TIME)
     )
     ver_config_id: str
@@ -27,8 +27,11 @@ class AuthSessionBase(BaseModel):
     pyop_auth_code: str
     response_url: str
     presentation_request_msg: dict | None = None
+    connection_id: str | None = None  # Track connection ID
+    proof_request: dict | None = None  # Store proof request for later use
+    multi_use: bool = False  # Track if connection is multi-use (default: single-use)
     model_config = ConfigDict(populate_by_name=True)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class AuthSession(AuthSessionBase, UUIDModel):

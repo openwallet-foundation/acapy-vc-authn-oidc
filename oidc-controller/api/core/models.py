@@ -1,8 +1,8 @@
-from datetime import datetime
+from datetime import datetime, UTC
 from typing import TypedDict
 
 from bson import ObjectId
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_serializer
 from pyop.userinfo import Userinfo
 from pydantic_core import core_schema
 
@@ -39,12 +39,16 @@ class StatusMessage(BaseModel):
 class UUIDModel(BaseModel):
     id: PyObjectId = Field(default_factory=PyObjectId, alias="_id")
 
-    model_config = ConfigDict(json_encoders={ObjectId: str})
+    model_config = ConfigDict()
+
+    @field_serializer("id")
+    def serialize_id(self, value: PyObjectId) -> str:
+        return str(value)
 
 
 class TimestampModel(BaseModel):
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class GenericErrorMessage(BaseModel):
