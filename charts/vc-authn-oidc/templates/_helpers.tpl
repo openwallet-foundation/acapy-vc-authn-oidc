@@ -76,7 +76,7 @@ vc-authn-oidc labels
 Return the proper vc-authn-oidc image name
 */}}
 {{- define "vc-authn-oidc.image" -}}
-{{ include "common.images.image" (dict "imageRoot" .Values.image "global" .Values.global) }}
+{{ include "common.images.image" ( dict "imageRoot" .Values.image "global" .Values.global "chart" .Chart ) }}
 {{- end -}}
 
 {{/*

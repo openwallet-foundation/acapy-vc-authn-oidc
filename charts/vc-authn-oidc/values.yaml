@@ -47,8 +47,7 @@ image:
   repository: openwallet-foundation/acapy-vc-authn-oidc
   pullPolicy: IfNotPresent
   pullSecrets: []
-  # tag: ""
-
+  tag: ""
 ## @section Controller Configuration
 ##
 
