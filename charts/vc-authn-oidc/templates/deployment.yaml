@@ -88,9 +88,9 @@ spec:
             - name: USE_CONNECTION_BASED_VERIFICATION
               value: {{ .Values.controller.useConnectionBasedVerification | quote }}
             - name: ACAPY_AGENT_URL
-              value: {{ include "acapy.agent.url" . }}
+              value: {{ include "vc-authn-oidc.acapy.agent.url" . }}
             - name: ACAPY_ADMIN_URL
-              value: {{ include "acapy.internal.admin.url" . }}
+              value: {{ include "vc-authn-oidc.acapy.admin.url" . }}
             - name: INVITATION_LABEL
               value: {{ .Values.invitationLabel | quote }}
             - name: WALLET_DEEP_LINK_PREFIX
@@ -103,7 +103,7 @@ spec:
             - name: ST_ACAPY_ADMIN_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "acapy.secretName" . }}
+                  name: {{ include "vc-authn-oidc.acapy.secretName" . }}
                   key: adminApiKey
             - name: ST_ACAPY_ADMIN_API_KEY_NAME
               value: "x-api-key"
@@ -113,7 +113,7 @@ spec:
             - name: MT_ACAPY_WALLET_KEY
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "acapy.secretName" . }}
+                  name: {{ include "vc-authn-oidc.acapy.secretName" . }}
                   key: walletKey
             {{- end }}
             - name: SIGNING_KEY_FILEPATH

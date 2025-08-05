@@ -11,7 +11,7 @@ spec:
     - from:
         - podSelector:
             matchLabels:
-              {{ include "acapy.selectorLabels" . | nindent 14 }}
+              {{ include "vc-authn-oidc.acapy.selectorLabels" . | nindent 14 }}
       ports:
         - protocol: TCP
           port: {{ .Values.service.port }}
@@ -37,5 +37,5 @@ spec:
           port: {{ .Values.acapy.service.adminPort }}
   podSelector:
     matchLabels:
-      {{ include "acapy.selectorLabels" . | nindent 6 }}
+      {{ include "vc-authn-oidc.acapy.selectorLabels" . | nindent 6 }}
 {{- end }}

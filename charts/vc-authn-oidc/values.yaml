@@ -1,3 +1,35 @@
+# Default values for vc-authn-oidc.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+## @param global.imageRegistry Global Docker image registry
+## @param global.imagePullSecrets Global Docker registry secret names as an array
+## @param global.defaultStorageClass Global default StorageClass for Persistent Volume(s)
+##
+global:
+  imageRegistry: ""
+  ## E.g.
+  ## imagePullSecrets:
+  ##   - myRegistryKeySecretName
+  ##
+  imagePullSecrets: []
+  ## @param global.ingressSuffix Domain suffix to be used for default hostpaths in ingress
+  ingressSuffix: .example.com
+  defaultStorageClass: ""
+  ## Security parameters
+  ##
+  security:
+    ## @param global.security.allowInsecureImages Allows skipping image verification
+    allowInsecureImages: false
+  ## Compatibility adaptations for Kubernetes platforms
+  ##
+  compatibility:
+    ## Compatibility adaptations for Openshift
+    ##
+    openshift:
+      ## @param global.compatibility.openshift.adaptSecurityContext Adapt the securityContext sections of the deployment to make them compatible with Openshift restricted-v2 SCC: remove runAsUser, runAsGroup and fsGroup and let the platform use their allowed default IDs. Possible values: auto (apply if the detected running cluster is Openshift), force (perform the adaptation always), disabled (do not perform adaptation)
+      ##
+      adaptSecurityContext: auto
 ## @section Common Configuration
 ##
 ## @param nameOverride String to override the helm chart name, second part of the prefix.
@@ -14,10 +46,7 @@ image:
   repository: ghcr.io/openwallet-foundation/acapy-vc-authn-oidc
   pullPolicy: IfNotPresent
   pullSecrets: []
-  tag: ""
-
-## @param ingressSuffix Domain suffix to be used for default hostpaths in ingress
-ingressSuffix: .example.com
+  # tag: ""
 
 ## @section Controller Configuration
 ##
@@ -51,7 +80,7 @@ controller:
       - abandoned
   templateDirectory: /app/controller-config/templates
   userVariableSubsitution: |-
-    # This is a default placeholder Python file 
+    # This is a default placeholder Python file
     # Add any extensions to user variables here. Example below:
 
     # def sub_days_plus_one(days: str) -> int:
@@ -321,7 +350,6 @@ acapy:
     auto-respond-messages: true
     auto-verify-presentation: true
     genesis-transactions-list: /tmp/ledgers.yml
-    label: '{{ include "acapy.label" .}}'
     log-level: info
     monitor-ping: true
     multitenant-admin: false
@@ -350,72 +378,6 @@ acapy:
       is_write: true
       genesis_url: "https://raw.githubusercontent.com/ICCS-ISAC/dtrust-reconu/main/CANdy/test/pool_transactions_genesis"
 
-  ## @section Wallet Storage configuration
-  ##  Specifies the storage configuration to use for the wallet.
-  ##  This is required if you are for using 'postgres_storage' wallet 'storage type.
-  ##  For example, '{"url":"localhost:5432", "wallet_scheme":"MultiWalletSingleTable"}'.
-  ##  This configuration maps to the indy sdk postgres plugin (PostgresConfig).
-  ##
-  ## @param acapy.walletStorageConfig.json Raw json, overrides all other values including postgres subchart values. e.g.: '{"url":"localhost:5432", "max_connections":"10", "wallet_scheme":"DatabasePerWallet"}'
-  ## @param acapy.walletStorageConfig.url Database url. Overrides all other values including postgres subchart values.
-  ## @param acapy.walletStorageConfig.max_connections Client max connections, defaults to 10.
-  ## @param acapy.walletStorageConfig.wallet_scheme Wallet scheme.
-  ##
-  walletStorageConfig:
-    json: ""
-    url: ""
-    max_connections: 10
-    wallet_scheme: DatabasePerWallet
-
-  ## @section Wallet Storage Credentials
-  ##  Specifies the storage credentials to use for the wallet.
-  ##  This is required if you are for using 'postgres_storage' wallet 'storage type.
-  ##  For example, '{"account":"postgres","password":"mysecretpassword","admin_account":"postgres","admin_password":"mysecretpassword"}'.
-  ##  This configuration maps to the indy sdk postgres plugin (PostgresCredential).
-  ##  NOTE: admin_user must have the CREATEDB role or else initialization will fail.
-  ##
-  ## @param acapy.walletStorageCredentials.json Raw json with database credentials. Overrides all other values including postgres subchart values. e.g.: '{"account":"postgres","password":"mysecretpassword","admin_account":"postgres","admin_password":"mysecretpassword"}'
-  ## @param acapy.walletStorageCredentials.account Database account name.
-  ## @param acapy.walletStorageCredentials.admin_account Database account with CREATEDB role used to create additional databases per wallet.
-  ## @param acapy.walletStorageCredentials.admin_password Database password for admin account.
-  ## @param acapy.walletStorageCredentials.existingSecret Name of an existing secret containing 'database-user', 'database-password', 'admin-password' keys.
-  ## @param acapy.walletStorageCredentials.secretKeys.adminPasswordKey Key in existing secret containing admin password.
-  ## @param acapy.walletStorageCredentials.secretKeys.userPasswordKey Key in existing secret containing password .
-  ##
-  walletStorageCredentials:
-    json: ""
-    account: ""
-    admin_account: postgres
-    admin_password: ""
-    existingSecret: ""
-    secretKeys:
-      adminPasswordKey: postgres-password
-      userPasswordKey: password
-
-  ## @section Acapy tails persistence configuration
-  persistence:
-    ## @param acapy.persistence.existingClaim Name of an existing PVC to use
-    ##
-    existingClaim: ""
-    ## @param acapy.persistence.mountPath
-    ##
-    mountPath: /home/aries/.indy_client/tails
-    ## @param acapy.persistence.storageClass PVC Storage Class
-    ## If defined, storageClassName: <storageClass>
-    ## If set to "-", storageClassName: "", which disables dynamic provisioning
-    ## If undefined (the default) or set to null, no storageClassName spec is
-    ##   set, choosing the default provisioner.  (gp2 on AWS, standard on
-    ##   GKE, AWS & OpenStack)
-    ##
-    storageClass: ""
-    ## @param acapy.persistence.accessModes PVC Access Mode. ReadWriteMany is required for each Acapy pod to access the same volume.
-    ##
-    accessModes:
-      - ReadWriteMany
-    ## @param acapy.persistence.size PVC Storage Request for tails volume
-    ##
-    size: 1Gi
-
   ## @section Acapy common configurations
   ## Acapy resource requests and limits
   ## ref: https://kubernetes.io/docs/user-guide/compute-resources/
@@ -429,27 +391,6 @@ acapy:
       cpu: 250m
       memory: 384Mi
 
-  ## @param acapy.podAnnotations Map of annotations to add to the acapy pods
-  ##
-  podAnnotations: {}
-  ## @param acapy.podSecurityContext Pod Security Context
-  ## ref: https://kubernetes.io/docs/tasks/configure-pod-container/security-context/
-  ##
-  podSecurityContext:
-    {}
-    # fsGroup: 2000
-  ## @param acapy.containerSecurityContext Container Security Context
-  ## ref: https://kubernetes.io/docs/tasks/configure-pod-container/security-context/
-  ##
-  containerSecurityContext:
-    {}
-    # capabilities:
-    #   drop:
-    #   - ALL
-    # readOnlyRootFilesystem: true
-    # runAsNonRoot: true
-    # runAsUser: 1001
-
   ## Acapy service configuration
   ##
   service:
@@ -462,20 +403,6 @@ acapy:
     ## @param acapy.service.httpPort Port to expose for http service
     ##
     httpPort: 8030
-
-  ## @param acapy.affinity Affinity for acapy pods assignment
-  ## ref: https://kubernetes.io/docs/concepts/configuration/assign-pod-node/#affinity-and-anti-affinity
-  ## Note: acapy.podAffinityPreset, acapy.podAntiAffinityPreset, and acapy.nodeAffinityPreset will be ignored when it's set
-  ##
-  affinity: {}
-  ## @param acapy.nodeSelector Node labels for acapy pods assignment
-  ## ref: https://kubernetes.io/docs/user-guide/node-selection/
-  ##
-  nodeSelector: {}
-  ## @param acapy.tolerations Tolerations for acapy pods assignment
-  ## ref: https://kubernetes.io/docs/concepts/configuration/taint-and-toleration/
-  ##
-  tolerations: []
 
   ## @section Acapy NetworkPolicy parameters
 
@@ -493,63 +420,6 @@ acapy:
       namespaceSelector:
         network.openshift.io/policy-group: ingress
       podSelector: {}
-
-  ## @section Acapy OpenShift Route parameters
-  ## ref: https://docs.openshift.com/container-platform/4.11/networking/routes/route-configuration.html
-  ##
-  ## Not required if ingress is enabled
-  openshift:
-    route:
-      ## @param acapy.openshift.route.enabled Create OpenShift Route resource for Acapy
-      ##
-      enabled: false
-      ## @param acapy.openshift.route.path Path that the router watches for, to route traffic to the service
-      ##
-      path: "/"
-      ## @param acapy.openshift.route.targetPort Target port for the service
-      ##
-      targetPort: http
-      ## @param acapy.openshift.route.timeout Timeout in seconds for a route to return
-      ##
-      timeout: 2m
-      tls:
-        ## @param acapy.openshift.route.tls.enabled Enable TLS termination
-        ##
-        enabled: true
-        ## @param acapy.openshift.route.tls.insecureEdgeTerminationPolicy TLS termination policy
-        ##
-        insecureEdgeTerminationPolicy: None
-        ## @param acapy.openshift.route.tls.termination TLS termination type
-        ##
-        termination: edge
-      ## @param acapy.openshift.route.wildcardPolicy Wildcard policy for the route
-      wildcardPolicy: None
-    adminRoute:
-      ## @param acapy.openshift.adminRoute.enabled Create OpenShift Route resource for Acapy admin service
-      ##
-      enabled: false
-      ## @param acapy.openshift.adminRoute.path Path that the router watches for, to route traffic to the service
-      ##
-      path: "/"
-      ## @param acapy.openshift.adminRoute.targetPort Target port for the service
-      ##
-      targetPort: admin
-      ## @param acapy.openshift.adminRoute.timeout Timeout in seconds for a route to return
-      ##
-      timeout: 2m
-      tls:
-        ## @param acapy.openshift.adminRoute.tls.enabled Enable TLS termination
-        ##
-        enabled: true
-        ## @param acapy.openshift.adminRoute.tls.insecureEdgeTerminationPolicy TLS termination policy
-        ##
-        insecureEdgeTerminationPolicy: None
-        ## @param acapy.openshift.adminRoute.tls.termination TLS termination type
-        ##
-        termination: edge
-      ## @param acapy.openshift.adminRoute.wildcardPolicy Wildcard policy for the route
-      ##
-      wildcardPolicy: None
 
 ##  Overrides for bitnami/mongodb chart - https://github.com/bitnami/charts/tree/main/bitnami/mongodb
 mongodb:
@@ -572,9 +442,9 @@ mongodb:
   ## @param mongodb.commonLabels [array] Add labels to all the deployed resources (sub-charts are not considered). Evaluated as a template
   ##
   commonLabels:
-    app: vc-authn-oidc
-    role: database
-  
+    app.kubernetes.io/app: vc-authn-oidc
+    app.kubernetes.io/role: database
+
   ## @param mongodb.architecture MongoDB(&reg;) architecture (`standalone` or `replicaset`)
   ##
   architecture: replicaset
@@ -624,78 +494,3 @@ mongodb:
     ## @param mongodb.metrics.enabled Enable using a sidecar Prometheus exporter
     ##
     enabled: false
-
-## @section PostgreSQL parameters
-##
-postgresql:
-  ## @param postgresql.enabled Deploy Bitnami PostgreSQL chart.
-  enabled: true
-  ## @param postgresql.fullnameOverride When overriding fullnameOverride, you must override this to match.
-  fullnameOverride: ""
-  ## @param postgresql.architecture PostgreSQL architecture (`standalone` or `replication`)
-  ##
-  architecture: standalone
-  ## @param postgresql.commonLabels [array] Add labels to all the deployed resources (sub-charts are not considered).
-  commonLabels:
-    app: agent
-    role: database
-  ## Authentication parameters
-  ## ref: https://github.com/bitnami/containers/tree/main/bitnami/postgresql#setting-the-root-password-on-first-run
-  ## ref: https://github.com/bitnami/containers/tree/main/bitnami/postgresql#creating-a-database-on-first-run
-  ## ref: https://github.com/bitnami/containers/tree/main/bitnami/postgresql#creating-a-database-user-on-first-run
-  ##
-  auth:
-    ## @param postgresql.auth.enablePostgresUser Assign a password to the "postgres" admin user. Otherwise, remote access will be blocked for this user. Not recommended for production deployments.
-    ##
-    enablePostgresUser: true
-    ## @param postgresql.auth.database Name for a custom database to create
-    ##
-    database: askar-wallet
-    ## @param postgresql.auth.username Name for a custom user to create
-    ##
-    username: acapy
-
-  ## PostgreSQL Primary parameters
-  primary:
-    ## PostgreSQL Primary persistence configuration
-    ##
-    persistence:
-      ## @param postgresql.primary.persistence.enabled Enable PostgreSQL Primary data persistence using PVC
-      ##
-      enabled: true
-      ## @param postgresql.primary.persistence.size PVC Storage Request for PostgreSQL volume
-      ##
-      size: 5Gi
-    ## Container Security Context
-    ## ref: https://kubernetes.io/docs/tasks/configure-pod-container/security-context/
-    ## @param postgresql.primary.containerSecurityContext.enabled Enable container security context
-    ##
-    containerSecurityContext:
-      enabled: false
-    ## Pod Security Context
-    ## ref: https://kubernetes.io/docs/tasks/configure-pod-container/security-context/
-    ## @param postgresql.primary.podSecurityContext.enabled Enable security context
-    ##
-    podSecurityContext:
-      enabled: false
-    ## PostgreSQL Primary resource requests and limits
-    ## ref: https://kubernetes.io/docs/user-guide/compute-resources/
-    ## @param postgresql.primary.resources.limits The cpu and memory limits for the PostgreSQL Primary containers
-    ## @param postgresql.primary.resources.requests.memory The requested memory for the PostgreSQL Primary containers
-    ## @param postgresql.primary.resources.requests.cpu The requested cpu for the PostgreSQL Primary containers
-    ##
-    resources:
-      limits: {}
-      requests:
-        cpu: 300m
-        memory: 1300Mi
-    ## @param postgresql.primary.service.ports.postgresql PostgreSQL service port
-    ##
-    service:
-      ports:
-        postgresql: 5432
-    ## @param postgresql.primary.extendedConfiguration Extended PostgreSQL Primary configuration (appended to main or default configuration)
-    ## ref: https://github.com/bitnami/containers/tree/main/bitnami/postgresql#allow-settings-to-be-loaded-from-files-other-than-the-default-postgresqlconf
-    ##
-    extendedConfiguration: |
-      max_connections = 500
