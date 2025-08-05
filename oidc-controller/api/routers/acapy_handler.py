@@ -147,8 +147,9 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                                         )
 
                                 # Emit failure status to frontend
-                                connections = connections_reload()
-                                sid = connections.get(str(auth_session.id))
+                                sid = await get_socket_id_for_pid(
+                                    str(auth_session.id), db
+                                )
                                 if sid:
                                     await sio.emit(
                                         "status", {"status": "failed"}, to=sid

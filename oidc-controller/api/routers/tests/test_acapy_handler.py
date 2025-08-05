@@ -67,10 +67,10 @@ class TestConnectionBasedVerificationWebhooks:
     @patch("api.routers.acapy_handler.AuthSessionCRUD")
     @patch("api.routers.acapy_handler.AcapyClient")
     @patch("api.routers.acapy_handler.sio")
-    @patch("api.routers.acapy_handler.connections_reload")
+    @patch("api.routers.acapy_handler.get_socket_id_for_pid")
     async def test_connection_webhook_sends_presentation_request_on_active_state(
         self,
-        mock_connections_reload,
+        mock_get_socket_id,
         mock_sio,
         mock_acapy_client,
         mock_auth_session_crud,
@@ -121,10 +121,10 @@ class TestConnectionBasedVerificationWebhooks:
     @patch("api.routers.acapy_handler.AuthSessionCRUD")
     @patch("api.routers.acapy_handler.AcapyClient")
     @patch("api.routers.acapy_handler.sio")
-    @patch("api.routers.acapy_handler.connections_reload")
+    @patch("api.routers.acapy_handler.get_socket_id_for_pid")
     async def test_connection_webhook_sends_problem_report_on_presentation_request_failure(
         self,
-        mock_connections_reload,
+        mock_get_socket_id,
         mock_sio,
         mock_acapy_client,
         mock_auth_session_crud,
@@ -154,7 +154,7 @@ class TestConnectionBasedVerificationWebhooks:
         mock_client_instance.send_problem_report.return_value = True
         mock_acapy_client.return_value = mock_client_instance
 
-        mock_connections_reload.return_value = {"test-session-id": "test-socket-id"}
+        mock_get_socket_id.return_value = "test-socket-id"
         mock_sio.emit = AsyncMock()
 
         # Execute
@@ -174,10 +174,10 @@ class TestConnectionBasedVerificationWebhooks:
     @patch("api.routers.acapy_handler.AuthSessionCRUD")
     @patch("api.routers.acapy_handler.AcapyClient")
     @patch("api.routers.acapy_handler.sio")
-    @patch("api.routers.acapy_handler.connections_reload")
+    @patch("api.routers.acapy_handler.get_socket_id_for_pid")
     async def test_present_proof_webhook_sends_problem_report_on_verification_failure(
         self,
-        mock_connections_reload,
+        mock_get_socket_id,
         mock_sio,
         mock_acapy_client,
         mock_auth_session_crud,
@@ -205,7 +205,7 @@ class TestConnectionBasedVerificationWebhooks:
         mock_client_instance.send_problem_report.return_value = True
         mock_acapy_client.return_value = mock_client_instance
 
-        mock_connections_reload.return_value = {"test-session-id": "test-socket-id"}
+        mock_get_socket_id.return_value = "test-socket-id"
         mock_sio.emit = AsyncMock()
 
         # Execute
@@ -225,10 +225,10 @@ class TestConnectionBasedVerificationWebhooks:
     @patch("api.routers.acapy_handler.AuthSessionCRUD")
     @patch("api.routers.acapy_handler.AcapyClient")
     @patch("api.routers.acapy_handler.sio")
-    @patch("api.routers.acapy_handler.connections_reload")
+    @patch("api.routers.acapy_handler.get_socket_id_for_pid")
     async def test_multi_use_connection_preservation_on_verification_success(
         self,
-        mock_connections_reload,
+        mock_get_socket_id,
         mock_sio,
         mock_acapy_client,
         mock_auth_session_crud,
@@ -273,7 +273,7 @@ class TestConnectionBasedVerificationWebhooks:
         mock_client_instance = MagicMock()
         mock_acapy_client.return_value = mock_client_instance
 
-        mock_connections_reload.return_value = {"test-session-id": "test-socket-id"}
+        mock_get_socket_id.return_value = "test-socket-id"
         mock_sio.emit = AsyncMock()
 
         # Execute
@@ -292,10 +292,10 @@ class TestConnectionBasedVerificationWebhooks:
     @patch("api.routers.acapy_handler.AuthSessionCRUD")
     @patch("api.routers.acapy_handler.AcapyClient")
     @patch("api.routers.acapy_handler.sio")
-    @patch("api.routers.acapy_handler.connections_reload")
+    @patch("api.routers.acapy_handler.get_socket_id_for_pid")
     async def test_present_proof_webhook_sends_problem_report_on_abandoned_state(
         self,
-        mock_connections_reload,
+        mock_get_socket_id,
         mock_sio,
         mock_acapy_client,
         mock_auth_session_crud,
@@ -322,7 +322,7 @@ class TestConnectionBasedVerificationWebhooks:
         mock_client_instance.send_problem_report.return_value = True
         mock_acapy_client.return_value = mock_client_instance
 
-        mock_connections_reload.return_value = {"test-session-id": "test-socket-id"}
+        mock_get_socket_id.return_value = "test-socket-id"
         mock_sio.emit = AsyncMock()
 
         # Execute
@@ -348,12 +348,12 @@ class TestConnectionBasedVerificationWebhooks:
     @patch("api.routers.acapy_handler.AuthSessionCRUD")
     @patch("api.routers.acapy_handler.AcapyClient")
     @patch("api.routers.acapy_handler.sio")
-    @patch("api.routers.acapy_handler.connections_reload")
+    @patch("api.routers.acapy_handler.get_socket_id_for_pid")
     @patch("api.routers.acapy_handler.datetime")
     async def test_present_proof_webhook_sends_problem_report_on_expired_state(
         self,
         mock_datetime,
-        mock_connections_reload,
+        mock_get_socket_id,
         mock_sio,
         mock_acapy_client,
         mock_auth_session_crud,
@@ -392,7 +392,7 @@ class TestConnectionBasedVerificationWebhooks:
         mock_client_instance.send_problem_report.return_value = True
         mock_acapy_client.return_value = mock_client_instance
 
-        mock_connections_reload.return_value = {"test-session-id": "test-socket-id"}
+        mock_get_socket_id.return_value = "test-socket-id"
         mock_sio.emit = AsyncMock()
 
         # Execute
@@ -509,10 +509,10 @@ class TestConnectionBasedVerificationIntegration:
     @patch("api.routers.acapy_handler.AuthSessionCRUD")
     @patch("api.routers.acapy_handler.AcapyClient")
     @patch("api.routers.acapy_handler.sio")
-    @patch("api.routers.acapy_handler.connections_reload")
+    @patch("api.routers.acapy_handler.get_socket_id_for_pid")
     async def test_connection_cleanup_on_successful_verification(
         self,
-        mock_connections_reload,
+        mock_get_socket_id,
         mock_sio,
         mock_acapy_client,
         mock_auth_session_crud,
@@ -540,7 +540,7 @@ class TestConnectionBasedVerificationIntegration:
         mock_client_instance.delete_connection.return_value = True
         mock_acapy_client.return_value = mock_client_instance
 
-        mock_connections_reload.return_value = {"test-session-id": "test-socket-id"}
+        mock_get_socket_id.return_value = "test-socket-id"
         mock_sio.emit = AsyncMock()
 
         # Execute
@@ -585,10 +585,10 @@ class TestConnectionBasedVerificationIntegration:
     @patch("api.routers.acapy_handler.AuthSessionCRUD")
     @patch("api.routers.acapy_handler.AcapyClient")
     @patch("api.routers.acapy_handler.sio")
-    @patch("api.routers.acapy_handler.connections_reload")
+    @patch("api.routers.acapy_handler.get_socket_id_for_pid")
     async def test_presentation_request_failure_sets_auth_session_to_failed(
         self,
-        mock_connections_reload,
+        mock_get_socket_id,
         mock_sio,
         mock_acapy_client,
         mock_auth_session_crud,
@@ -618,7 +618,7 @@ class TestConnectionBasedVerificationIntegration:
         mock_client_instance.send_problem_report.return_value = True
         mock_acapy_client.return_value = mock_client_instance
 
-        mock_connections_reload.return_value = {"test-session-id": "test-socket-id"}
+        mock_get_socket_id.return_value = "test-socket-id"
         mock_sio.emit = AsyncMock()
 
         # Execute
