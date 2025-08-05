@@ -189,6 +189,7 @@ configureEnvironment() {
   export INVITATION_LABEL=${INVITATION_LABEL:-"VC-AuthN"}
   export SET_NON_REVOKED="True"
   export USE_OOB_LOCAL_DID_SERVICE=${USE_OOB_LOCAL_DID_SERVICE:-"true"}
+  export USE_CONNECTION_BASED_VERIFICATION=${USE_CONNECTION_BASED_VERIFICATION:-"true"}
   export WALLET_DEEP_LINK_PREFIX=${WALLET_DEEP_LINK_PREFIX:-"bcwallet://aries_proof-request"}
 
   # agent

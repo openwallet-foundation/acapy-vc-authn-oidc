@@ -27,6 +27,12 @@ class AuthSessionCRUD:
         result = col.insert_one(jsonable_encoder(auth_session))
         return AuthSession(**col.find_one({"_id": result.inserted_id}))
 
+    async def get_by_connection_id(self, connection_id: str) -> AuthSession | None:
+        """Get auth session by connection ID for connection-based verification."""
+        col = self._db.get_collection(COLLECTION_NAMES.AUTH_SESSION)
+        result = col.find_one({"connection_id": connection_id})
+        return AuthSession(**result) if result else None
+
     async def get(self, id: str) -> AuthSession:
         if not PyObjectId.is_valid(id):
             raise HTTPException(

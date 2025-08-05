@@ -2,7 +2,7 @@ import base64
 import io
 import json
 import uuid
-from datetime import datetime
+from datetime import datetime, UTC
 from typing import cast
 from urllib.parse import urlencode
 
@@ -64,10 +64,15 @@ async def poll_pres_exch_complete(pid: str, db: Database = Depends(get_db)):
      Check if proof is expired. But only if the proof has not been started.
      NOTE: This should eventually be moved to a background task.
     """
-    if (
-        auth_session.expired_timestamp < datetime.now()
-        and auth_session.proof_status == AuthSessionState.NOT_STARTED
-    ):
+    # Handle comparison between timezone-aware and naive datetimes
+    now = datetime.now()
+    expired_time = auth_session.expired_timestamp
+
+    # If expired_time is timezone-aware, convert now to UTC for comparison
+    if expired_time.tzinfo is not None:
+        now = datetime.now(UTC)
+
+    if expired_time < now and auth_session.proof_status == AuthSessionState.NOT_STARTED:
         logger.info("PROOF EXPIRED")
         auth_session.proof_status = AuthSessionState.EXPIRED
         await AuthSessionCRUD(db).patch(
@@ -76,6 +81,36 @@ async def poll_pres_exch_complete(pid: str, db: Database = Depends(get_db)):
         # Send message through the websocket.
         if sid:
             await sio.emit("status", {"status": "expired"}, to=sid)
+
+        # Cleanup connection after verification expires (for connection-based flow)
+        if (
+            settings.USE_CONNECTION_BASED_VERIFICATION
+            and auth_session.connection_id
+            and not auth_session.multi_use  # Only delete single-use connections
+        ):
+            try:
+                client = AcapyClient()
+                success = client.delete_connection(auth_session.connection_id)
+                if success:
+                    logger.info(
+                        f"Cleaned up single-use connection {auth_session.connection_id} after expiration"
+                    )
+                else:
+                    logger.warning(
+                        f"Failed to cleanup single-use connection {auth_session.connection_id}"
+                    )
+            except Exception as e:
+                logger.error(
+                    f"Error cleaning up single-use connection {auth_session.connection_id}: {e}"
+                )
+        elif (
+            settings.USE_CONNECTION_BASED_VERIFICATION
+            and auth_session.connection_id
+            and auth_session.multi_use
+        ):
+            logger.info(
+                f"Preserving multi-use connection {auth_session.connection_id} after expiration"
+            )
 
     return {"proof_status": auth_session.proof_status}
 
@@ -111,7 +146,7 @@ async def get_authorize(request: Request, db: Database = Depends(get_db)):
             detail=f"Invalid auth request: {e}",
         )
 
-    #  create proof for this request
+    # Create proof for this request
     new_user_id = str(uuid.uuid4())
     authn_response = provider.provider.authorize(model, new_user_id)
 
@@ -120,11 +155,9 @@ async def get_authorize(request: Request, db: Database = Depends(get_db)):
     ver_config_id = model.get("pres_req_conf_id")
     ver_config = await VerificationConfigCRUD(db).get(ver_config_id)
 
-    # Create presentation_request to show on screen
+    # Generate proof request configuration
     try:
-        response = client.create_presentation_request(
-            ver_config.generate_proof_request()
-        )
+        proof_request = ver_config.generate_proof_request()
     except VariableSubstitutionError as e:
         return JSONResponse(
             status_code=http_status.HTTP_400_BAD_REQUEST,
@@ -134,12 +167,37 @@ async def get_authorize(request: Request, db: Database = Depends(get_db)):
             },
         )
 
-    pres_exch_dict = response.model_dump()
-
-    # Prepare the presentation request
     use_public_did = not settings.USE_OOB_LOCAL_DID_SERVICE
-    oob_invite_response = client.oob_create_invitation(pres_exch_dict, use_public_did)
-    msg_contents = oob_invite_response.invitation
+
+    if settings.USE_CONNECTION_BASED_VERIFICATION:
+        # Connection-based verification flow
+        oob_invite_response = client.create_connection_invitation(
+            multi_use=False,
+            presentation_exchange=None,  # No attachment - establish connection first
+            use_public_did=use_public_did,
+            auto_accept=True,  # Auto-accept connections to avoid manual acceptance
+        )
+        msg_contents = oob_invite_response.invitation
+
+        # We'll create the presentation request after connection is established
+        pres_exch_dict = None
+        # Use invitation message ID as temporary unique identifier
+        if not oob_invite_response.invi_msg_id:
+            raise HTTPException(
+                status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to create OOB invitation message; missing invitation message ID",
+            )
+        pres_ex_id = f"{oob_invite_response.invi_msg_id}"
+    else:
+        # EXISTING: Out-of-band verification flow
+        response = client.create_presentation_request(proof_request)
+        pres_exch_dict = response.model_dump()
+        pres_ex_id = response.pres_ex_id
+
+        oob_invite_response = client.oob_create_invitation(
+            pres_exch_dict, use_public_did
+        )
+        msg_contents = oob_invite_response.invitation
 
     # Create and save OIDC AuthSession
     new_auth_session = AuthSessionCreate(
@@ -147,9 +205,18 @@ async def get_authorize(request: Request, db: Database = Depends(get_db)):
         pyop_auth_code=authn_response["code"],
         request_parameters=model.to_dict(),
         ver_config_id=ver_config_id,
-        pres_exch_id=response.pres_ex_id,
+        pres_exch_id=pres_ex_id,
         presentation_exchange=pres_exch_dict,
         presentation_request_msg=msg_contents.model_dump(by_alias=True),
+        connection_id=(
+            oob_invite_response.invi_msg_id
+            if settings.USE_CONNECTION_BASED_VERIFICATION
+            else None
+        ),
+        proof_request=(
+            proof_request if settings.USE_CONNECTION_BASED_VERIFICATION else None
+        ),
+        multi_use=False,  # Currently all connections are single-use
     )
     auth_session = await AuthSessionCRUD(db).create(new_auth_session)
 
