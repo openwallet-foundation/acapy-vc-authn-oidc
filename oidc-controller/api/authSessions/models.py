@@ -27,6 +27,7 @@ class AuthSessionBase(BaseModel):
     pyop_auth_code: str
     response_url: str
     presentation_request_msg: dict | None = None
+    socket_id: str | None = None
     model_config = ConfigDict(populate_by_name=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
 

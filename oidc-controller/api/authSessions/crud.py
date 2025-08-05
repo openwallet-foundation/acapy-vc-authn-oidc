@@ -89,3 +89,12 @@ class AuthSessionCRUD:
             )
 
         return AuthSession(**auth_sess)
+
+    async def get_by_socket_id(self, socket_id: str) -> AuthSession | None:
+        col = self._db.get_collection(COLLECTION_NAMES.AUTH_SESSION)
+        auth_sess = col.find_one({"socket_id": socket_id})
+
+        if auth_sess is None:
+            return None
+
+        return AuthSession(**auth_sess)

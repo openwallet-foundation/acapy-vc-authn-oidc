@@ -11,7 +11,7 @@ from ..authSessions.models import AuthSession, AuthSessionPatch, AuthSessionStat
 from ..db.session import get_db
 
 from ..core.config import settings
-from ..routers.socketio import sio, connections_reload
+from ..routers.socketio import sio, get_socket_id_for_pid
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
 
@@ -39,8 +39,7 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
 
             # Get the saved websocket session
             pid = str(auth_session.id)
-            connections = connections_reload()
-            sid = connections.get(pid)
+            sid = await get_socket_id_for_pid(pid, db)
             logger.debug(f"sid: {sid} found for pid: {pid}")
 
             if webhook_body["state"] == "presentation-received":
