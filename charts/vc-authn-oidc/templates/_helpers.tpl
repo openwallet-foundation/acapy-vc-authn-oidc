@@ -73,6 +73,13 @@ vc-authn-oidc labels
 {{- end }}
 
 {{/*
+Return the proper vc-authn-oidc image name
+*/}}
+{{- define "vc-authn-oidc.image" -}}
+{{ include "common.images.image" (dict "imageRoot" .Values.image "global" .Values.global) }}
+{{- end -}}
+
+{{/*
 Generate host name based on chart name + domain suffix
 */}}
 {{- define "vc-authn-oidc.host" -}}
