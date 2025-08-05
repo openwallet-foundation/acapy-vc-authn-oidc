@@ -28,7 +28,7 @@ async def initialize(sid, data):
         try:
             auth_session = await AuthSessionCRUD(db).get(pid)
             patch_data = auth_session.model_dump()
-            patch_data['socket_id'] = sid
+            patch_data["socket_id"] = sid
             patch = AuthSessionPatch(**patch_data)
             await AuthSessionCRUD(db).patch(pid, patch)
             logger.debug(f"Stored socket_id {sid} for pid {pid}")
@@ -45,7 +45,7 @@ async def disconnect(sid):
         auth_session = await AuthSessionCRUD(db).get_by_socket_id(sid)
         if auth_session:
             patch_data = auth_session.model_dump()
-            patch_data['socket_id'] = None
+            patch_data["socket_id"] = None
             patch = AuthSessionPatch(**patch_data)
             await AuthSessionCRUD(db).patch(str(auth_session.id), patch)
             logger.debug(f"Cleared socket_id {sid} for pid {auth_session.id}")
