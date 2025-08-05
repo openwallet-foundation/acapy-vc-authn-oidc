@@ -37,6 +37,7 @@ nameOverride: ""
 ## @param fullnameOverride String to fully override the helm chart name, full prefix. *Must be provided if using a custom release name that does not include the name of the helm chart (`vc-authn-oidc`).*
 fullnameOverride: ""
 
+## @param image.registry
 ## @param image.repository
 ## @param image.pullPolicy
 ## @param image.pullSecrets [array]
@@ -350,7 +351,6 @@ acapy:
   ## @param acapy.argfile.yml.auto-respond-messages Automatically respond to basic messages indicating the message was received. Default: false.
   ## @param acapy.argfile.yml.auto-verify-presentation Automatically verify a presentation when it is received. Default: false.
   ## @param acapy.argfile.yml.genesis-transactions-list Load YAML configuration for connecting to multiple HyperLedger Indy ledgers.
-  ## @param acapy.argfile.yml.label Specifies the label for this agent. This label is publicized (self-attested) to other agents as part of forming a connection. Set to release name by default.
   ## @param acapy.argfile.yml.log-level Specifies a custom logging level as one of: ('debug', 'info', 'warning', 'error', 'critical')
   ## @param acapy.argfile.yml.monitor-ping Send a webhook when a ping is sent or received.
   ## @param acapy.argfile.yml.multitenant-admin Specify whether to enable the multitenant admin api.
