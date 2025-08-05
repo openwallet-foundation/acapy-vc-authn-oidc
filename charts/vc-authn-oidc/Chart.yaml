@@ -16,13 +16,12 @@ appVersion: "2.2.3"
 
 # Charts the vc-authn-oidc service depends on
 dependencies:
+  - name: acapy
+    version: 0.1.2
+    repository: https://openwallet-foundation.github.io/helm-charts/
   - name: mongodb
     version: 16.4.1
     repository: "https://charts.bitnami.com/bitnami"
-  - name: postgresql
-    version: 15.5.38
-    repository: https://charts.bitnami.com/bitnami/
-    condition: postgresql.enabled
   - name: common
     repository: "https://charts.bitnami.com/bitnami"
     tags:
