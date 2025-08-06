@@ -485,3 +485,84 @@ class TestAuthSessionCRUD:
         mock_collection.find_one.assert_called_once_with(
             {"socket_id": "non-existent-socket-id"}
         )
+
+    @pytest.mark.asyncio
+    async def test_update_socket_id_success(
+        self, auth_session_crud, mock_database, mock_collection
+    ):
+        """Test successful socket ID update."""
+        # Setup mocks
+        mock_database.get_collection.return_value = mock_collection
+        mock_collection.update_one.return_value = MagicMock(modified_count=1)
+
+        # Execute
+        result = await auth_session_crud.update_socket_id(
+            "507f1f77bcf86cd799439011", "new-socket-id"
+        )
+
+        # Verify
+        assert result is True
+        mock_database.get_collection.assert_called_once_with(
+            COLLECTION_NAMES.AUTH_SESSION
+        )
+        mock_collection.update_one.assert_called_once_with(
+            {"_id": PyObjectId("507f1f77bcf86cd799439011")},
+            {"$set": {"socket_id": "new-socket-id"}},
+        )
+
+    @pytest.mark.asyncio
+    async def test_update_socket_id_not_found(
+        self, auth_session_crud, mock_database, mock_collection
+    ):
+        """Test socket ID update when document not found."""
+        # Setup mocks
+        mock_database.get_collection.return_value = mock_collection
+        mock_collection.update_one.return_value = MagicMock(modified_count=0)
+
+        # Execute
+        result = await auth_session_crud.update_socket_id(
+            "507f1f77bcf86cd799439011", "new-socket-id"
+        )
+
+        # Verify
+        assert result is False
+        mock_database.get_collection.assert_called_once_with(
+            COLLECTION_NAMES.AUTH_SESSION
+        )
+        mock_collection.update_one.assert_called_once_with(
+            {"_id": PyObjectId("507f1f77bcf86cd799439011")},
+            {"$set": {"socket_id": "new-socket-id"}},
+        )
+
+    @pytest.mark.asyncio
+    async def test_update_socket_id_clear(
+        self, auth_session_crud, mock_database, mock_collection
+    ):
+        """Test clearing socket ID (set to None)."""
+        # Setup mocks
+        mock_database.get_collection.return_value = mock_collection
+        mock_collection.update_one.return_value = MagicMock(modified_count=1)
+
+        # Execute
+        result = await auth_session_crud.update_socket_id(
+            "507f1f77bcf86cd799439011", None
+        )
+
+        # Verify
+        assert result is True
+        mock_database.get_collection.assert_called_once_with(
+            COLLECTION_NAMES.AUTH_SESSION
+        )
+        mock_collection.update_one.assert_called_once_with(
+            {"_id": PyObjectId("507f1f77bcf86cd799439011")},
+            {"$set": {"socket_id": None}},
+        )
+
+    @pytest.mark.asyncio
+    async def test_update_socket_id_invalid_id(self, auth_session_crud):
+        """Test socket ID update with invalid ObjectId format."""
+        with pytest.raises(HTTPException) as exc_info:
+            await auth_session_crud.update_socket_id("invalid-id", "new-socket-id")
+
+        assert exc_info.value.status_code == http_status.HTTP_400_BAD_REQUEST
+        assert "Invalid id: invalid-id" in str(exc_info.value.detail)

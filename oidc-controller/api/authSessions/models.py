@@ -47,4 +47,3 @@ class AuthSessionCreate(AuthSessionBase):
 class AuthSessionPatch(AuthSessionBase):
     proof_status: AuthSessionState = Field(default=AuthSessionState.PENDING)
     presentation_exchange: dict = Field(default_factory=dict)
-    pass

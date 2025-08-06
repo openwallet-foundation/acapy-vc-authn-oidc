@@ -4,14 +4,23 @@ from fastapi import Depends
 from pymongo.database import Database
 
 from ..authSessions.crud import AuthSessionCRUD
-from ..authSessions.models import AuthSessionPatch
-from ..db.session import get_db
+from ..db.session import get_db, client
+from ..core.config import settings
 
 logger = logging.getLogger(__name__)
 
 sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins="*")
 
 sio_app = socketio.ASGIApp(socketio_server=sio, socketio_path="/ws/socket.io")
+
+
+def get_db_for_socketio():
+    """Get database connection for socketio events.
+
+    This is a synchronous alternative to get_db() for use in socketio event handlers
+    where FastAPI dependency injection is not available.
+    """
+    return client[settings.DB_NAME]
 
 
 @sio.event
@@ -22,15 +31,13 @@ async def connect(sid, socket):
 @sio.event
 async def initialize(sid, data):
     # Store websocket session ID in the AuthSession
-    db = await get_db()
+    db = get_db_for_socketio()
     pid = data.get("pid")
     if pid:
         try:
             auth_session = await AuthSessionCRUD(db).get(pid)
-            patch_data = auth_session.model_dump()
-            patch_data["socket_id"] = sid
-            patch = AuthSessionPatch(**patch_data)
-            await AuthSessionCRUD(db).patch(pid, patch)
+            # Update only the socket_id field for efficiency
+            await AuthSessionCRUD(db).update_socket_id(pid, sid)
             logger.debug(f"Stored socket_id {sid} for pid {pid}")
         except Exception as e:
             logger.error(f"Failed to store socket_id for pid {pid}: {e}")
@@ -40,14 +47,12 @@ async def initialize(sid, data):
 async def disconnect(sid):
     logger.info(f">>> disconnect : sid={sid}")
     # Clear socket_id from AuthSession
-    db = await get_db()
+    db = get_db_for_socketio()
     try:
         auth_session = await AuthSessionCRUD(db).get_by_socket_id(sid)
         if auth_session:
-            patch_data = auth_session.model_dump()
-            patch_data["socket_id"] = None
-            patch = AuthSessionPatch(**patch_data)
-            await AuthSessionCRUD(db).patch(str(auth_session.id), patch)
+            # Clear only the socket_id field for efficiency
+            await AuthSessionCRUD(db).update_socket_id(str(auth_session.id), None)
             logger.debug(f"Cleared socket_id {sid} for pid {auth_session.id}")
     except Exception as e:
         logger.error(f"Failed to clear socket_id {sid}: {e}")

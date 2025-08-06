@@ -104,3 +104,17 @@ class AuthSessionCRUD:
             return None
 
         return AuthSession(**auth_sess)
+
+    async def update_socket_id(
+        self, id: str | PyObjectId, socket_id: str | None
+    ) -> bool:
+        """Update only the socket_id field for efficient WebSocket management."""
+        if not PyObjectId.is_valid(id):
+            raise HTTPException(
+                status_code=http_status.HTTP_400_BAD_REQUEST, detail=f"Invalid id: {id}"
+            )
+        col = self._db.get_collection(COLLECTION_NAMES.AUTH_SESSION)
+        result = col.update_one(
+            {"_id": PyObjectId(id)}, {"$set": {"socket_id": socket_id}}
+        )
+        return result.modified_count > 0
