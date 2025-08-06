@@ -436,3 +436,52 @@ class TestAuthSessionCRUD:
         assert "The auth_session hasn't been found with that pyop_auth_code!" in str(
             exc_info.value.detail
         )
+
+    @pytest.mark.asyncio
+    async def test_get_by_socket_id_success(
+        self,
+        auth_session_crud,
+        mock_database,
+        mock_collection,
+        sample_auth_session_data,
+    ):
+        """Test successful retrieval of auth session by socket ID."""
+        # Setup mocks - add socket_id to sample data
+        sample_auth_session_data["socket_id"] = "test-socket-id"
+        mock_database.get_collection.return_value = mock_collection
+        mock_collection.find_one.return_value = sample_auth_session_data
+
+        # Execute
+        result = await auth_session_crud.get_by_socket_id("test-socket-id")
+
+        # Verify
+        assert isinstance(result, AuthSession)
+        assert result.socket_id == "test-socket-id"
+        assert result.pres_exch_id == "test-pres-ex-id"
+        mock_database.get_collection.assert_called_once_with(
+            COLLECTION_NAMES.AUTH_SESSION
+        )
+        mock_collection.find_one.assert_called_once_with(
+            {"socket_id": "test-socket-id"}
+        )
+
+    @pytest.mark.asyncio
+    async def test_get_by_socket_id_not_found(
+        self, auth_session_crud, mock_database, mock_collection
+    ):
+        """Test retrieval by socket ID when not found."""
+        # Setup mocks
+        mock_database.get_collection.return_value = mock_collection
+        mock_collection.find_one.return_value = None
+
+        # Execute
+        result = await auth_session_crud.get_by_socket_id("non-existent-socket-id")
+
+        # Verify
+        assert result is None
+        mock_database.get_collection.assert_called_once_with(
+            COLLECTION_NAMES.AUTH_SESSION
+        )
+        mock_collection.find_one.assert_called_once_with(
+            {"socket_id": "non-existent-socket-id"}
+        )
