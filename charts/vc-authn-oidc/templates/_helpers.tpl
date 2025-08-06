@@ -83,7 +83,7 @@ Return the proper vc-authn-oidc image name
 Generate host name based on chart name + domain suffix
 */}}
 {{- define "vc-authn-oidc.host" -}}
-{{- include "global.fullname" . }}{{ .Values.ingressSuffix -}}
+{{- include "global.fullname" . }}{{ .Values.global.ingressSuffix -}}
 {{- end }}
 
 {{/*
