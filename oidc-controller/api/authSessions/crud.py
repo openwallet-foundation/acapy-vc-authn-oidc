@@ -118,3 +118,17 @@ class AuthSessionCRUD:
             {"_id": PyObjectId(id)}, {"$set": {"socket_id": socket_id}}
         )
         return result.modified_count > 0
+
+    async def update_pyop_auth_code(
+        self, id: str | PyObjectId, pyop_auth_code: str
+    ) -> bool:
+        """Update only the pyop_auth_code field for authorization code regeneration."""
+        if not PyObjectId.is_valid(id):
+            raise HTTPException(
+                status_code=http_status.HTTP_400_BAD_REQUEST, detail=f"Invalid id: {id}"
+            )
+        col = self._db.get_collection(COLLECTION_NAMES.AUTH_SESSION)
+        result = col.update_one(
+            {"_id": PyObjectId(id)}, {"$set": {"pyop_auth_code": pyop_auth_code}}
+        )
+        return result.modified_count > 0

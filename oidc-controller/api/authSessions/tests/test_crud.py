@@ -566,3 +566,60 @@ class TestAuthSessionCRUD:
 
         assert exc_info.value.status_code == http_status.HTTP_400_BAD_REQUEST
         assert "Invalid id: invalid-id" in str(exc_info.value.detail)
+
+    @pytest.mark.asyncio
+    async def test_update_pyop_auth_code_success(
+        self, auth_session_crud, mock_database, mock_collection
+    ):
+        """Test successful pyop_auth_code update."""
+        # Setup mocks
+        mock_database.get_collection.return_value = mock_collection
+        mock_collection.update_one.return_value = MagicMock(modified_count=1)
+
+        # Execute
+        result = await auth_session_crud.update_pyop_auth_code(
+            "507f1f77bcf86cd799439011", "new-auth-code"
+        )
+
+        # Verify
+        assert result is True
+        mock_database.get_collection.assert_called_once_with(
+            COLLECTION_NAMES.AUTH_SESSION
+        )
+        mock_collection.update_one.assert_called_once_with(
+            {"_id": PyObjectId("507f1f77bcf86cd799439011")},
+            {"$set": {"pyop_auth_code": "new-auth-code"}},
+        )
+
+    @pytest.mark.asyncio
+    async def test_update_pyop_auth_code_not_found(
+        self, auth_session_crud, mock_database, mock_collection
+    ):
+        """Test pyop_auth_code update when document not found."""
+        # Setup mocks
+        mock_database.get_collection.return_value = mock_collection
+        mock_collection.update_one.return_value = MagicMock(modified_count=0)
+
+        # Execute
+        result = await auth_session_crud.update_pyop_auth_code(
+            "507f1f77bcf86cd799439011", "new-auth-code"
+        )
+
+        # Verify
+        assert result is False
+        mock_database.get_collection.assert_called_once_with(
+            COLLECTION_NAMES.AUTH_SESSION
+        )
+        mock_collection.update_one.assert_called_once_with(
+            {"_id": PyObjectId("507f1f77bcf86cd799439011")},
+            {"$set": {"pyop_auth_code": "new-auth-code"}},
+        )
+
+    @pytest.mark.asyncio
+    async def test_update_pyop_auth_code_invalid_id(self, auth_session_crud):
+        """Test pyop_auth_code update with invalid ObjectId format."""
+        with pytest.raises(HTTPException) as exc_info:
+            await auth_session_crud.update_pyop_auth_code("invalid-id", "new-auth-code")
+
+        assert exc_info.value.status_code == http_status.HTTP_400_BAD_REQUEST
+        assert "Invalid id: invalid-id" in str(exc_info.value.detail)
