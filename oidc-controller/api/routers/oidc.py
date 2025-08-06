@@ -278,7 +278,7 @@ async def get_authorize_callback(pid: str, db: Database = Depends(get_db)):
 async def post_token(request: Request, db: Database = Depends(get_db)):
     """Called by oidc platform to retrieve token contents"""
     async with request.form() as form:
-        logger.warn(f"post_token: form was {form}")
+        logger.info(f"post_token: form was {form}")
         form_dict = cast(dict[str, str], form._dict)
         auth_session = await AuthSessionCRUD(db).get_by_pyop_auth_code(
             form_dict["code"]
@@ -303,8 +303,8 @@ async def post_token(request: Request, db: Database = Depends(get_db)):
                 form_dict["code"] = new_code
             except (KeyError, Exception) as e:
                 # Authorization code invalid in PyOP storage - regenerate with correct subject
-                logger.warning(
-                    f"Authorization code {form_dict['code']} invalid in PyOP storage, regenerating: {e}"
+                logger.debug(
+                    f"Authorization code {form_dict['code'][0]}*** invalid in PyOP storage, regenerating: {e}"
                 )
                 try:
                     # Create new authorization request with the subject from VC claims
