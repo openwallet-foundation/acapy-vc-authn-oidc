@@ -566,3 +566,58 @@ class TestAuthSessionCRUD:
 
         assert exc_info.value.status_code == http_status.HTTP_400_BAD_REQUEST
         assert "Invalid id: invalid-id" in str(exc_info.value.detail)
+
+    @pytest.mark.asyncio
+    async def test_update_socket_id_duplicate_error(
+        self, auth_session_crud, mock_database, mock_collection
+    ):
+        """Test socket ID update with duplicate socket_id (unique constraint violation)."""
+        from pymongo.errors import DuplicateKeyError
+
+        # Setup mocks
+        mock_database.get_collection.return_value = mock_collection
+        mock_collection.update_one.side_effect = DuplicateKeyError(
+            "duplicate socket_id"
+        )
+
+        # Execute and verify exception
+        with pytest.raises(HTTPException) as exc_info:
+            await auth_session_crud.update_socket_id(
+                "507f1f77bcf86cd799439011", "duplicate-socket-id"
+            )
+
+        assert exc_info.value.status_code == http_status.HTTP_409_CONFLICT
+        assert "Socket ID duplicate-socket-id is already in use" in str(
+            exc_info.value.detail
+        )
+        mock_database.get_collection.assert_called_once_with(
+            COLLECTION_NAMES.AUTH_SESSION
+        )
+        mock_collection.update_one.assert_called_once_with(
+            {"_id": PyObjectId("507f1f77bcf86cd799439011")},
+            {"$set": {"socket_id": "duplicate-socket-id"}},
+        )
+
+    @pytest.mark.asyncio
+    async def test_update_socket_id_allows_multiple_nulls(
+        self, auth_session_crud, mock_database, mock_collection
+    ):
+        """Test that multiple auth sessions can have socket_id set to None (sparse index behavior)."""
+        # Setup mocks
+        mock_database.get_collection.return_value = mock_collection
+        mock_collection.update_one.return_value = MagicMock(modified_count=1)
+
+        # Execute - setting socket_id to None should succeed even if others have None
+        result = await auth_session_crud.update_socket_id(
+            "507f1f77bcf86cd799439011", None
+        )
+
+        # Verify - should succeed without DuplicateKeyError
+        assert result is True
+        mock_database.get_collection.assert_called_once_with(
+            COLLECTION_NAMES.AUTH_SESSION
+        )
+        mock_collection.update_one.assert_called_once_with(
+            {"_id": PyObjectId("507f1f77bcf86cd799439011")},
+            {"$set": {"socket_id": None}},
+        )
