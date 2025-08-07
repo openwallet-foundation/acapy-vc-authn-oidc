@@ -303,10 +303,11 @@ class TestInitDb:
                 expected_calls = [
                     ([("pres_exch_id", ASCENDING)], {"unique": True}),
                     ([("pyop_auth_code", ASCENDING)], {"unique": True}),
+                    ([("socket_id", ASCENDING)], {"unique": True, "sparse": True}),
                 ]
 
                 actual_calls = mock_auth_session.create_index.call_args_list
-                assert len(actual_calls) == 2
+                assert len(actual_calls) == 3
 
                 for i, (expected_args, expected_kwargs) in enumerate(expected_calls):
                     actual_args, actual_kwargs = actual_calls[i]

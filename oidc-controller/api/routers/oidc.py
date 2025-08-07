@@ -31,7 +31,7 @@ from ..core.oidc.issue_token_service import Token
 from ..db.session import get_db
 
 # Access to the websocket
-from ..routers.socketio import connections_reload, sio
+from ..routers.socketio import get_socket_id_for_pid, sio
 
 from ..verificationConfigs.crud import VerificationConfigCRUD
 from ..verificationConfigs.helpers import VariableSubstitutionError
@@ -58,8 +58,7 @@ async def poll_pres_exch_complete(pid: str, db: Database = Depends(get_db)):
     auth_session = await AuthSessionCRUD(db).get(pid)
 
     pid = str(auth_session.id)
-    connections = connections_reload()
-    sid = connections.get(pid)
+    sid = await get_socket_id_for_pid(pid, db)
 
     """
      Check if proof is expired. But only if the proof has not been started.
@@ -279,7 +278,7 @@ async def get_authorize_callback(pid: str, db: Database = Depends(get_db)):
 async def post_token(request: Request, db: Database = Depends(get_db)):
     """Called by oidc platform to retrieve token contents"""
     async with request.form() as form:
-        logger.warn(f"post_token: form was {form}")
+        logger.info(f"post_token: form was {form}")
         form_dict = cast(dict[str, str], form._dict)
         auth_session = await AuthSessionCRUD(db).get_by_pyop_auth_code(
             form_dict["code"]
@@ -291,14 +290,51 @@ async def post_token(request: Request, db: Database = Depends(get_db)):
         # The stateless storage uses a cypher, so a new item can be added and
         # the reference in the form needs to be updated with the new key value
         if claims.get("sub"):
-            authz_info = provider.provider.authz_state.authorization_codes[
-                form_dict["code"]
-            ]
-            authz_info["sub"] = claims.pop("sub")
-            new_code = provider.provider.authz_state.authorization_codes.pack(
-                authz_info
-            )
-            form_dict["code"] = new_code
+            try:
+                authz_info = provider.provider.authz_state.authorization_codes[
+                    form_dict["code"]
+                ]
+                if authz_info is None:
+                    raise KeyError("Authorization code not found in PyOP storage")
+                authz_info["sub"] = claims.pop("sub")
+                new_code = provider.provider.authz_state.authorization_codes.pack(
+                    authz_info
+                )
+                form_dict["code"] = new_code
+            except (KeyError, Exception) as e:
+                # Authorization code invalid in PyOP storage - regenerate with correct subject
+                logger.debug(
+                    f"Authorization code {form_dict['code'][0]}*** invalid in PyOP storage, regenerating: {e}"
+                )
+                try:
+                    # Create new authorization request with the subject from VC claims
+                    from oic.oic.message import AuthorizationRequest
+
+                    auth_req_model = AuthorizationRequest().from_dict(
+                        auth_session.request_parameters
+                    )
+                    new_user_id = claims.pop("sub")  # Use subject from VC claims
+                    new_auth_response = provider.provider.authorize(
+                        auth_req_model, new_user_id
+                    )
+                    new_code = new_auth_response["code"]
+
+                    # Update database with new authorization code for consistency
+                    await AuthSessionCRUD(db).update_pyop_auth_code(
+                        str(auth_session.id), new_code
+                    )
+
+                    form_dict["code"] = new_code
+                    logger.info(
+                        f"Successfully regenerated authorization code for auth_session {auth_session.id}"
+                    )
+                except Exception as regenerate_error:
+                    logger.error(
+                        f"Failed to regenerate authorization code: {regenerate_error}"
+                    )
+                    # Continue without subject replacement - this maintains functionality
+                    # while logging the issue for monitoring
+                    pass
 
         # convert form data to what library expects, Flask.app.request.get_data()
         data = urlencode(form_dict)
