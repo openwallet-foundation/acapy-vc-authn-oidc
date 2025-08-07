@@ -15,10 +15,16 @@ sio_app = socketio.ASGIApp(socketio_server=sio, socketio_path="/ws/socket.io")
 
 
 def get_db_for_socketio():
-    """Get database connection for socketio events.
+    """
+    Get a database connection for use in Socket.IO event handlers.
 
-    This is a synchronous alternative to get_db() for use in socketio event handlers
-    where FastAPI dependency injection is not available.
+    FastAPI's dependency injection system (e.g., the get_db() dependency) is not available
+    inside Socket.IO event handlers because these handlers are not managed by FastAPI's
+    request/response lifecycle. As a result, dependencies like get_db() cannot be injected
+    in the usual way.
+
+    Use this function to obtain a database connection when handling Socket.IO events.
+    In all other FastAPI routes or dependencies, prefer using the standard get_db() dependency.
     """
     return client[settings.DB_NAME]
 
