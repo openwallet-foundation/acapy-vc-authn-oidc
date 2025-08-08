@@ -99,6 +99,7 @@ controller:
 
 ## @param useHTTPS Prepend Agent and Admin URLs with `https`
 useHTTPS: true
+
 ## @param logLevel Accepts one of the following values: CRITICAL, ERROR, WARNING, INFO, DEBUG
 logLevel: INFO
 
@@ -417,12 +418,12 @@ acapy:
   ## Acapy service configuration
   ##
   service:
-    ## @param service.type AcaPy service type
+    ## @param acapy.service.type AcaPy service type
     ##
     type: ClusterIP
-    ## @param service.ports.http AcaPy service HTTP port
-    ## @param service.ports.admin AcaPy service admin port
-    ## @param service.ports.ws AcaPy service websockets port
+    ## @param acapy.service.ports.http AcaPy service HTTP port
+    ## @param acapy.service.ports.admin AcaPy service admin port
+    ## @param acapy.service.ports.ws AcaPy service websockets port
     ##
     ports:
       http: 8021
