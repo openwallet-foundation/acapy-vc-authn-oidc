@@ -172,7 +172,7 @@ networkPolicy:
   ## @param networkPolicy.ingress.podSelector [object] Pod selector label that is allowed to access the Tenant proxy pods.
   ingress:
     enabled: true
-    namespaceSelector: []
+    namespaceSelector: {}
     ## Example:
     # network.openshift.io/policy-group: ingress
     podSelector: {}
@@ -201,7 +201,7 @@ ingress:
   className: ""
   ## @param ingress.annotations Additional annotations for the Ingress resource.
   ##
-  annotations: []
+  annotations: {}
   ## Example:
   # kubernetes.io/ingress.class: nginx
   # kubernetes.io/tls-acme: "true"
