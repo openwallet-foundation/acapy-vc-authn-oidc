@@ -1,8 +1,8 @@
 {{- if .Values.ingress.enabled -}}
 {{- $fullName := include "global.fullname" . -}}
 {{- $acapyFullName := include "vc-authn-oidc.acapy.fullname" . -}}
-{{- $httpPort := .Values.acapy.service.httpPort -}}
-{{- $adminPort := .Values.acapy.service.adminPort -}}
+{{- $httpPort := .Values.acapy.service.ports.http -}}
+{{- $adminPort := .Values.acapy.service.ports.admin -}}
 {{- $svcPort := .Values.service.port -}}
 {{- if and .Values.ingress.className (not (semverCompare ">=1.18-0" .Capabilities.KubeVersion.GitVersion)) }}
   {{- if not (hasKey .Values.ingress.annotations "kubernetes.io/ingress.class") }}

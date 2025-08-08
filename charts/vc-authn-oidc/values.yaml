@@ -417,15 +417,17 @@ acapy:
   ## Acapy service configuration
   ##
   service:
-    ## @param acapy.service.type Kubernetes Service type
+    ## @param service.type AcaPy service type
     ##
     type: ClusterIP
-    ## @param acapy.service.adminPort Port to expose for admin service
+    ## @param service.ports.http AcaPy service HTTP port
+    ## @param service.ports.admin AcaPy service admin port
+    ## @param service.ports.ws AcaPy service websockets port
     ##
-    adminPort: 8031
-    ## @param acapy.service.httpPort Port to expose for http service
-    ##
-    httpPort: 8030
+    ports:
+      http: 8021
+      admin: 8022
+      ws: 8023
 
   ## @section Acapy NetworkPolicy parameters
 
