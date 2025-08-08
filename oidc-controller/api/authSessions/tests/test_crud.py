@@ -608,6 +608,7 @@ class TestAuthSessionCRUD:
         mock_collection.update_one.return_value = MagicMock(modified_count=1)
 
         # Execute - setting socket_id to None should succeed even if others have None
+        # The partial index only indexes string values, so None values are not indexed
         result = await auth_session_crud.update_socket_id(
             "507f1f77bcf86cd799439011", None
         )

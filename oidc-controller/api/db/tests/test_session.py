@@ -307,7 +307,9 @@ class TestInitDb:
                         [("socket_id", ASCENDING)],
                         {
                             "unique": True,
-                            "partialFilterExpression": {"socket_id": {"$ne": None}},
+                            "partialFilterExpression": {
+                                "socket_id": {"$exists": True, "$type": "string"}
+                            },
                         },
                     ),
                 ]
