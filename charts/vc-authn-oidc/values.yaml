@@ -383,7 +383,7 @@ acapy:
     wallet-name: askar-wallet
     wallet-storage-type: postgres_storage
     wallet-type: askar
-    webhook-url: '{{ include "vc-authn-oidc.host" . }}'
+    webhook-url: 'http://{{- .Release.Name -}}:5000/webhooks'
 
   ## @param acapy.ledgers.yml [object]
   ledgers.yml: |-
