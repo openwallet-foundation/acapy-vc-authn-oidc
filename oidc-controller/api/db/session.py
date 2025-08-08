@@ -94,8 +94,12 @@ async def init_db():
     auth_session = db.get_collection(COLLECTION_NAMES.AUTH_SESSION)
     auth_session.create_index([("pres_exch_id", ASCENDING)], unique=True)
     auth_session.create_index([("pyop_auth_code", ASCENDING)], unique=True)
-    # Sparse unique index for socket_id - allows multiple null values but ensures uniqueness for non-null values
-    auth_session.create_index([("socket_id", ASCENDING)], unique=True, sparse=True)
+    # Partial unique index for socket_id - only indexes non-null values, ensuring uniqueness
+    auth_session.create_index(
+        [("socket_id", ASCENDING)],
+        unique=True,
+        partialFilterExpression={"socket_id": {"$ne": None}},
+    )
     if settings.CONTROLLER_SESSION_TIMEOUT_CONFIG_FILE:
         create_ttl_indexes(
             auth_session, settings.CONTROLLER_SESSION_TIMEOUT_CONFIG_FILE

@@ -602,7 +602,7 @@ class TestAuthSessionCRUD:
     async def test_update_socket_id_allows_multiple_nulls(
         self, auth_session_crud, mock_database, mock_collection
     ):
-        """Test that multiple auth sessions can have socket_id set to None (sparse index behavior)."""
+        """Test that multiple auth sessions can have socket_id set to None (partial index behavior)."""
         # Setup mocks
         mock_database.get_collection.return_value = mock_collection
         mock_collection.update_one.return_value = MagicMock(modified_count=1)

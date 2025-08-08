@@ -303,7 +303,13 @@ class TestInitDb:
                 expected_calls = [
                     ([("pres_exch_id", ASCENDING)], {"unique": True}),
                     ([("pyop_auth_code", ASCENDING)], {"unique": True}),
-                    ([("socket_id", ASCENDING)], {"unique": True, "sparse": True}),
+                    (
+                        [("socket_id", ASCENDING)],
+                        {
+                            "unique": True,
+                            "partialFilterExpression": {"socket_id": {"$ne": None}},
+                        },
+                    ),
                 ]
 
                 actual_calls = mock_auth_session.create_index.call_args_list
