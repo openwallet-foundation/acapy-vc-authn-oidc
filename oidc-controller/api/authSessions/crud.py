@@ -121,7 +121,13 @@ class AuthSessionCRUD:
             )
             return result.modified_count > 0
         except DuplicateKeyError:
-            raise HTTPException(
-                status_code=http_status.HTTP_409_CONFLICT,
-                detail=f"Socket ID {socket_id} is already in use by another auth session",
-            )
+            if socket_id is None:
+                raise HTTPException(
+                    status_code=http_status.HTTP_409_CONFLICT,
+                    detail="DuplicateKeyError encountered when setting socket_id to None, which should be allowed. Please check the database index configuration.",
+                )
+            else:
+                raise HTTPException(
+                    status_code=http_status.HTTP_409_CONFLICT,
+                    detail=f"Socket ID {socket_id} is already in use by another auth session",
+                )
