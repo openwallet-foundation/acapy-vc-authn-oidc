@@ -98,7 +98,7 @@ async def init_db():
     auth_session.create_index(
         [("socket_id", ASCENDING)],
         unique=True,
-        partialFilterExpression={"socket_id": {"$exists": True, "$type": "string"}},
+        partialFilterExpression={"socket_id": {"$gt": ""}},
     )
     if settings.CONTROLLER_SESSION_TIMEOUT_CONFIG_FILE:
         create_ttl_indexes(
