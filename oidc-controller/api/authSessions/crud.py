@@ -2,6 +2,7 @@ import structlog
 
 from pymongo import ReturnDocument
 from pymongo.database import Database
+from pymongo.errors import DuplicateKeyError
 from fastapi import HTTPException
 from fastapi import status as http_status
 from fastapi.encoders import jsonable_encoder
@@ -95,3 +96,38 @@ class AuthSessionCRUD:
             )
 
         return AuthSession(**auth_sess)
+
+    async def get_by_socket_id(self, socket_id: str) -> AuthSession | None:
+        col = self._db.get_collection(COLLECTION_NAMES.AUTH_SESSION)
+        auth_sess = col.find_one({"socket_id": socket_id})
+
+        if auth_sess is None:
+            return None
+
+        return AuthSession(**auth_sess)
+
+    async def update_socket_id(
+        self, id: str | PyObjectId, socket_id: str | None
+    ) -> bool:
+        """Update only the socket_id field for efficient WebSocket management."""
+        if not PyObjectId.is_valid(id):
+            raise HTTPException(
+                status_code=http_status.HTTP_400_BAD_REQUEST, detail=f"Invalid id: {id}"
+            )
+        col = self._db.get_collection(COLLECTION_NAMES.AUTH_SESSION)
+        try:
+            result = col.update_one(
+                {"_id": PyObjectId(id)}, {"$set": {"socket_id": socket_id}}
+            )
+            return result.modified_count > 0
+        except DuplicateKeyError:
+            if socket_id is None:
+                raise HTTPException(
+                    status_code=http_status.HTTP_409_CONFLICT,
+                    detail="DuplicateKeyError encountered when setting socket_id to None, which should be allowed. Please check the database index configuration.",
+                )
+            else:
+                raise HTTPException(
+                    status_code=http_status.HTTP_409_CONFLICT,
+                    detail=f"Socket ID {socket_id} is already in use by another auth session",
+                )
