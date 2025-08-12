@@ -41,7 +41,6 @@ async def initialize(sid, data):
     pid = data.get("pid")
     if pid:
         try:
-            auth_session = await AuthSessionCRUD(db).get(pid)
             # Update only the socket_id field for efficiency
             await AuthSessionCRUD(db).update_socket_id(pid, sid)
             logger.debug(f"Stored socket_id {sid} for pid {pid}")

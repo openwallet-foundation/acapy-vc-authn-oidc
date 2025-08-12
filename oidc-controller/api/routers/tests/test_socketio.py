@@ -182,7 +182,6 @@ class TestSocketIOEventHandlers:
         mock_get_db_for_socketio.return_value = mock_db
         mock_crud_instance = MagicMock()
         mock_auth_session_crud_class.return_value = mock_crud_instance
-        mock_crud_instance.get = AsyncMock(return_value=sample_auth_session)
         mock_crud_instance.update_socket_id = AsyncMock(return_value=True)
 
         # Test data
@@ -194,14 +193,10 @@ class TestSocketIOEventHandlers:
 
         # Verify
         mock_get_db_for_socketio.assert_called_once()
-        mock_auth_session_crud_class.assert_called_with(mock_db)
-        mock_crud_instance.get.assert_called_once_with("507f1f77bcf86cd799439011")
-        mock_crud_instance.update_socket_id.assert_called_once()
-
-        # Verify update_socket_id was called with correct arguments
-        update_call_args = mock_crud_instance.update_socket_id.call_args
-        assert update_call_args[0][0] == "507f1f77bcf86cd799439011"
-        assert update_call_args[0][1] == "new-socket-id"
+        mock_auth_session_crud_class.assert_called_once_with(mock_db)
+        mock_crud_instance.update_socket_id.assert_called_once_with(
+            "507f1f77bcf86cd799439011", "new-socket-id"
+        )
 
     @pytest.mark.asyncio
     @patch("api.routers.socketio.get_db_for_socketio")
@@ -259,7 +254,7 @@ class TestSocketIOEventHandlers:
         mock_get_db_for_socketio.return_value = mock_db
         mock_crud_instance = MagicMock()
         mock_auth_session_crud_class.return_value = mock_crud_instance
-        mock_crud_instance.get = AsyncMock(
+        mock_crud_instance.update_socket_id = AsyncMock(
             side_effect=Exception("Auth session not found")
         )
 
@@ -272,8 +267,10 @@ class TestSocketIOEventHandlers:
 
         # Verify
         mock_get_db_for_socketio.assert_called_once()
-        mock_crud_instance.get.assert_called_once_with("non-existent-pid")
-        mock_crud_instance.update_socket_id.assert_not_called()
+        mock_auth_session_crud_class.assert_called_once_with(mock_db)
+        mock_crud_instance.update_socket_id.assert_called_once_with(
+            "non-existent-pid", "test-socket-id"
+        )
 
     @pytest.mark.asyncio
     @patch("api.routers.socketio.get_db_for_socketio")
@@ -290,7 +287,6 @@ class TestSocketIOEventHandlers:
         mock_get_db_for_socketio.return_value = mock_db
         mock_crud_instance = MagicMock()
         mock_auth_session_crud_class.return_value = mock_crud_instance
-        mock_crud_instance.get = AsyncMock(return_value=sample_auth_session)
         mock_crud_instance.update_socket_id = AsyncMock(
             side_effect=Exception("Database error")
         )
@@ -303,8 +299,11 @@ class TestSocketIOEventHandlers:
         await initialize(sid, data)
 
         # Verify
-        mock_crud_instance.get.assert_called_once_with("507f1f77bcf86cd799439011")
-        mock_crud_instance.update_socket_id.assert_called_once()
+        mock_get_db_for_socketio.assert_called_once()
+        mock_auth_session_crud_class.assert_called_once_with(mock_db)
+        mock_crud_instance.update_socket_id.assert_called_once_with(
+            "507f1f77bcf86cd799439011", "test-socket-id"
+        )
 
     @pytest.mark.asyncio
     @patch("api.routers.socketio.get_db_for_socketio")
@@ -438,13 +437,12 @@ class TestSocketIOEventHandlers:
         mock_get_db_for_socketio,
         sample_auth_session,
     ):
-        """Test that initialize creates separate CRUD instances for get and patch."""
+        """Test that initialize creates a single CRUD instance for update operation."""
         # Setup mocks
         mock_db = MagicMock()
         mock_get_db_for_socketio.return_value = mock_db
         mock_crud_instance = MagicMock()
         mock_auth_session_crud_class.return_value = mock_crud_instance
-        mock_crud_instance.get = AsyncMock(return_value=sample_auth_session)
         mock_crud_instance.update_socket_id = AsyncMock(return_value=True)
 
         # Test data
@@ -454,10 +452,12 @@ class TestSocketIOEventHandlers:
         # Execute
         await initialize(sid, data)
 
-        # Verify that AuthSessionCRUD was called twice (once for get, once for patch)
-        assert mock_auth_session_crud_class.call_count == 2
-        mock_crud_instance.get.assert_called_once()
-        mock_crud_instance.update_socket_id.assert_called_once()
+        # Verify that AuthSessionCRUD was called once (only for update)
+        assert mock_auth_session_crud_class.call_count == 1
+        mock_auth_session_crud_class.assert_called_once_with(mock_db)
+        mock_crud_instance.update_socket_id.assert_called_once_with(
+            "507f1f77bcf86cd799439011", "test-socket-id"
+        )
 
     @pytest.mark.asyncio
     @patch("api.routers.socketio.get_db_for_socketio")
