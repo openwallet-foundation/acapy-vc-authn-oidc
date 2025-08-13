@@ -222,7 +222,7 @@ We truncate at 63 chars because some Kubernetes name fields are limited to this 
 {{- end -}}
 
 {{/*
-Return the secret with vc-authn-oidc token private key
+Return the acapy secret name
 */}}
 {{- define "vc-authn-oidc.acapy.secretName" -}}
     {{- if .Values.acapy.existingSecret -}}
