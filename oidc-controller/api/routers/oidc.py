@@ -281,8 +281,6 @@ async def generate_auth_code(claims, user_id, auth_session, form_dict, db):
         auth_req_model = AuthorizationRequest().from_dict(
             auth_session.request_parameters
         )
-        # Use subject from VC claims should not have been called
-        # new_user_id = claims.pop("sub")
         new_auth_response = provider.provider.authorize(auth_req_model, user_id)
         new_code = new_auth_response["code"]
 
