@@ -273,12 +273,36 @@ async def get_authorize_callback(pid: str, db: Database = Depends(get_db)):
     return RedirectResponse(url)
 
 
+async def generate_auth_code(claims, user_id, auth_session, form_dict, db):
+    logger.debug(
+        f"Authorization code {form_dict['code']}*** invalid in PyOP storage, regenerating"
+    )
+    try:
+        auth_req_model = AuthorizationRequest().from_dict(
+            auth_session.request_parameters
+        )
+        new_auth_response = provider.provider.authorize(auth_req_model, user_id)
+        new_code = new_auth_response["code"]
+
+        # Update database with new authorization code for consistency
+        await AuthSessionCRUD(db).update_pyop_auth_code(str(auth_session.id), new_code)
+        form_dict["code"] = new_code
+        logger.info(
+            f"Successfully regenerated authorization code for auth_session {auth_session.id}"
+        )
+    except Exception as regenerate_error:
+        logger.error(f"Failed to regenerate authorization code: {regenerate_error}")
+        # Continue without subject replacement - this maintains functionality
+        # while logging the issue for monitoring
+        pass
+
+
 @log_debug
 @router.post(VerifiedCredentialTokenUri, response_class=JSONResponse)
 async def post_token(request: Request, db: Database = Depends(get_db)):
     """Called by oidc platform to retrieve token contents"""
     async with request.form() as form:
-        logger.warn(f"post_token: form was {form}")
+        logger.info(f"post_token: form was {form}")
         form_dict = cast(dict[str, str], form._dict)
         auth_session = await AuthSessionCRUD(db).get_by_pyop_auth_code(
             form_dict["code"]
@@ -293,11 +317,17 @@ async def post_token(request: Request, db: Database = Depends(get_db)):
             authz_info = provider.provider.authz_state.authorization_codes[
                 form_dict["code"]
             ]
-            authz_info["sub"] = claims.pop("sub")
-            new_code = provider.provider.authz_state.authorization_codes.pack(
-                authz_info
-            )
-            form_dict["code"] = new_code
+            if authz_info is None:
+                # Authorization code invalid in PyOP storage - regenerate with correct subject
+                await generate_auth_code(
+                    claims, claims.pop("sub"), auth_session, form_dict, db
+                )
+            else:
+                authz_info["sub"] = claims.pop("sub")
+                new_code = provider.provider.authz_state.authorization_codes.pack(
+                    authz_info
+                )
+                form_dict["code"] = new_code
 
         # convert form data to what library expects, Flask.app.request.get_data()
         data = urlencode(form_dict)
