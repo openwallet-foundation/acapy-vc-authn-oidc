@@ -49,18 +49,10 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{/*
-Create a default fully qualified acapy name.
-We truncate at 63 chars because some Kubernetes name fields are limited to this (by the DNS naming spec).
-*/}}
-{{- define "acapy.fullname" -}}
-{{ template "global.fullname" . }}-agent
-{{- end -}}
-
-{{/*
 Selector acapy labels
 */}}
-{{- define "acapy.selectorLabels" -}}
-app.kubernetes.io/name: {{ include "acapy.fullname" . }}
+{{- define "vc-authn-oidc.acapy.selectorLabels" -}}
+app.kubernetes.io/name: acapy
 {{ include "common.selectorLabels" . }}
 {{- end -}}
 
@@ -73,21 +65,6 @@ app.kubernetes.io/name: {{ include "global.name" . }}
 {{- end }}
 
 {{/*
-Agent labels
-*/}}
-{{- define "acapy.labels" -}}
-{{ include "common.labels" . }}
-{{ include "acapy.selectorLabels" . }}
-{{- end -}}
-
-{{/*
-Agent tails pvc name.
-*/}}
-{{- define "acapy.tails.pvc.name" -}}
-{{ template "acapy.fullname" . }}-tails
-{{- end -}}
-
-{{/*
 vc-authn-oidc labels
 */}}
 {{- define "vc-authn-oidc.labels" -}}
@@ -96,10 +73,17 @@ vc-authn-oidc labels
 {{- end }}
 
 {{/*
+Return the proper vc-authn-oidc image name
+*/}}
+{{- define "vc-authn-oidc.image" -}}
+{{ include "common.images.image" ( dict "imageRoot" .Values.image "global" .Values.global "chart" .Chart ) }}
+{{- end -}}
+
+{{/*
 Generate host name based on chart name + domain suffix
 */}}
 {{- define "vc-authn-oidc.host" -}}
-{{- include "global.fullname" . }}{{ .Values.ingressSuffix -}}
+{{- include "global.fullname" . }}{{ .Values.global.ingressSuffix -}}
 {{- end }}
 
 {{/*
@@ -230,144 +214,52 @@ Generate token private key
 {{- end -}}
 
 {{/*
-Return true if a secret object should be created for the vc-authn-oidc token private key
+Create a default fully qualified acapy name.
+We truncate at 63 chars because some Kubernetes name fields are limited to this (by the DNS naming spec).
 */}}
-{{- define "acapy.createSecret" -}}
-{{- if (empty .Values.acapy.existingSecret) }}
-    {{- true -}}
-{{- end -}}
+{{- define "vc-authn-oidc.acapy.fullname" -}}
+{{- printf "%s-acapy" (include "global.fullname" .) | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
 {{/*
-Return the secret with vc-authn-oidc token private key
+Return the acapy secret name
 */}}
-{{- define "acapy.secretName" -}}
+{{- define "vc-authn-oidc.acapy.secretName" -}}
     {{- if .Values.acapy.existingSecret -}}
         {{- .Values.acapy.existingSecret -}}
     {{- else -}}
-        {{- printf "%s-acapy-secret" (include "global.fullname" .) | trunc 63 | trimSuffix "-" -}}
+        {{- printf "%s-acapy-api" (include "global.fullname" .) | trunc 63 | trimSuffix "-" -}}
     {{- end -}}
 {{- end -}}
 
 {{/*
-Create a default fully qualified postgresql name.
-We truncate at 63 chars because some Kubernetes name fields are limited to this (by the DNS naming spec).
+generate hosts if not overriden
 */}}
-{{- define "acapy.database.secretName" -}}
-{{- if .Values.acapy.walletStorageCredentials.existingSecret -}}
-{{- .Values.acapy.walletStorageCredentials.existingSecret }}
-{{- else -}}
-{{ template "global.fullname" . }}-postgresql
-{{- end -}}
-{{- end -}}
-
-{{/*
-Return acapy label
-*/}}
-{{- define "acapy.label" -}}
-{{- if .Values.acapy.labelOverride -}}
-    {{- .Values.acapy.labelOverride }} 
-{{- else -}} 
-    {{- .Release.Name }}     
-{{- end -}}
+{{- define "vc-authn-oidc.acapy.host" -}}
+    {{ template "global.fullname" . }}-acapy{{ .Values.global.ingressSuffix -}}
 {{- end -}}
 
 {{/*
 Create URL based on hostname and TLS status
 */}}
-{{- define "acapy.agent.url" -}}
+{{- define "vc-authn-oidc.acapy.agent.url" -}}
 {{- if .Values.useHTTPS -}}
-{{- printf "https://%s" (include "acapy.host" .) }}
+{{- printf "https://%s" (include "vc-authn-oidc.acapy.host" .) }}
 {{- else -}}
-{{- printf "http://%s" (include "acapy.host" .) }}
+{{- printf "http://%s" (include "vc-authn-oidc.acapy.host" .) }}
 {{- end -}}
 {{- end }}
-
-{{/*
-generate hosts if not overriden
-*/}}
-{{- define "acapy.host" -}}
-{{- if .Values.acapy.enabled }}
-{{- include "global.fullname" . }}-agent{{ .Values.ingressSuffix -}}
-{{- else }}
-    {{ .Values.acapy.agentUrl }}
-{{- end }}
-{{- end -}}
 
 {{/*
 generate admin url (internal)
 */}}
-{{- define "acapy.internal.admin.url" -}}
-http://{{- include "acapy.fullname" . }}:{{.Values.acapy.service.adminPort }}
+{{- define "vc-authn-oidc.acapy.admin.url" -}}
+   http://{{- include "global.fullname" . }}-acapy:{{.Values.acapy.service.ports.admin }}
 {{- end -}}
 
 {{/*
 Generate hosts for acapy admin if not overriden
 */}}
-{{- define "acapy.admin.host" -}}
-{{- if .Values.acapy.enabled }}
-    {{- include "global.fullname" . }}-agent-admin{{ .Values.ingressSuffix -}}
-{{- else }}
-    {{ .Values.acapy.adminUrl }}
-{{- end }}
-{{- end -}}
-
-{{/*
-Create a default fully qualified app name for the postgres requirement.
-*/}}
-{{- define "global.postgresql.fullname" -}}
-{{- if .Values.postgresql.fullnameOverride }}
-{{- .Values.postgresql.fullnameOverride | trunc 63 | trimSuffix "-" }}
-{{- else }}
-{{- $postgresContext := dict "Values" .Values.postgresql "Release" .Release "Chart" (dict "Name" "postgresql") -}}
-{{ template "postgresql.v1.primary.fullname" $postgresContext }}
-{{- end -}}
-{{- end -}}
-
-{{/*
-Generate acapy wallet storage config
-*/}}
-{{- define "acapy.walletStorageConfig" -}}
-{{- if .Values.acapy.walletStorageConfig.json -}}
-    {{- .Values.acapy.walletStorageConfig.json -}}
-{{- else if .Values.acapy.walletStorageConfig.url -}}
-    '{"url":"{{ .Values.acapy.walletStorageConfig.url }}","max_connections":"{{ .Values.acapy.walletStorageConfig.max_connection | default 10 }}", "wallet_scheme":"{{ .Values.acapy.walletStorageConfig.wallet_scheme }}"}'
-{{- else if .Values.postgresql.enabled -}}
-    '{"url":"{{ include "global.postgresql.fullname" . }}:{{ .Values.postgresql.primary.service.ports.postgresql }}","max_connections":"{{ .Values.acapy.walletStorageConfig.max_connections }}","wallet_scheme":"{{ .Values.acapy.walletStorageConfig.wallet_scheme }}"}'
-{{- else -}}
-    ''
-{{ end }}
-{{- end -}}
-
-{{/*
-Generate acapy wallet storage credentials
-*/}}
-{{- define "acapy.walletStorageCredentials" -}}
-{{- if .Values.acapy.walletStorageCredentials.json -}}
-    {{- .Values.acapy.walletStorageCredentials.json -}}
-{{- else if .Values.postgresql.enabled -}}
-    '{"account":"{{ .Values.postgresql.auth.username }}","password":"$(POSTGRES_PASSWORD)","admin_account":"{{ .Values.acapy.walletStorageCredentials.admin_account }}","admin_password":"$(POSTGRES_POSTGRES_PASSWORD)"}'
-{{- else -}}
-    '{"account":"{{ .Values.acapy.walletStorageCredentials.account | default "acapy" }}","password":"$(POSTGRES_PASSWORD)","admin_account":"{{ .Values.acapy.walletStorageCredentials.admin_account }}","admin_password":"$(POSTGRES_POSTGRES_PASSWORD)"}'
-{{- end -}}
-{{- end -}}
-
-{{/*
-Create the name of the acapy service account to use
-*/}}
-{{- define "acapy.serviceAccountName" -}}
-{{- if .Values.acapy.serviceAccount.create }}
-{{- default (include "acapy.fullname" .) .Values.acapy.serviceAccount.name }}
-{{- else }}
-{{- default "default" .Values.acapy.serviceAccount.name }}
-{{- end }}
-{{- end }}
-
-{{/*
-Return true if the seed secret should be created
-*/}}
-{{- define "acapy.seed.createSecret" -}}
-{{- if not .Values.acapy.agentSeed.existingSecret -}}
-{{- true -}}
-{{- end -}}
+{{- define "vc-authn-oidc.acapy.admin.host" -}}
+   {{- include "global.fullname" . }}-acapy-admin{{ .Values.global.ingressSuffix -}}
 {{- end -}}
