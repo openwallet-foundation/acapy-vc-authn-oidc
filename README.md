@@ -30,9 +30,15 @@ NGROK_AUTHTOKEN=<your token here>
 
 Open a shell in the [docker](docker/) folder and run the following commands:
 
-- `./manage build`: this command will build the controller image. This step is required the first time the project is run, and when dependencies in change in the requirements file(s).
-- `./manage start`: this will start the project. Follow the script prompts to select the appropriate runtime options: they will be saved in an `env` file for the next execution.
+- `./manage build`: this command will build the controller image. This step is required the first time the project is run, and when dependencies change in the requirements file(s).
+- `./manage start`: this will start the project with **multiple controller pods by default** for scalability. Follow the script prompts to select the appropriate runtime options: they will be saved in an `env` file for the next execution.
 - To reset everything (including removing container data and selected options in the `env` file) execute `./manage rm`.
+
+### Additional Commands
+
+- `./manage single-pod`: Run single pod setup for debugging
+- `./manage scale <number>`: Scale to specific number of controller pods
+- `CONTROLLER_REPLICAS=<number> ./manage start`: Set replica count via environment
 
 A list of all available commands is visible by executing `./manage -h`.
 
