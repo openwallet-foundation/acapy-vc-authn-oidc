@@ -1,5 +1,6 @@
 import socketio  # For using websockets
 import logging
+import structlog
 from fastapi import Depends
 from pymongo.database import Database
 
@@ -7,9 +8,42 @@ from ..authSessions.crud import AuthSessionCRUD
 from ..db.session import get_db, client
 from ..core.config import settings
 
-logger = logging.getLogger(__name__)
+logger = structlog.getLogger(__name__)
 
-sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins="*")
+
+def create_socket_manager():
+    """Create Socket.IO manager with Redis adapter if configured"""
+    if not settings.USE_REDIS_ADAPTER:
+        logger.info("Redis adapter disabled - using default manager")
+        return None
+
+    if not settings.REDIS_HOST:
+        logger.warning("REDIS_HOST not configured - falling back to default manager")
+        return None
+
+    try:
+        # Build Redis URL
+        redis_url = f"redis://:{settings.REDIS_PASSWORD}@{settings.REDIS_HOST}:{settings.REDIS_PORT}/{settings.REDIS_DB}"
+        if not settings.REDIS_PASSWORD:
+            redis_url = f"redis://{settings.REDIS_HOST}:{settings.REDIS_PORT}/{settings.REDIS_DB}"
+
+        manager = socketio.AsyncRedisManager(redis_url)
+        logger.info(
+            f"Redis adapter configured: {settings.REDIS_HOST}:{settings.REDIS_PORT}"
+        )
+        return manager
+    except Exception as e:
+        logger.error(f"Failed to initialize Redis adapter: {e}")
+        logger.warning(
+            "Falling back to default manager - cross-pod communication disabled"
+        )
+        return None
+
+
+# Create Socket.IO server with Redis adapter
+sio = socketio.AsyncServer(
+    async_mode="asgi", cors_allowed_origins="*", client_manager=create_socket_manager()
+)
 
 sio_app = socketio.ASGIApp(socketio_server=sio, socketio_path="/ws/socket.io")
 
