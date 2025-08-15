@@ -1,8 +1,8 @@
 {{- if .Values.ingress.enabled -}}
 {{- $fullName := include "global.fullname" . -}}
-{{- $acapyFullName := include "acapy.fullname" . -}}
-{{- $httpPort := .Values.acapy.service.httpPort -}}
-{{- $adminPort := .Values.acapy.service.adminPort -}}
+{{- $acapyFullName := include "vc-authn-oidc.acapy.fullname" . -}}
+{{- $httpPort := .Values.acapy.service.ports.http -}}
+{{- $adminPort := .Values.acapy.service.ports.admin -}}
 {{- $svcPort := .Values.service.port -}}
 {{- if and .Values.ingress.className (not (semverCompare ">=1.18-0" .Capabilities.KubeVersion.GitVersion)) }}
   {{- if not (hasKey .Values.ingress.annotations "kubernetes.io/ingress.class") }}
@@ -58,7 +58,7 @@ spec:
               servicePort: {{ $svcPort }}
               {{- end }}
     {{- if .Values.acapy.enabled }}
-    - host: {{ include "acapy.host" . | quote }}
+    - host: {{ include "vc-authn-oidc.acapy.host" . | quote }}
       http:
         paths:
           - path: /
@@ -75,7 +75,7 @@ spec:
               serviceName: {{ $acapyFullName }}
               servicePort: {{ $httpPort }}
               {{- end }}
-    - host: {{ include "acapy.admin.host" . | quote }}
+    - host: {{ include "vc-authn-oidc.acapy.admin.host" . | quote }}
       http:
         paths:
           - path: /
