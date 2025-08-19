@@ -11,14 +11,23 @@ from ..core.config import settings
 logger = structlog.getLogger(__name__)
 
 
-def create_socket_manager():
-    """Create Socket.IO manager with Redis adapter if configured"""
+def _should_use_redis_adapter():
+    """Single check to determine if Redis adapter should be used"""
     if not settings.USE_REDIS_ADAPTER:
         logger.info("Redis adapter disabled - using default manager")
-        return None
+        return False
 
     if not settings.REDIS_HOST:
         logger.warning("REDIS_HOST not configured - falling back to default manager")
+        return False
+
+    # All required settings present
+    return True
+
+
+def create_socket_manager():
+    """Create Socket.IO manager with Redis adapter if configured"""
+    if not _should_use_redis_adapter():
         return None
 
     try:

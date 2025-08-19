@@ -491,48 +491,83 @@ class TestSocketIOEventHandlers:
         mock_crud_instance.update_socket_id.assert_called_once()
 
 
-class TestCreateSocketManager:
-    """Test create_socket_manager function for Redis adapter configuration."""
+class TestShouldUseRedisAdapter:
+    """Test _should_use_redis_adapter function for consolidated Redis configuration checks."""
 
     @patch("api.routers.socketio.settings")
-    def test_create_socket_manager_redis_disabled(self, mock_settings):
-        """Test create_socket_manager when Redis adapter is disabled."""
-        from api.routers.socketio import create_socket_manager
+    def test_should_use_redis_adapter_disabled(self, mock_settings):
+        """Test _should_use_redis_adapter when Redis adapter is disabled."""
+        from api.routers.socketio import _should_use_redis_adapter
 
         # Setup
         mock_settings.USE_REDIS_ADAPTER = False
 
         # Execute
-        result = create_socket_manager()
+        result = _should_use_redis_adapter()
 
         # Verify
-        assert result is None
+        assert result is False
 
     @patch("api.routers.socketio.settings")
-    def test_create_socket_manager_no_redis_host(self, mock_settings):
-        """Test create_socket_manager when REDIS_HOST is not configured."""
-        from api.routers.socketio import create_socket_manager
+    def test_should_use_redis_adapter_no_host(self, mock_settings):
+        """Test _should_use_redis_adapter when REDIS_HOST is not configured."""
+        from api.routers.socketio import _should_use_redis_adapter
 
         # Setup
         mock_settings.USE_REDIS_ADAPTER = True
         mock_settings.REDIS_HOST = None
 
         # Execute
+        result = _should_use_redis_adapter()
+
+        # Verify
+        assert result is False
+
+    @patch("api.routers.socketio.settings")
+    def test_should_use_redis_adapter_enabled(self, mock_settings):
+        """Test _should_use_redis_adapter when all settings are configured."""
+        from api.routers.socketio import _should_use_redis_adapter
+
+        # Setup
+        mock_settings.USE_REDIS_ADAPTER = True
+        mock_settings.REDIS_HOST = "localhost"
+
+        # Execute
+        result = _should_use_redis_adapter()
+
+        # Verify
+        assert result is True
+
+
+class TestCreateSocketManager:
+    """Test create_socket_manager function for Redis adapter configuration."""
+
+    @patch("api.routers.socketio._should_use_redis_adapter")
+    def test_create_socket_manager_should_not_use_redis(self, mock_should_use):
+        """Test create_socket_manager when _should_use_redis_adapter returns False."""
+        from api.routers.socketio import create_socket_manager
+
+        # Setup
+        mock_should_use.return_value = False
+
+        # Execute
         result = create_socket_manager()
 
         # Verify
         assert result is None
+        mock_should_use.assert_called_once()
 
+    @patch("api.routers.socketio._should_use_redis_adapter")
     @patch("api.routers.socketio.settings")
     @patch("api.routers.socketio.socketio.AsyncRedisManager")
     def test_create_socket_manager_success_with_password(
-        self, mock_redis_manager, mock_settings
+        self, mock_redis_manager, mock_settings, mock_should_use
     ):
         """Test successful Redis manager creation with password."""
         from api.routers.socketio import create_socket_manager
 
         # Setup
-        mock_settings.USE_REDIS_ADAPTER = True
+        mock_should_use.return_value = True
         mock_settings.REDIS_HOST = "localhost"
         mock_settings.REDIS_PORT = 6379
         mock_settings.REDIS_PASSWORD = "secret"
@@ -544,20 +579,22 @@ class TestCreateSocketManager:
         result = create_socket_manager()
 
         # Verify
+        mock_should_use.assert_called_once()
         expected_url = "redis://:secret@localhost:6379/0"
         mock_redis_manager.assert_called_once_with(expected_url)
         assert result == mock_manager_instance
 
+    @patch("api.routers.socketio._should_use_redis_adapter")
     @patch("api.routers.socketio.settings")
     @patch("api.routers.socketio.socketio.AsyncRedisManager")
     def test_create_socket_manager_success_without_password(
-        self, mock_redis_manager, mock_settings
+        self, mock_redis_manager, mock_settings, mock_should_use
     ):
         """Test successful Redis manager creation without password."""
         from api.routers.socketio import create_socket_manager
 
         # Setup
-        mock_settings.USE_REDIS_ADAPTER = True
+        mock_should_use.return_value = True
         mock_settings.REDIS_HOST = "localhost"
         mock_settings.REDIS_PORT = 6379
         mock_settings.REDIS_PASSWORD = None
@@ -569,26 +606,24 @@ class TestCreateSocketManager:
         result = create_socket_manager()
 
         # Verify
+        mock_should_use.assert_called_once()
         expected_url = "redis://localhost:6379/0"
         mock_redis_manager.assert_called_once_with(expected_url)
         assert result == mock_manager_instance
 
-    @patch("api.routers.socketio.settings")
+    @patch("api.routers.socketio._should_use_redis_adapter")
     @patch("api.routers.socketio.socketio.AsyncRedisManager")
-    def test_create_socket_manager_exception(self, mock_redis_manager, mock_settings):
+    def test_create_socket_manager_exception(self, mock_redis_manager, mock_should_use):
         """Test create_socket_manager when Redis manager creation fails."""
         from api.routers.socketio import create_socket_manager
 
         # Setup
-        mock_settings.USE_REDIS_ADAPTER = True
-        mock_settings.REDIS_HOST = "localhost"
-        mock_settings.REDIS_PORT = 6379
-        mock_settings.REDIS_PASSWORD = None
-        mock_settings.REDIS_DB = 0
+        mock_should_use.return_value = True
         mock_redis_manager.side_effect = Exception("Redis connection failed")
 
         # Execute
         result = create_socket_manager()
 
         # Verify
+        mock_should_use.assert_called_once()
         assert result is None
