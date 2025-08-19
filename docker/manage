@@ -1,7 +1,7 @@
 #!/bin/bash
 export MSYS_NO_PATHCONV=1
 # getDockerHost; for details refer to https://github.com/bcgov/DITP-DevOps/tree/main/code/snippets#getdockerhost
-. /dev/stdin <<<"$(cat <(curl -s --raw https://raw.githubusercontent.com/bcgov/DITP-DevOps/main/code/snippets/getDockerHost))" 
+. /dev/stdin <<<"$(cat <(curl -s --raw https://raw.githubusercontent.com/bcgov/DITP-DevOps/main/code/snippets/getDockerHost))"
 export DOCKERHOST=$(getDockerHost)
 set -e
 
@@ -59,21 +59,21 @@ SCRIPT_HOME="$(cd "$(dirname "$0")" && pwd)"
 # -----------------------------------------------------------------------------------------------------------------
 usage() {
   cat <<-EOF
-    
+
       Usage: $0 [command] [options]
-    
+
       Commands:
-    
+
       build - Build the docker images for the project.
               You need to do this first.
-    
-                $0 build 
-    
+
+                $0 build
+
       up -  Creates the application containers from the built images
             and starts the services based on the docker-compose.yml file.
             Runs multiple controller pods by default for scalability.
 
-            You can pass in a list of containers to start.  
+            You can pass in a list of containers to start.
             By default all containers will be started.
 
               $0 start
@@ -92,9 +92,9 @@ usage() {
 
       stop - Stops the services.  This is a non-destructive process.  The volumes and containers
              are not deleted so they will be reused the next time you run start.
-    
+
       down - Brings down the services and removes the volumes (storage) and containers.
-      
+
       rm - Same as down
 EOF
   exit 1
@@ -329,10 +329,10 @@ function setNgrokEndpoints() {
     echo "CONTROLLER_URL is already set to: $CONTROLLER_URL"
   else
     echoInfo "Determining ngrok url for controller service..."
-    
+
     getNgrokUrl http://${DOCKERHOST}:4046/api/tunnels controller-ngrok.json NGROK_CONTROLLER_URL controller-ngrok
     export CONTROLLER_URL=${NGROK_CONTROLLER_URL}
-    
+
     echoSuccess "The controller url is: ${NGROK_CONTROLLER_URL}"
   fi
 
@@ -341,9 +341,9 @@ function setNgrokEndpoints() {
   else
     echoInfo "Determining ngrok url for agent service..."
     getNgrokUrl http://${DOCKERHOST}:4046/api/tunnels agent-ngrok.json NGROK_AGENT_URL aca-py-ngrok
-    
+
     export AGENT_ENDPOINT=${NGROK_AGENT_URL}
-    
+
     echoSuccess "The agent url is: ${NGROK_AGENT_URL}"
   fi
 }
@@ -357,7 +357,7 @@ function getNgrokUrl() {
   function extractUrl() {
     docker run --rm curlimages/curl -L -s $_url > $_output_file
     NGROK_URL=$(docker run --rm -i ghcr.io/jqlang/jq:1.7rc1 < $_output_file --raw-output '.tunnels | map(select(.name=="'${_tunnel_name}'")) | .[0] | .public_url')
-  
+
     if [ -z "${NGROK_URL}" ] || [ "null" = "${NGROK_URL}" ]; then
       return 1
     else
@@ -377,7 +377,7 @@ function getNgrokUrl() {
     fi
     sleep 1
   done
-  
+
   rm $_output_file
 
   # assign value to target variable
@@ -393,7 +393,7 @@ shift || COMMAND=usage
 case "${COMMAND}" in
 start|up)
   _startupParams=$(getStartupParams $@)
-  
+
   if [[ ! -f ".env" ]]; then
     # first/clean run, prompt user selections
     initializeUserPrompts
@@ -424,7 +424,7 @@ stop)
   docker-compose stop
   docker compose -f docker-compose-ngrok.yaml stop
   ;;
-rm|down)  
+rm|down)
   # delete previously saved settings
   if [ -f ".env" ] ; then
     rm ".env"
