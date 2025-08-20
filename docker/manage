@@ -407,11 +407,9 @@ start|up)
 
   configureEnvironment $@
 
-  docker-compose up -d ${_startupParams} ${DEFAULT_CONTAINERS} ${ACAPY_CONTAINERS}
+  docker-compose up -d ${_startupParams} ${DEFAULT_CONTAINERS} ${ACAPY_CONTAINERS} ${PROD_CONTAINERS}
 
-  # Scale controller to desired replicas
-  echo "Scaling controller to ${CONTROLLER_REPLICAS} replicas..."
-  docker-compose up -d --scale controller=${CONTROLLER_REPLICAS} ${PROD_CONTAINERS}
+  echo "Started with ${CONTROLLER_REPLICAS} controller replicas"
 
   docker-compose logs -f
  ;;
@@ -441,8 +439,11 @@ build)
 scale)
   REPLICAS=${REPLICAS:-3}
   configureEnvironment $@
+
+  # Set the new replica count and recreate the controller service
+  export CONTROLLER_REPLICAS=${REPLICAS}
   echo "Scaling controller to ${REPLICAS} replicas..."
-  docker-compose up -d --scale controller=${REPLICAS} controller
+  docker-compose up -d --force-recreate controller
   ;;
 single-pod)
   if [[ ! -f ".env" ]]; then
@@ -457,8 +458,9 @@ single-pod)
   fi
 
   configureEnvironment $@
+  export CONTROLLER_REPLICAS=1
   echo "Running single pod setup..."
-  docker-compose up -d --scale controller=1 ${DEFAULT_CONTAINERS} ${ACAPY_CONTAINERS} ${PROD_CONTAINERS}
+  docker-compose up -d ${DEFAULT_CONTAINERS} ${ACAPY_CONTAINERS} ${PROD_CONTAINERS}
   docker-compose logs -f
   ;;
 *)

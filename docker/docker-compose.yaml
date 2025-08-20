@@ -61,6 +61,8 @@ services:
     expose:
       - "5000"
       - "5678"
+    deploy:
+      replicas: ${CONTROLLER_REPLICAS:-3}
     volumes:
       - ../oidc-controller:/app/src:rw
       - ./oidc-controller/config/user_variable_substitution.py:/app/controller-config/user_variable_substitution.py
