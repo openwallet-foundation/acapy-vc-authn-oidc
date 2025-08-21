@@ -334,9 +334,6 @@ acapy:
     targetMemoryUtilizationPercentage: ""
     stabilizationWindowSeconds: 300
 
-  ## @param acapy.labelOverride
-  labelOverride: ""
-
   ## @section Acapy configuration file
   ##
   ## @descriptionStart
