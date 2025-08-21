@@ -278,16 +278,14 @@ tolerations: []
 acapy:
   ## @param acapy.enabled Deploy AcaPy agent instance
   enabled: true
-  ## @param acapy.agentUrl Agent host, required if `enabled` is `false`, otherwise ignored
-  agentUrl: ""
-  ## @param acapy.adminUrl Agent admin host, required if `enabled` is `false`, otherwise ignored
-  adminUrl: ""
+
   ## @param acapy.existingSecret Name of existing secret, required if `enabled` is `false`; Secret must contain `adminApiKey`, `walletKey`, and `webhookApiKey` keys.
   existingSecret: ""
   ## @param acapy.agentSeed.existingSecret Name of existing secret with the 'seed' key.
   agentSeed:
     existingSecret: ""
 
+  ## @param acapy.image.registry
   ## @param acapy.image.repository
   ## @param acapy.image.pullPolicy
   ## @param acapy.image.pullSecrets [array]
@@ -440,6 +438,31 @@ acapy:
         network.openshift.io/policy-group: ingress
       podSelector: {}
 
+  ## @param acapy.agentUrl Agent host, required if `enabled` is `false`, otherwise ignored
+  agentUrl: ""
+  ## @param acapy.adminUrl Agent admin host, required if `enabled` is `false`, otherwise ignored
+  adminUrl: ""
+
+  ## AcaPy ingress configuration
+  ingress:
+    agent:
+      ## @param acapy.ingress.agent.enabled Set to true to enable acapy ingress
+      enabled: false
+      ## @param acapy.ingress.agent.publicScheme Scheme used to construct the public URL from the ingress host.
+      publicScheme: https
+      ## @param acapy.ingress.agent.hostname When the ingress is enabled, a host pointing to this will be created
+      hostname: vc-authn-oidc-acapy.local
+    admin:
+      ## @param acapy.ingress.admin.enabled Set to true to enable acapy admin ingress
+      enabled: false
+      ## @param acapy.ingress.admin.hostname When the ingress is enabled, a host pointing to this will be created
+      hostname: admin.vc-authn-oidc.local
+
+  postgresql:
+    ## @param acapy.postgresql.commonLabels [object] apply common labels to postgresql resources
+    commonLabels:
+      app.kubernetes.io/role: wallet
+
 ##  Overrides for bitnami/mongodb chart - https://github.com/bitnami/charts/tree/main/bitnami/mongodb
 mongodb:
   auth:
@@ -458,10 +481,9 @@ mongodb:
     ##
     usernames: ["vcauthn"]
     databases: ["vcauthn"]
-  ## @param mongodb.commonLabels [array] Add labels to all the deployed resources (sub-charts are not considered). Evaluated as a template
+  ## @param mongodb.commonLabels [object] Add labels to all the deployed resources (sub-charts are not considered). Evaluated as a template
   ##
   commonLabels:
-    app.kubernetes.io/app: vc-authn-oidc
     app.kubernetes.io/role: database
 
   ## @param mongodb.architecture MongoDB(&reg;) architecture (`standalone` or `replicaset`)
