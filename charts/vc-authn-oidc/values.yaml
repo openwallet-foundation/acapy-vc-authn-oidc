@@ -294,7 +294,8 @@ acapy:
   ## @param acapy.image.tag
   ##
   image:
-    repository: ghcr.io/openwallet-foundation/acapy-agent
+    registry: ghcr.io
+    repository: openwallet-foundation/acapy-agent
     pullPolicy: IfNotPresent
     pullSecrets: []
     tag: py3.12-1.3.1
