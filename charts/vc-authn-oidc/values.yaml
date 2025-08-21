@@ -363,7 +363,6 @@ acapy:
   ## @param acapy.argfile.yml.wallet-name Specifies the wallet name to be used by the agent. This is useful if your deployment has multiple wallets.
   ## @param acapy.argfile.yml.wallet-storage-type Specifies the type of Indy wallet backend to use. Supported internal storage types are 'basic' (memory), 'default' (sqlite), and 'postgres_storage'.  The default, if not specified, is 'default'.
   ## @param acapy.argfile.yml.wallet-type Specifies the type of Indy wallet provider to use. Supported internal storage types are 'basic' (memory) and 'indy'. The default (if not specified) is 'basic'.
-  ## @param acapy.argfile.yml.webhook-url Send webhooks containing internal state changes to the specified URL. Optional API key to be passed in the request body can be appended using a hash separator [#]. This is useful for a controller to monitor agent events and respond to those events using the admin API. If not specified, webhooks are not published by the agent.
   ##
   argfile.yml:
     admin-insecure-mode: false
@@ -385,7 +384,6 @@ acapy:
     wallet-name: askar-wallet
     wallet-storage-type: postgres_storage
     wallet-type: askar
-    webhook-url: 'http://{{- .Release.Name -}}:5000/webhooks'
 
   ## @param acapy.ledgers.yml [object]
   ledgers.yml: |-
