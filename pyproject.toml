@@ -2,7 +2,7 @@
 name = "acapy-vc-authn-oidc"
 version = "0.2.2"
 description = "Verifiable Credential Identity Provider for OpenID Connect."
-authors = [ { name = "Government of British Columbia", email = "DItrust@gov.bc.ca" } ]
+authors = [ { name = "OpenWallet Foundation" } ]
 license = "Apache-2.0"
 readme = "README.md"
 classifiers = [
