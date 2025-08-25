@@ -185,23 +185,40 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                     auth_session.proof_status = AuthSessionState.VERIFIED
 
                     # Get presentation data via API call instead of webhook payload
+                    client = AcapyClient()
+                    presentation_data = client.get_presentation_request(
+                        webhook_body["pres_ex_id"]
+                    )
+
+                    if not presentation_data:
+                        raise ValueError(
+                            f"Failed to retrieve presentation data for {webhook_body['pres_ex_id']} - record may have been deleted or is inaccessible"
+                        )
+
+                    auth_session.presentation_exchange = presentation_data.get(
+                        "by_format", {}
+                    )
+                    logger.debug(
+                        f"Retrieved presentation data via API for {webhook_body['pres_ex_id']}"
+                    )
+
+                    # Immediately cleanup the presentation record after successful retrieval
                     try:
-                        client = AcapyClient()
-                        presentation_data = client.get_presentation_request(
+                        cleanup_success = client.delete_presentation_record(
                             webhook_body["pres_ex_id"]
                         )
-                        auth_session.presentation_exchange = presentation_data.get(
-                            "by_format", {}
+                        if cleanup_success:
+                            logger.info(
+                                f"Successfully cleaned up presentation record {webhook_body['pres_ex_id']}"
+                            )
+                        else:
+                            logger.warning(
+                                f"Failed to cleanup presentation record {webhook_body['pres_ex_id']} - will be handled by background cleanup"
+                            )
+                    except Exception as cleanup_error:
+                        logger.warning(
+                            f"Cleanup failed for presentation record {webhook_body['pres_ex_id']}: {cleanup_error} - will be handled by background cleanup"
                         )
-                        logger.debug(
-                            f"Retrieved presentation data via API for {webhook_body['pres_ex_id']}"
-                        )
-                    except Exception as e:
-                        logger.error(
-                            f"Failed to retrieve presentation data via API: {e}"
-                        )
-                        # Continue with verification but without presentation details
-                        auth_session.presentation_exchange = {}
 
                     if sid:
                         await sio.emit("status", {"status": "verified"}, to=sid)
