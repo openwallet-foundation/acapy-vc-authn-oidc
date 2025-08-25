@@ -110,6 +110,31 @@ class AcapyClient:
             )
             return False
 
+    def get_all_presentation_records(self) -> list[dict]:
+        """Get all presentation records for cleanup purposes"""
+        logger.debug(">>> get_all_presentation_records")
+
+        try:
+            resp_raw = requests.get(
+                f"{self.acapy_host}{PRESENT_PROOF_RECORDS}",
+                headers=self.agent_config.get_headers(),
+            )
+
+            if resp_raw.status_code != 200:
+                logger.warning(
+                    f"Failed to get presentation records: {resp_raw.status_code}, {resp_raw.content}"
+                )
+                return []
+
+            resp = json.loads(resp_raw.content)
+            records = resp.get("results", [])
+            logger.debug(f"<<< get_all_presentation_records -> {len(records)} records")
+            return records
+
+        except Exception as e:
+            logger.error(f"Failed to get all presentation records: {e}")
+            return []
+
     def get_wallet_did(self, public=False) -> WalletDid:
         logger.debug(">>> get_wallet_did")
         url = None

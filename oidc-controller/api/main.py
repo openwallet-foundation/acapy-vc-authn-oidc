@@ -1,3 +1,4 @@
+import asyncio
 import traceback
 import structlog
 import os
@@ -21,6 +22,7 @@ from .verificationConfigs.router import router as ver_configs_router
 from .clientConfigurations.router import router as client_config_router
 from .routers.socketio import sio_app
 from api.core.oidc.provider import init_provider
+from .services.cleanup import cleanup_service
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
 
@@ -132,6 +134,11 @@ async def on_tenant_startup():
     """Register any events we need to respond to."""
     await init_db()
     await init_provider(await get_db())
+
+    # Start the background cleanup task
+    asyncio.create_task(cleanup_service.start_background_cleanup_task())
+    logger.info("Started background presentation record cleanup task")
+
     logger.info(">>> Starting up app new ...")
 
 
