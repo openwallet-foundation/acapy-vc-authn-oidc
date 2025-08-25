@@ -57,10 +57,12 @@ services:
       - REDIS_PASSWORD=${REDIS_PASSWORD}
       - REDIS_DB=${REDIS_DB}
       - USE_REDIS_ADAPTER=${USE_REDIS_ADAPTER}
+    # Expose debugger ports as a range
+    ports:
+      - "5678-5688:5678"
     # Remove direct port exposure - goes through load balancer
     expose:
       - "5000"
-      - "5678"
     deploy:
       replicas: ${CONTROLLER_REPLICAS:-3}
     volumes:
