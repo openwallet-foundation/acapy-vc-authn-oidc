@@ -18,9 +18,7 @@ class PresentationCleanupService:
     def __init__(self):
         self.client = AcapyClient()
         self.retention_hours = settings.CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS
-        self.schedule_minutes = (
-            settings.CONTROLLER_PRESENTATION_CLEANUP_SCHEDULE_MINUTES
-        )
+        self.schedule_minutes = settings.CONTROLLER_PRESENTATION_CLEANUP_SCHEDULE_MINUTES
 
     async def cleanup_old_presentation_records(self) -> dict:
         """Clean up presentation records older than retention period."""
