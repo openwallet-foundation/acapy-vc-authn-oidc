@@ -85,6 +85,31 @@ class AcapyClient:
         logger.debug(f"<<< get_presentation_request -> {resp}")
         return resp
 
+    def delete_presentation_record(self, presentation_exchange_id: UUID | str) -> bool:
+        """Delete a presentation record by ID"""
+        logger.debug(f">>> delete_presentation_record: {presentation_exchange_id}")
+
+        try:
+            resp_raw = requests.delete(
+                f"{self.acapy_host}{PRESENT_PROOF_RECORDS}/{presentation_exchange_id}",
+                headers=self.agent_config.get_headers(),
+            )
+
+            success = resp_raw.status_code == 200
+            if success:
+                logger.debug(f"<<< delete_presentation_record -> Success")
+            else:
+                logger.warning(
+                    f"<<< delete_presentation_record -> Failed: {resp_raw.status_code}, {resp_raw.content}"
+                )
+            return success
+
+        except Exception as e:
+            logger.error(
+                f"Failed to delete presentation record {presentation_exchange_id}: {e}"
+            )
+            return False
+
     def get_wallet_did(self, public=False) -> WalletDid:
         logger.debug(">>> get_wallet_did")
         url = None

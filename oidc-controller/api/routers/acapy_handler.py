@@ -183,7 +183,26 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                 logger.info("VERIFIED")
                 if webhook_body["verified"] == "true":
                     auth_session.proof_status = AuthSessionState.VERIFIED
-                    auth_session.presentation_exchange = webhook_body["by_format"]
+
+                    # Get presentation data via API call instead of webhook payload
+                    try:
+                        client = AcapyClient()
+                        presentation_data = client.get_presentation_request(
+                            webhook_body["pres_ex_id"]
+                        )
+                        auth_session.presentation_exchange = presentation_data.get(
+                            "by_format", {}
+                        )
+                        logger.debug(
+                            f"Retrieved presentation data via API for {webhook_body['pres_ex_id']}"
+                        )
+                    except Exception as e:
+                        logger.error(
+                            f"Failed to retrieve presentation data via API: {e}"
+                        )
+                        # Continue with verification but without presentation details
+                        auth_session.presentation_exchange = {}
+
                     if sid:
                         await sio.emit("status", {"status": "verified"}, to=sid)
                 else:
