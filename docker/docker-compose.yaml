@@ -121,6 +121,7 @@ services:
       - ACAPY_LOG_LEVEL=info
       - ACAPY_WEBHOOK_URL=${CONTROLLER_WEB_HOOK_URL}
       - ACAPY_AUTO_PROVISION=true
+      - ACAPY_PRESERVE_EXCHANGE_RECORDS=true
       - POSTGRESQL_WALLET_HOST=${POSTGRESQL_WALLET_HOST}
       - POSTGRESQL_WALLET_PORT=${POSTGRESQL_WALLET_PORT}
       - POSTGRESQL_WALLET_USER=${POSTGRESQL_WALLET_USER}
@@ -138,7 +139,7 @@ services:
     command:
       [
         "-c",
-        'sleep 15; aca-py start --inbound-transport http ''0.0.0.0'' ${AGENT_HTTP_PORT} --outbound-transport http --wallet-storage-config ''{"url":"${POSTGRESQL_WALLET_HOST}:${POSTGRESQL_WALLET_PORT}","max_connections":5}'' --wallet-storage-creds ''{"account":"${POSTGRESQL_WALLET_USER}","password":"${POSTGRESQL_WALLET_PASSWORD}","admin_account":"${POSTGRESQL_WALLET_USER}","admin_password":"${POSTGRESQL_WALLET_PASSWORD}"}'' --admin ''0.0.0.0'' ${AGENT_ADMIN_PORT} --${AGENT_ADMIN_MODE} --preserve-exchange-records',
+        'sleep 15; aca-py start --inbound-transport http ''0.0.0.0'' ${AGENT_HTTP_PORT} --outbound-transport http --wallet-storage-config ''{"url":"${POSTGRESQL_WALLET_HOST}:${POSTGRESQL_WALLET_PORT}","max_connections":5}'' --wallet-storage-creds ''{"account":"${POSTGRESQL_WALLET_USER}","password":"${POSTGRESQL_WALLET_PASSWORD}","admin_account":"${POSTGRESQL_WALLET_USER}","admin_password":"${POSTGRESQL_WALLET_PASSWORD}"}'' --admin ''0.0.0.0'' ${AGENT_ADMIN_PORT} --${AGENT_ADMIN_MODE}',
       ]
 
   wallet-db:
