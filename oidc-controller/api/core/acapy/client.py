@@ -359,7 +359,7 @@ class AcapyClient:
                 logger.error(error_msg)
 
         # Second, delete the connection if provided
-        # TODO: make manditory when connections we drop OOB
+        # TODO: make mandatory when we drop OOB
         if connection_id:
             try:
                 connection_deleted = self.delete_connection(connection_id)
