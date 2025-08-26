@@ -177,12 +177,12 @@ class GlobalConfig(BaseSettings):
 
     # Presentation record cleanup configuration
     # How long to retain presentation records in hours (default: 24 hours)
-    CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS: int = os.environ.get(
-        "CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS", 24
+    CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS: int = int(
+        os.environ.get("CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS", 24)
     )
     # How often to run the background cleanup task in minutes (default: 60 minutes)
-    CONTROLLER_PRESENTATION_CLEANUP_SCHEDULE_MINUTES: int = os.environ.get(
-        "CONTROLLER_PRESENTATION_CLEANUP_SCHEDULE_MINUTES", 60
+    CONTROLLER_PRESENTATION_CLEANUP_SCHEDULE_MINUTES: int = int(
+        os.environ.get("CONTROLLER_PRESENTATION_CLEANUP_SCHEDULE_MINUTES", 60)
     )
 
     CONTROLLER_SESSION_TIMEOUT_CONFIG_FILE: str | None = os.environ.get(
