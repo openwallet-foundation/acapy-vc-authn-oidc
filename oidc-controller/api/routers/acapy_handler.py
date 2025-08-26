@@ -202,13 +202,26 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                         f"Retrieved presentation data via API for {webhook_body['pres_ex_id']}"
                     )
 
-                    # Immediately cleanup the presentation record after successful retrieval
+                    # Cleanup presentation record and connection (if applicable) after successful retrieval
+                    # Determine if connection should also be deleted based on verification type and multi-use flag
+                    connection_id_to_delete = (
+                        auth_session.connection_id
+                        if (
+                            settings.USE_CONNECTION_BASED_VERIFICATION
+                            and auth_session.connection_id
+                            and not auth_session.multi_use  # Only delete single-use connections
+                        )
+                        else None
+                    )
+
                     try:
-                        presentation_deleted, _, errors = (
+                        presentation_deleted, connection_deleted, errors = (
                             client.delete_presentation_record_and_connection(
-                                webhook_body["pres_ex_id"], None
+                                webhook_body["pres_ex_id"], connection_id_to_delete
                             )
                         )
+
+                        # Log results for presentation cleanup
                         if presentation_deleted:
                             logger.info(
                                 f"Successfully cleaned up presentation record {webhook_body['pres_ex_id']}"
@@ -217,8 +230,29 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                             logger.warning(
                                 f"Failed to cleanup presentation record {webhook_body['pres_ex_id']} - will be handled by background cleanup"
                             )
-                            if errors:
-                                logger.warning(f"Cleanup errors: {errors}")
+
+                        # Log results for connection cleanup (if attempted)
+                        if connection_deleted:
+                            logger.info(
+                                f"Successfully cleaned up single-use connection {connection_id_to_delete}"
+                            )
+                        elif connection_id_to_delete:
+                            logger.warning(
+                                f"Failed to cleanup single-use connection {connection_id_to_delete}"
+                            )
+                        elif (
+                            settings.USE_CONNECTION_BASED_VERIFICATION
+                            and auth_session.connection_id
+                            and auth_session.multi_use
+                        ):
+                            logger.info(
+                                f"Preserving multi-use connection {auth_session.connection_id} for future use"
+                            )
+
+                        # Log any errors from the cleanup operation
+                        if errors:
+                            logger.warning(f"Cleanup errors: {errors}")
+
                     except Exception as cleanup_error:
                         logger.warning(
                             f"Cleanup failed for presentation record {webhook_body['pres_ex_id']}: {cleanup_error} - will be handled by background cleanup"
@@ -254,41 +288,7 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                     str(auth_session.id), AuthSessionPatch(**auth_session.model_dump())
                 )
 
-                # Cleanup connection after verification is complete (for connection-based flow)
-                if (
-                    settings.USE_CONNECTION_BASED_VERIFICATION
-                    and auth_session.connection_id
-                    and not auth_session.multi_use  # Only delete single-use connections
-                ):
-                    try:
-                        client = AcapyClient()
-                        _, connection_deleted, errors = (
-                            client.delete_presentation_record_and_connection(
-                                None, auth_session.connection_id
-                            )
-                        )
-                        if connection_deleted:
-                            logger.info(
-                                f"Cleaned up single-use connection {auth_session.connection_id} after verification"
-                            )
-                        else:
-                            logger.warning(
-                                f"Failed to cleanup single-use connection {auth_session.connection_id}"
-                            )
-                            if errors:
-                                logger.warning(f"Connection cleanup errors: {errors}")
-                    except Exception as e:
-                        logger.error(
-                            f"Error cleaning up single-use connection {auth_session.connection_id}: {e}"
-                        )
-                elif (
-                    settings.USE_CONNECTION_BASED_VERIFICATION
-                    and auth_session.connection_id
-                    and auth_session.multi_use
-                ):
-                    logger.info(
-                        f"Preserving multi-use connection {auth_session.connection_id} for future use"
-                    )
+                # Connection cleanup is now handled above in the combined cleanup operation
 
             # abandoned state
             if webhook_body["state"] == "abandoned":
@@ -325,6 +325,7 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                 if (
                     settings.USE_CONNECTION_BASED_VERIFICATION
                     and auth_session.connection_id
+                    and not auth_session.multi_use  # Only delete single-use connections
                 ):
                     try:
                         client = AcapyClient()
@@ -405,6 +406,7 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                 if (
                     settings.USE_CONNECTION_BASED_VERIFICATION
                     and auth_session.connection_id
+                    and not auth_session.multi_use  # Only delete single-use connections
                 ):
                     try:
                         client = AcapyClient()

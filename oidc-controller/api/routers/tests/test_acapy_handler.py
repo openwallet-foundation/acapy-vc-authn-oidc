@@ -545,10 +545,11 @@ class TestConnectionBasedVerificationIntegration:
         mock_client_instance.get_presentation_request.return_value = {
             "by_format": {"test": "presentation"}
         }
-        mock_client_instance.delete_presentation_record_and_connection.side_effect = [
-            (True, None, []),  # First call: presentation cleanup succeeds
-            (False, True, []),  # Second call: connection cleanup succeeds
-        ]
+        mock_client_instance.delete_presentation_record_and_connection.return_value = (
+            True,  # presentation_deleted: True
+            True,  # connection_deleted: True
+            [],  # errors: empty list
+        )
         mock_acapy_client.return_value = mock_client_instance
 
         mock_get_socket_id.return_value = "test-socket-id"
@@ -559,16 +560,9 @@ class TestConnectionBasedVerificationIntegration:
 
         # Verify
         assert result == {}
-        # Verify the wrapper function was called for both presentation and connection cleanup
-        assert (
-            mock_client_instance.delete_presentation_record_and_connection.call_count
-            == 2
-        )
-        mock_client_instance.delete_presentation_record_and_connection.assert_any_call(
-            "test-pres-ex-id", None
-        )
-        mock_client_instance.delete_presentation_record_and_connection.assert_any_call(
-            None, "test-connection-id"
+        # Verify the wrapper function was called once for both presentation and connection cleanup
+        mock_client_instance.delete_presentation_record_and_connection.assert_called_once_with(
+            "test-pres-ex-id", "test-connection-id"
         )
         mock_sio.emit.assert_called_once_with(
             "status", {"status": "verified"}, to="test-socket-id"
