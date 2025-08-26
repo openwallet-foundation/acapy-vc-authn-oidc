@@ -52,7 +52,7 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 Selector acapy labels
 */}}
 {{- define "vc-authn-oidc.acapy.selectorLabels" -}}
-app.kubernetes.io/name: acapy
+app.kubernetes.io/name: {{ include "vc-authn-oidc.acapy.name" . }}
 {{ include "common.selectorLabels" . }}
 {{- end -}}
 
@@ -213,12 +213,17 @@ Generate token private key
 {{- end -}}
 {{- end -}}
 
+{{/* Define AcaPy base name */}}
+{{- define "vc-authn-oidc.acapy.name" -}}
+{{- default "acapy" .Values.acapy.nameOverride -}}
+{{- end -}}
+
 {{/*
 Create a default fully qualified acapy name.
 We truncate at 63 chars because some Kubernetes name fields are limited to this (by the DNS naming spec).
 */}}
 {{- define "vc-authn-oidc.acapy.fullname" -}}
-{{- printf "%s-acapy" (include "global.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- printf "%s-%s" (include "global.fullname" .) (include "vc-authn-oidc.acapy.name" .) | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
 {{/*
@@ -228,7 +233,7 @@ Return the acapy secret name
     {{- if .Values.acapy.existingSecret -}}
         {{- .Values.acapy.existingSecret -}}
     {{- else -}}
-        {{- printf "%s-acapy-api" (include "global.fullname" .) | trunc 63 | trimSuffix "-" -}}
+          {{- printf "%s-%s-api" (include "global.fullname" .) (include "vc-authn-oidc.acapy.name" .) | trunc 63 | trimSuffix "-" -}}
     {{- end -}}
 {{- end -}}
 
@@ -236,7 +241,7 @@ Return the acapy secret name
 generate hosts if not overriden
 */}}
 {{- define "vc-authn-oidc.acapy.host" -}}
-    {{ template "global.fullname" . }}-acapy{{ .Values.global.ingressSuffix -}}
+    {{- printf "%s-%s%s" (include "global.fullname" .) (include "vc-authn-oidc.acapy.name" .) .Values.global.ingressSuffix -}}
 {{- end -}}
 
 {{/*
@@ -254,12 +259,12 @@ Create URL based on hostname and TLS status
 generate admin url (internal)
 */}}
 {{- define "vc-authn-oidc.acapy.admin.url" -}}
-   http://{{- include "global.fullname" . }}-acapy:{{.Values.acapy.service.ports.admin }}
+    http://{{ include "vc-authn-oidc.acapy.fullname" . }}:{{ .Values.acapy.service.ports.admin }}
 {{- end -}}
 
 {{/*
 Generate hosts for acapy admin if not overriden
 */}}
 {{- define "vc-authn-oidc.acapy.admin.host" -}}
-   {{- include "global.fullname" . }}-acapy-admin{{ .Values.global.ingressSuffix -}}
+   {{- printf "%s-%s-admin%s" (include "global.fullname" .) (include "vc-authn-oidc.acapy.name" .) .Values.global.ingressSuffix -}}
 {{- end -}}
