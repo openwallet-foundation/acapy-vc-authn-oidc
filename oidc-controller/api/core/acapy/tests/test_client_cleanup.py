@@ -191,3 +191,164 @@ class TestAcapyClientCleanup:
         # Assert
         assert result == []
         mock_get.assert_called_once()
+
+    @patch("api.core.acapy.client.requests.delete")
+    def test_delete_presentation_record_and_connection_both_success(self, mock_delete):
+        """Test successful deletion of both presentation record and connection."""
+        # Arrange
+        pres_ex_id = "test-pres-ex-id"
+        connection_id = "test-connection-id"
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_delete.return_value = mock_response
+
+        # Act
+        presentation_deleted, connection_deleted, errors = (
+            self.client.delete_presentation_record_and_connection(
+                pres_ex_id, connection_id
+            )
+        )
+
+        # Assert
+        assert presentation_deleted is True
+        assert connection_deleted is True
+        assert errors == []
+        assert mock_delete.call_count == 2
+
+    @patch("api.core.acapy.client.requests.delete")
+    def test_delete_presentation_record_and_connection_presentation_only(
+        self, mock_delete
+    ):
+        """Test deletion of presentation record only (no connection)."""
+        # Arrange
+        pres_ex_id = "test-pres-ex-id"
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_delete.return_value = mock_response
+
+        # Act
+        presentation_deleted, connection_deleted, errors = (
+            self.client.delete_presentation_record_and_connection(pres_ex_id, None)
+        )
+
+        # Assert
+        assert presentation_deleted is True
+        assert connection_deleted is None
+        assert errors == []
+        assert mock_delete.call_count == 1
+
+    @patch("api.core.acapy.client.requests.delete")
+    def test_delete_presentation_record_and_connection_connection_only(
+        self, mock_delete
+    ):
+        """Test deletion of connection only (no presentation record)."""
+        # Arrange
+        connection_id = "test-connection-id"
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_delete.return_value = mock_response
+
+        # Act
+        presentation_deleted, connection_deleted, errors = (
+            self.client.delete_presentation_record_and_connection(None, connection_id)
+        )
+
+        # Assert
+        assert presentation_deleted is False
+        assert connection_deleted is True
+        assert errors == []
+        assert mock_delete.call_count == 1
+
+    @patch("api.core.acapy.client.requests.delete")
+    def test_delete_presentation_record_and_connection_mixed_results(self, mock_delete):
+        """Test deletion with mixed success/failure results."""
+        # Arrange
+        pres_ex_id = "test-pres-ex-id"
+        connection_id = "test-connection-id"
+
+        # First call (presentation) succeeds, second call (connection) fails
+        mock_responses = [
+            Mock(status_code=200),  # Presentation deletion succeeds
+            Mock(status_code=404),  # Connection deletion fails
+        ]
+        mock_delete.side_effect = mock_responses
+
+        # Act
+        presentation_deleted, connection_deleted, errors = (
+            self.client.delete_presentation_record_and_connection(
+                pres_ex_id, connection_id
+            )
+        )
+
+        # Assert
+        assert presentation_deleted is True
+        assert connection_deleted is False
+        assert len(errors) == 1
+        assert "Failed to delete connection" in errors[0]
+        assert mock_delete.call_count == 2
+
+    @patch("api.core.acapy.client.requests.delete")
+    def test_delete_presentation_record_and_connection_both_fail(self, mock_delete):
+        """Test deletion when both operations fail."""
+        # Arrange
+        pres_ex_id = "test-pres-ex-id"
+        connection_id = "test-connection-id"
+        mock_response = Mock()
+        mock_response.status_code = 404
+        mock_delete.return_value = mock_response
+
+        # Act
+        presentation_deleted, connection_deleted, errors = (
+            self.client.delete_presentation_record_and_connection(
+                pres_ex_id, connection_id
+            )
+        )
+
+        # Assert
+        assert presentation_deleted is False
+        assert connection_deleted is False
+        assert len(errors) == 2
+        assert "Failed to delete presentation record" in errors[0]
+        assert "Failed to delete connection" in errors[1]
+        assert mock_delete.call_count == 2
+
+    @patch("api.core.acapy.client.requests.delete")
+    def test_delete_presentation_record_and_connection_exception_handling(
+        self, mock_delete
+    ):
+        """Test exception handling in wrapper function."""
+        # Arrange
+        pres_ex_id = "test-pres-ex-id"
+        connection_id = "test-connection-id"
+
+        # First call throws exception, second call succeeds
+        mock_delete.side_effect = [
+            requests.RequestException("Network error"),
+            Mock(status_code=200),
+        ]
+
+        # Act
+        presentation_deleted, connection_deleted, errors = (
+            self.client.delete_presentation_record_and_connection(
+                pres_ex_id, connection_id
+            )
+        )
+
+        # Assert
+        assert presentation_deleted is False
+        assert connection_deleted is True
+        assert len(errors) == 1
+        assert "Failed to delete presentation record" in errors[0]
+        assert mock_delete.call_count == 2
+
+    def test_delete_presentation_record_and_connection_no_ids(self):
+        """Test wrapper function with no IDs provided."""
+        # Act
+        presentation_deleted, connection_deleted, errors = (
+            self.client.delete_presentation_record_and_connection(None, None)
+        )
+
+        # Assert
+        assert presentation_deleted is False
+        assert connection_deleted is None
+        assert errors == []

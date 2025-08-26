@@ -18,7 +18,9 @@ class PresentationCleanupService:
     def __init__(self):
         self.client = AcapyClient()
         self.retention_hours = settings.CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS
-        self.schedule_minutes = settings.CONTROLLER_PRESENTATION_CLEANUP_SCHEDULE_MINUTES
+        self.schedule_minutes = (
+            settings.CONTROLLER_PRESENTATION_CLEANUP_SCHEDULE_MINUTES
+        )
 
     async def cleanup_old_presentation_records(self) -> dict:
         """Clean up presentation records older than retention period."""
@@ -67,20 +69,32 @@ class PresentationCleanupService:
                     # Check if record is old enough to clean up
                     if record_time < cutoff_time:
                         pres_ex_id = record.get("pres_ex_id")
-                        success = self.client.delete_presentation_record(pres_ex_id)
+                        presentation_deleted, _, errors = (
+                            self.client.delete_presentation_record_and_connection(
+                                pres_ex_id, None
+                            )
+                        )
 
-                        if success:
+                        if presentation_deleted:
                             cleanup_stats["cleaned_records"] += 1
                             logger.debug(
                                 f"Cleaned up old presentation record {pres_ex_id}"
                             )
                         else:
                             cleanup_stats["failed_cleanups"] += 1
-                            error_msg = (
-                                f"Failed to delete presentation record {pres_ex_id}"
-                            )
-                            cleanup_stats["errors"].append(error_msg)
-                            logger.warning(error_msg)
+                            # Don't add our own error message if the wrapper function provides errors
+                            if not errors:
+                                error_msg = (
+                                    f"Failed to delete presentation record {pres_ex_id}"
+                                )
+                                cleanup_stats["errors"].append(error_msg)
+                                logger.warning(error_msg)
+
+                        # Log any additional errors from the cleanup operation
+                        if errors:
+                            for error in errors:
+                                cleanup_stats["errors"].append(error)
+                                logger.warning(f"Cleanup error: {error}")
                     else:
                         logger.debug(
                             f"Record {record.get('pres_ex_id')} is too recent to clean up"

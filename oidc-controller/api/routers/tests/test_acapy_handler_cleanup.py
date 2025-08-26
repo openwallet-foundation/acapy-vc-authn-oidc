@@ -71,15 +71,24 @@ class TestAcapyHandlerCleanup:
         """Test successful presentation data retrieval and cleanup."""
         # Arrange
         mock_crud_instance = mock_auth_session_crud.return_value
-        mock_crud_instance.get_by_pres_exch_id = AsyncMock(return_value=mock_auth_session)
+        mock_crud_instance.get_by_pres_exch_id = AsyncMock(
+            return_value=mock_auth_session
+        )
         mock_crud_instance.patch = AsyncMock()
 
         mock_client_instance = mock_acapy_client.return_value
         mock_client_instance.get_presentation_request.return_value = {
             "by_format": {"test": "presentation_data"}
         }
-        mock_client_instance.delete_presentation_record.return_value = True
-        mock_client_instance.delete_connection.return_value = True
+        # Setup mock to handle both presentation cleanup and connection cleanup calls
+        mock_client_instance.delete_presentation_record_and_connection.side_effect = [
+            (True, None, []),  # First call: presentation cleanup succeeds
+            (
+                False,
+                False,
+                [],
+            ),  # Second call: connection cleanup fails (to match log output)
+        ]
 
         mock_get_socket_id.return_value = "test-socket-id"
 
@@ -96,9 +105,16 @@ class TestAcapyHandlerCleanup:
         assert mock_auth_session.presentation_exchange == {"test": "presentation_data"}
         assert mock_auth_session.proof_status == AuthSessionState.VERIFIED
 
-        # Verify cleanup was attempted
-        mock_client_instance.delete_presentation_record.assert_called_once_with(
-            "test-pres-ex-id"
+        # Verify cleanup was attempted for both presentation and connection
+        assert (
+            mock_client_instance.delete_presentation_record_and_connection.call_count
+            == 2
+        )
+        mock_client_instance.delete_presentation_record_and_connection.assert_any_call(
+            "test-pres-ex-id", None
+        )
+        mock_client_instance.delete_presentation_record_and_connection.assert_any_call(
+            None, "test-connection-id"
         )
 
         # Verify database update was called (twice - once after cleanup, once after connection deletion)
@@ -125,7 +141,9 @@ class TestAcapyHandlerCleanup:
         """Test when presentation data retrieval fails."""
         # Arrange
         mock_crud_instance = mock_auth_session_crud.return_value
-        mock_crud_instance.get_by_pres_exch_id = AsyncMock(return_value=mock_auth_session)
+        mock_crud_instance.get_by_pres_exch_id = AsyncMock(
+            return_value=mock_auth_session
+        )
 
         mock_client_instance = mock_acapy_client.return_value
         mock_client_instance.get_presentation_request.return_value = (
@@ -144,7 +162,7 @@ class TestAcapyHandlerCleanup:
         )
 
         # Verify cleanup was not attempted since data retrieval failed
-        mock_client_instance.delete_presentation_record.assert_not_called()
+        mock_client_instance.delete_presentation_record_and_connection.assert_not_called()
 
         # Verify database update was not called since operation failed
         mock_crud_instance.patch.assert_not_called()
@@ -165,7 +183,9 @@ class TestAcapyHandlerCleanup:
         """Test when presentation data API call throws exception."""
         # Arrange
         mock_crud_instance = mock_auth_session_crud.return_value
-        mock_crud_instance.get_by_pres_exch_id = AsyncMock(return_value=mock_auth_session)
+        mock_crud_instance.get_by_pres_exch_id = AsyncMock(
+            return_value=mock_auth_session
+        )
 
         mock_client_instance = mock_acapy_client.return_value
         mock_client_instance.get_presentation_request.side_effect = Exception(
@@ -184,7 +204,7 @@ class TestAcapyHandlerCleanup:
         )
 
         # Verify cleanup was not attempted since data retrieval failed
-        mock_client_instance.delete_presentation_record.assert_not_called()
+        mock_client_instance.delete_presentation_record_and_connection.assert_not_called()
 
     @patch("api.routers.acapy_handler.AcapyClient")
     @patch("api.routers.acapy_handler.AuthSessionCRUD")
@@ -204,17 +224,20 @@ class TestAcapyHandlerCleanup:
         """Test when immediate cleanup fails but verification continues."""
         # Arrange
         mock_crud_instance = mock_auth_session_crud.return_value
-        mock_crud_instance.get_by_pres_exch_id = AsyncMock(return_value=mock_auth_session)
+        mock_crud_instance.get_by_pres_exch_id = AsyncMock(
+            return_value=mock_auth_session
+        )
         mock_crud_instance.patch = AsyncMock()
 
         mock_client_instance = mock_acapy_client.return_value
         mock_client_instance.get_presentation_request.return_value = {
             "by_format": {"test": "presentation_data"}
         }
-        mock_client_instance.delete_presentation_record.return_value = (
-            False  # Cleanup fails
-        )
-        mock_client_instance.delete_connection.return_value = True
+        # Setup mock to handle both presentation cleanup and connection cleanup calls
+        mock_client_instance.delete_presentation_record_and_connection.side_effect = [
+            (False, None, []),  # First call: presentation cleanup fails
+            (False, False, []),  # Second call: connection cleanup also fails
+        ]
 
         mock_get_socket_id.return_value = "test-socket-id"
 
@@ -231,9 +254,16 @@ class TestAcapyHandlerCleanup:
         assert mock_auth_session.presentation_exchange == {"test": "presentation_data"}
         assert mock_auth_session.proof_status == AuthSessionState.VERIFIED
 
-        # Verify cleanup was attempted
-        mock_client_instance.delete_presentation_record.assert_called_once_with(
-            "test-pres-ex-id"
+        # Verify cleanup was attempted for both presentation and connection
+        assert (
+            mock_client_instance.delete_presentation_record_and_connection.call_count
+            == 2
+        )
+        mock_client_instance.delete_presentation_record_and_connection.assert_any_call(
+            "test-pres-ex-id", None
+        )
+        mock_client_instance.delete_presentation_record_and_connection.assert_any_call(
+            None, "test-connection-id"
         )
 
         # Verify database update was called (verification should continue, plus connection cleanup)
@@ -262,17 +292,22 @@ class TestAcapyHandlerCleanup:
         """Test when cleanup throws exception but verification continues."""
         # Arrange
         mock_crud_instance = mock_auth_session_crud.return_value
-        mock_crud_instance.get_by_pres_exch_id = AsyncMock(return_value=mock_auth_session)
+        mock_crud_instance.get_by_pres_exch_id = AsyncMock(
+            return_value=mock_auth_session
+        )
         mock_crud_instance.patch = AsyncMock()
 
         mock_client_instance = mock_acapy_client.return_value
         mock_client_instance.get_presentation_request.return_value = {
             "by_format": {"test": "presentation_data"}
         }
-        mock_client_instance.delete_presentation_record.side_effect = Exception(
-            "Cleanup error"
-        )
-        mock_client_instance.delete_connection.return_value = True
+        # Setup mock to handle both presentation cleanup and connection cleanup calls
+        mock_client_instance.delete_presentation_record_and_connection.side_effect = [
+            Exception(
+                "Cleanup error"
+            ),  # First call: presentation cleanup throws exception
+            (False, True, []),  # Second call: connection cleanup succeeds
+        ]
 
         mock_get_socket_id.return_value = "test-socket-id"
 
@@ -289,9 +324,16 @@ class TestAcapyHandlerCleanup:
         assert mock_auth_session.presentation_exchange == {"test": "presentation_data"}
         assert mock_auth_session.proof_status == AuthSessionState.VERIFIED
 
-        # Verify cleanup was attempted
-        mock_client_instance.delete_presentation_record.assert_called_once_with(
-            "test-pres-ex-id"
+        # Verify cleanup was attempted for both presentation and connection
+        assert (
+            mock_client_instance.delete_presentation_record_and_connection.call_count
+            == 2
+        )
+        mock_client_instance.delete_presentation_record_and_connection.assert_any_call(
+            "test-pres-ex-id", None
+        )
+        mock_client_instance.delete_presentation_record_and_connection.assert_any_call(
+            None, "test-connection-id"
         )
 
         # Verify database update was called (verification should continue, plus connection cleanup)
@@ -332,7 +374,9 @@ class TestAcapyHandlerCleanup:
         """Test that cleanup is not attempted for failed verifications."""
         # Arrange
         mock_crud_instance = mock_auth_session_crud.return_value
-        mock_crud_instance.get_by_pres_exch_id = AsyncMock(return_value=mock_auth_session)
+        mock_crud_instance.get_by_pres_exch_id = AsyncMock(
+            return_value=mock_auth_session
+        )
         mock_crud_instance.patch = AsyncMock()
 
         mock_client_instance = mock_acapy_client.return_value
@@ -394,17 +438,24 @@ class TestAcapyHandlerCleanup:
         """Test network timeout during cleanup operations."""
         # Arrange
         mock_crud_instance = mock_auth_session_crud.return_value
-        mock_crud_instance.get_by_pres_exch_id = AsyncMock(return_value=mock_auth_session)
+        mock_crud_instance.get_by_pres_exch_id = AsyncMock(
+            return_value=mock_auth_session
+        )
         mock_crud_instance.patch = AsyncMock()
 
         mock_client_instance = mock_acapy_client.return_value
         mock_client_instance.get_presentation_request.return_value = {
             "by_format": {"test": "presentation_data"}
         }
-        # Simulate network timeout during cleanup
+        # Setup mock to handle both presentation cleanup and connection cleanup calls
         import requests
-        mock_client_instance.delete_presentation_record.side_effect = requests.Timeout("Network timeout")
-        mock_client_instance.delete_connection.return_value = True
+
+        mock_client_instance.delete_presentation_record_and_connection.side_effect = [
+            requests.Timeout(
+                "Network timeout"
+            ),  # First call: presentation cleanup times out
+            (False, True, []),  # Second call: connection cleanup succeeds
+        ]
 
         mock_get_socket_id.return_value = "test-socket-id"
 
@@ -414,9 +465,17 @@ class TestAcapyHandlerCleanup:
         # Assert - Cleanup failure should not prevent successful verification
         assert mock_auth_session.presentation_exchange == {"test": "presentation_data"}
         assert mock_auth_session.proof_status == AuthSessionState.VERIFIED
-        
+
         # Verify cleanup was attempted but failed gracefully
-        mock_client_instance.delete_presentation_record.assert_called_once_with("test-pres-ex-id")
-        
+        assert (
+            mock_client_instance.delete_presentation_record_and_connection.call_count
+            == 2
+        )
+        mock_client_instance.delete_presentation_record_and_connection.assert_any_call(
+            "test-pres-ex-id", None
+        )
+
         # Verify verification still completed successfully
-        mock_sio_emit.assert_called_once_with("status", {"status": "verified"}, to="test-socket-id")
+        mock_sio_emit.assert_called_once_with(
+            "status", {"status": "verified"}, to="test-socket-id"
+        )

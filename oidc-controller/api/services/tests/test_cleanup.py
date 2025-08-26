@@ -50,7 +50,11 @@ class TestPresentationCleanupService:
         ]
 
         mock_client.get_all_presentation_records.return_value = mock_records
-        mock_client.delete_presentation_record.return_value = True
+        mock_client.delete_presentation_record_and_connection.return_value = (
+            True,
+            None,
+            [],
+        )
 
         # Act
         result = await self.service.cleanup_old_presentation_records()
@@ -62,9 +66,13 @@ class TestPresentationCleanupService:
         assert len(result["errors"]) == 0
 
         # Verify delete was called for old records only
-        assert mock_client.delete_presentation_record.call_count == 2
-        mock_client.delete_presentation_record.assert_any_call("old-record-1")
-        mock_client.delete_presentation_record.assert_any_call("old-record-2")
+        assert mock_client.delete_presentation_record_and_connection.call_count == 2
+        mock_client.delete_presentation_record_and_connection.assert_any_call(
+            "old-record-1", None
+        )
+        mock_client.delete_presentation_record_and_connection.assert_any_call(
+            "old-record-2", None
+        )
 
     @patch("api.services.cleanup.AcapyClient")
     @pytest.mark.asyncio
@@ -115,7 +123,10 @@ class TestPresentationCleanupService:
 
         mock_client.get_all_presentation_records.return_value = mock_records
         # First delete succeeds, second fails
-        mock_client.delete_presentation_record.side_effect = [True, False]
+        mock_client.delete_presentation_record_and_connection.side_effect = [
+            (True, None, []),  # First record succeeds
+            (False, None, []),  # Second record fails
+        ]
 
         # Act
         result = await self.service.cleanup_old_presentation_records()
@@ -215,9 +226,9 @@ class TestPresentationCleanupService:
 
         mock_client.get_all_presentation_records.return_value = mock_records
         # First delete succeeds, second throws exception
-        mock_client.delete_presentation_record.side_effect = [
-            True,
-            Exception("Delete error"),
+        mock_client.delete_presentation_record_and_connection.side_effect = [
+            (True, None, []),  # First record succeeds
+            Exception("Delete error"),  # Second record throws exception
         ]
 
         # Act

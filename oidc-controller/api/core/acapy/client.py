@@ -294,14 +294,88 @@ class AcapyClient:
         """
         logger.debug(">>> delete_connection")
 
-        resp_raw = requests.delete(
-            self.acapy_host + CONNECTIONS_URI + "/" + connection_id,
-            headers=self.agent_config.get_headers(),
+        try:
+            resp_raw = requests.delete(
+                self.acapy_host + CONNECTIONS_URI + "/" + connection_id,
+                headers=self.agent_config.get_headers(),
+            )
+
+            success = resp_raw.status_code == 200
+            if success:
+                logger.debug(f"<<< delete_connection -> Success")
+            else:
+                logger.warning(
+                    f"<<< delete_connection -> Failed: {resp_raw.status_code}, {resp_raw.content}"
+                )
+            return success
+
+        except Exception as e:
+            logger.error(f"Failed to delete connection {connection_id}: {e}")
+            return False
+
+    def delete_presentation_record_and_connection(
+        self, presentation_exchange_id: UUID | str, connection_id: str | None = None
+    ) -> tuple[bool, bool | None, list[str]]:
+        """
+        Delete a presentation record and optionally its associated connection.
+
+        This is the recommended method for cleanup as it handles both the presentation
+        record and connection deletion in the proper order.
+
+        Args:
+            presentation_exchange_id: The presentation exchange ID to delete
+            connection_id: Optional connection ID to delete. If not provided,
+                         only the presentation record will be deleted.
+
+        Returns:
+            tuple[bool, bool | None, list[str]]: A tuple containing:
+                - presentation_deleted: bool - True if presentation record was successfully deleted
+                - connection_deleted: bool | None - True/False if connection deletion was attempted, None if not
+                - errors: list[str] - List of error messages from failed operations
+        """
+        logger.debug(
+            f">>> delete_presentation_record_and_connection: pres_ex={presentation_exchange_id}, conn={connection_id}"
         )
 
-        success = resp_raw.status_code == 200
-        logger.debug(f"<<< delete_connection -> {success}")
-        return success
+        presentation_deleted = False
+        connection_deleted = None
+        errors = []
+
+        # First, delete the presentation record
+        if presentation_exchange_id:
+            try:
+                presentation_deleted = self.delete_presentation_record(
+                    presentation_exchange_id
+                )
+
+                if not presentation_deleted:
+                    errors.append(
+                        f"Failed to delete presentation record {presentation_exchange_id}"
+                    )
+
+            except Exception as e:
+                error_msg = f"Error deleting presentation record {presentation_exchange_id}: {e}"
+                errors.append(error_msg)
+                logger.error(error_msg)
+
+        # Second, delete the connection if provided
+        # TODO: make manditory when connections we drop OOB
+        if connection_id:
+            try:
+                connection_deleted = self.delete_connection(connection_id)
+
+                if not connection_deleted:
+                    errors.append(f"Failed to delete connection {connection_id}")
+
+            except Exception as e:
+                error_msg = f"Error deleting connection {connection_id}: {e}"
+                errors.append(error_msg)
+                logger.error(error_msg)
+
+        logger.debug(
+            f"<<< delete_presentation_record_and_connection -> pres:{presentation_deleted}, conn:{connection_deleted}"
+        )
+        return presentation_deleted, connection_deleted, errors
 
     def send_problem_report(self, pres_ex_id: str, description: str) -> bool:
         """

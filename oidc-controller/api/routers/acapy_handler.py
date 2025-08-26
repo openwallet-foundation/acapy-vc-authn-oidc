@@ -204,10 +204,12 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
 
                     # Immediately cleanup the presentation record after successful retrieval
                     try:
-                        cleanup_success = client.delete_presentation_record(
-                            webhook_body["pres_ex_id"]
+                        presentation_deleted, _, errors = (
+                            client.delete_presentation_record_and_connection(
+                                webhook_body["pres_ex_id"], None
+                            )
                         )
-                        if cleanup_success:
+                        if presentation_deleted:
                             logger.info(
                                 f"Successfully cleaned up presentation record {webhook_body['pres_ex_id']}"
                             )
@@ -215,6 +217,8 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                             logger.warning(
                                 f"Failed to cleanup presentation record {webhook_body['pres_ex_id']} - will be handled by background cleanup"
                             )
+                            if errors:
+                                logger.warning(f"Cleanup errors: {errors}")
                     except Exception as cleanup_error:
                         logger.warning(
                             f"Cleanup failed for presentation record {webhook_body['pres_ex_id']}: {cleanup_error} - will be handled by background cleanup"
@@ -258,8 +262,12 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                 ):
                     try:
                         client = AcapyClient()
-                        success = client.delete_connection(auth_session.connection_id)
-                        if success:
+                        _, connection_deleted, errors = (
+                            client.delete_presentation_record_and_connection(
+                                None, auth_session.connection_id
+                            )
+                        )
+                        if connection_deleted:
                             logger.info(
                                 f"Cleaned up single-use connection {auth_session.connection_id} after verification"
                             )
@@ -267,6 +275,8 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                             logger.warning(
                                 f"Failed to cleanup single-use connection {auth_session.connection_id}"
                             )
+                            if errors:
+                                logger.warning(f"Connection cleanup errors: {errors}")
                     except Exception as e:
                         logger.error(
                             f"Error cleaning up single-use connection {auth_session.connection_id}: {e}"
@@ -318,8 +328,12 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                 ):
                     try:
                         client = AcapyClient()
-                        success = client.delete_connection(auth_session.connection_id)
-                        if success:
+                        _, connection_deleted, errors = (
+                            client.delete_presentation_record_and_connection(
+                                None, auth_session.connection_id
+                            )
+                        )
+                        if connection_deleted:
                             logger.info(
                                 f"Cleaned up connection {auth_session.connection_id} after abandonment"
                             )
@@ -327,6 +341,8 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                             logger.warning(
                                 f"Failed to cleanup connection {auth_session.connection_id}"
                             )
+                            if errors:
+                                logger.warning(f"Connection cleanup errors: {errors}")
                     except Exception as e:
                         logger.error(
                             f"Error cleaning up connection {auth_session.connection_id}: {e}"
@@ -392,8 +408,12 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                 ):
                     try:
                         client = AcapyClient()
-                        success = client.delete_connection(auth_session.connection_id)
-                        if success:
+                        _, connection_deleted, errors = (
+                            client.delete_presentation_record_and_connection(
+                                None, auth_session.connection_id
+                            )
+                        )
+                        if connection_deleted:
                             logger.info(
                                 f"Cleaned up connection {auth_session.connection_id} after expiration"
                             )
@@ -401,6 +421,8 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                             logger.warning(
                                 f"Failed to cleanup connection {auth_session.connection_id}"
                             )
+                            if errors:
+                                logger.warning(f"Connection cleanup errors: {errors}")
                     except Exception as e:
                         logger.error(
                             f"Error cleaning up connection {auth_session.connection_id}: {e}"
