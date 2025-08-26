@@ -150,17 +150,17 @@ podSecurityContext:
 ##
 containerSecurityContext:
   enabled: false
-  # seLinuxOptions: {}
-  # runAsUser: 1001
-  # runAsGroup: 1001
-  # runAsNonRoot: true
-  # privileged: false
-  # readOnlyRootFilesystem: true
-  # allowPrivilegeEscalation: false
-  # capabilities:
-  #   drop: ["ALL"]
-  # seccompProfile:
-  #   type: "RuntimeDefault"
+  seLinuxOptions: {}
+  runAsUser: 1001
+  runAsGroup: 1001
+  runAsNonRoot: true
+  privileged: false
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: ["ALL"]
+  seccompProfile:
+    type: "RuntimeDefault"
 
 ## Add networkpolicies
 ##
@@ -278,23 +278,22 @@ tolerations: []
 acapy:
   ## @param acapy.enabled Deploy AcaPy agent instance
   enabled: true
-  ## @param acapy.agentUrl Agent host, required if `enabled` is `false`, otherwise ignored
-  agentUrl: ""
-  ## @param acapy.adminUrl Agent admin host, required if `enabled` is `false`, otherwise ignored
-  adminUrl: ""
+
   ## @param acapy.existingSecret Name of existing secret, required if `enabled` is `false`; Secret must contain `adminApiKey`, `walletKey`, and `webhookApiKey` keys.
   existingSecret: ""
   ## @param acapy.agentSeed.existingSecret Name of existing secret with the 'seed' key.
   agentSeed:
     existingSecret: ""
 
+  ## @param acapy.image.registry
   ## @param acapy.image.repository
   ## @param acapy.image.pullPolicy
   ## @param acapy.image.pullSecrets [array]
   ## @param acapy.image.tag
   ##
   image:
-    repository: ghcr.io/openwallet-foundation/acapy-agent
+    registry: ghcr.io
+    repository: openwallet-foundation/acapy-agent
     pullPolicy: IfNotPresent
     pullSecrets: []
     tag: py3.12-1.3.1
@@ -333,9 +332,6 @@ acapy:
     targetMemoryUtilizationPercentage: ""
     stabilizationWindowSeconds: 300
 
-  ## @param acapy.labelOverride
-  labelOverride: ""
-
   ## @section Acapy configuration file
   ##
   ## @descriptionStart
@@ -362,7 +358,6 @@ acapy:
   ## @param acapy.argfile.yml.wallet-name Specifies the wallet name to be used by the agent. This is useful if your deployment has multiple wallets.
   ## @param acapy.argfile.yml.wallet-storage-type Specifies the type of Indy wallet backend to use. Supported internal storage types are 'basic' (memory), 'default' (sqlite), and 'postgres_storage'.  The default, if not specified, is 'default'.
   ## @param acapy.argfile.yml.wallet-type Specifies the type of Indy wallet provider to use. Supported internal storage types are 'basic' (memory) and 'indy'. The default (if not specified) is 'basic'.
-  ## @param acapy.argfile.yml.webhook-url Send webhooks containing internal state changes to the specified URL. Optional API key to be passed in the request body can be appended using a hash separator [#]. This is useful for a controller to monitor agent events and respond to those events using the admin API. If not specified, webhooks are not published by the agent.
   ##
   argfile.yml:
     admin-insecure-mode: false
@@ -384,7 +379,6 @@ acapy:
     wallet-name: askar-wallet
     wallet-storage-type: postgres_storage
     wallet-type: askar
-    webhook-url: 'http://{{- .Release.Name -}}:5000/webhooks'
 
   ## @param acapy.ledgers.yml [object]
   ledgers.yml: |-
@@ -435,14 +429,40 @@ acapy:
     ## @param acapy.networkPolicy.enabled Enable network policies
     ##
     enabled: true
-    ## @param acapy.networkPolicy.ingress.enabled Enable ingress rules
-    ## @param acapy.networkPolicy.ingress.namespaceSelector [object] Namespace selector label that is allowed to access the Tenant proxy pods.
-    ## @param acapy.networkPolicy.ingress.podSelector [object] Pod selector label that is allowed to access the Tenant proxy pods.
-    ingress:
-      enabled: true
-      namespaceSelector:
-        network.openshift.io/policy-group: ingress
-      podSelector: {}
+    ## @param acapy.networkPolicy.allowExternal Don't require server label for connections
+    ## The Policy model to apply. When set to false, only pods with the correct
+    ## server label will have network access to the ports server is listening
+    ## on. When true, server will accept connections from any source
+    ## (with the correct destination port).
+    allowExternal: false
+    ## @param acapy.networkPolicy.ingressNSMatchLabels [object] Labels to match to allow traffic from other namespaces. Ignored if `networkPolicy.allowExternal` is true.
+    ingressNSMatchLabels:
+      network.openshift.io/policy-group: ingress
+
+  ## @param acapy.agentUrl Agent host, required if `enabled` is `false`, otherwise ignored
+  agentUrl: ""
+  ## @param acapy.adminUrl Agent admin host, required if `enabled` is `false`, otherwise ignored
+  adminUrl: ""
+
+  ## AcaPy ingress configuration
+  ingress:
+    agent:
+      ## @param acapy.ingress.agent.enabled Set to true to enable acapy ingress
+      enabled: false
+      ## @param acapy.ingress.agent.publicScheme Scheme used to construct the public URL from the ingress host.
+      publicScheme: https
+      ## @param acapy.ingress.agent.hostname When the ingress is enabled, a host pointing to this will be created
+      hostname: vc-authn-oidc-acapy.local
+    admin:
+      ## @param acapy.ingress.admin.enabled Set to true to enable acapy admin ingress
+      enabled: false
+      ## @param acapy.ingress.admin.hostname When the ingress is enabled, a host pointing to this will be created
+      hostname: admin.vc-authn-oidc-acapy.local
+
+  postgresql:
+    ## @param acapy.postgresql.commonLabels [object] apply common labels to postgresql resources
+    commonLabels:
+      app.kubernetes.io/role: wallet
 
 ##  Overrides for bitnami/mongodb chart - https://github.com/bitnami/charts/tree/main/bitnami/mongodb
 mongodb:
@@ -462,10 +482,9 @@ mongodb:
     ##
     usernames: ["vcauthn"]
     databases: ["vcauthn"]
-  ## @param mongodb.commonLabels [array] Add labels to all the deployed resources (sub-charts are not considered). Evaluated as a template
+  ## @param mongodb.commonLabels [object] Add labels to all the deployed resources (sub-charts are not considered). Evaluated as a template
   ##
   commonLabels:
-    app.kubernetes.io/app: vc-authn-oidc
     app.kubernetes.io/role: database
 
   ## @param mongodb.architecture MongoDB(&reg;) architecture (`standalone` or `replicaset`)
