@@ -429,14 +429,15 @@ acapy:
     ## @param acapy.networkPolicy.enabled Enable network policies
     ##
     enabled: true
-    ## @param acapy.networkPolicy.ingress.enabled Enable ingress rules
-    ## @param acapy.networkPolicy.ingress.namespaceSelector [object] Namespace selector label that is allowed to access the Tenant proxy pods.
-    ## @param acapy.networkPolicy.ingress.podSelector [object] Pod selector label that is allowed to access the Tenant proxy pods.
-    ingress:
-      enabled: true
-      namespaceSelector:
-        network.openshift.io/policy-group: ingress
-      podSelector: {}
+    ## @param acapy.networkPolicy.allowExternal Don't require server label for connections
+    ## The Policy model to apply. When set to false, only pods with the correct
+    ## server label will have network access to the ports server is listening
+    ## on. When true, server will accept connections from any source
+    ## (with the correct destination port).
+    allowExternal: false
+    ## @param acapy.networkPolicy.ingressNSMatchLabels [object] Labels to match to allow traffic from other namespaces. Ignored if `networkPolicy.allowExternal` is true.
+    ingressNSMatchLabels:
+      network.openshift.io/policy-group: ingress
 
   ## @param acapy.agentUrl Agent host, required if `enabled` is `false`, otherwise ignored
   agentUrl: ""
