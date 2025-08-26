@@ -1,3 +1,14 @@
+## [](https://github.com/i5okie/acapy-vc-authn-oidc/compare/v2.2.3...v) (2025-08-26)
+
+### Features
+
+* refactor values, update common role labels, update readme ([c2ab7aa](https://github.com/i5okie/acapy-vc-authn-oidc/commit/c2ab7aa7c7e6a7b45cb3345fac7014b331c0d30c))
+* use acapy chart version 0.1.5 ([b43f6dd](https://github.com/i5okie/acapy-vc-authn-oidc/commit/b43f6ddcb990ffbf8589475093f4129841fc40aa))
+* use acapy.nameOverride when set, default to acapy ([80e0843](https://github.com/i5okie/acapy-vc-authn-oidc/commit/80e08438aabc29165f927446b954772bda7cf1fd))
+
+### Bug Fixes
+
+* fix registry duplication, acapy chart separates registry and repository fields. ([ac08649](https://github.com/i5okie/acapy-vc-authn-oidc/commit/ac086499a4ecbc717a19b12f5e26d3e329101955))
 ## [0.4.0]() (2025-08-05)
 
 ### Features
