@@ -456,7 +456,7 @@ acapy:
       ## @param acapy.ingress.admin.enabled Set to true to enable acapy admin ingress
       enabled: false
       ## @param acapy.ingress.admin.hostname When the ingress is enabled, a host pointing to this will be created
-      hostname: admin.vc-authn-oidc.local
+      hostname: admin.vc-authn-oidc-acapy.local
 
   postgresql:
     ## @param acapy.postgresql.commonLabels [object] apply common labels to postgresql resources
