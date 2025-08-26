@@ -259,7 +259,7 @@ Create URL based on hostname and TLS status
 generate admin url (internal)
 */}}
 {{- define "vc-authn-oidc.acapy.admin.url" -}}
-    http://{{ include "vc-authn-oidc.acapy.fullname" . }}-admin:{{ .Values.acapy.service.ports.admin }}
+    http://{{ include "vc-authn-oidc.acapy.fullname" . }}:{{ .Values.acapy.service.ports.admin }}
 {{- end -}}
 
 {{/*
