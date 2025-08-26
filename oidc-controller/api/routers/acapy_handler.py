@@ -20,6 +20,70 @@ logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
 router = APIRouter()
 
 
+async def _send_problem_report_safely(
+    client: AcapyClient, pres_ex_id: str, description: str
+) -> None:
+    """Send a problem report with error handling."""
+    try:
+        client.send_problem_report(pres_ex_id, description)
+        logger.info(f"Problem report sent for pres_ex_id: {pres_ex_id}")
+    except Exception as e:
+        logger.error(f"Failed to send problem report: {e}")
+
+
+async def _cleanup_single_use_connection(
+    auth_session: AuthSession, context: str
+) -> None:
+    """Clean up a single-use connection with proper error handling."""
+    if not (
+        settings.USE_CONNECTION_BASED_VERIFICATION
+        and auth_session.connection_id
+        and not auth_session.multi_use
+    ):
+        return
+
+    try:
+        client = AcapyClient()
+        _, connection_deleted, errors = (
+            client.delete_presentation_record_and_connection(
+                None, auth_session.connection_id
+            )
+        )
+
+        if connection_deleted:
+            logger.info(
+                f"Cleaned up single-use connection {auth_session.connection_id} after {context}"
+            )
+        else:
+            logger.warning(
+                f"Failed to cleanup single-use connection {auth_session.connection_id}"
+            )
+            if errors:
+                logger.warning(f"Connection cleanup errors: {errors}")
+
+    except Exception as e:
+        logger.error(
+            f"Error cleaning up single-use connection {auth_session.connection_id}: {e}"
+        )
+
+
+async def _update_auth_session(db: Database, auth_session: AuthSession) -> None:
+    """Update auth session in database with error handling."""
+    await AuthSessionCRUD(db).patch(
+        str(auth_session.id), AuthSessionPatch(**auth_session.model_dump())
+    )
+
+
+async def _emit_status_to_socket(
+    db: Database, auth_session: AuthSession, status: str
+) -> None:
+    """Emit status update to socket if session ID exists."""
+    pid = str(auth_session.id)
+    sid = await get_socket_id_for_pid(pid, db)
+    if sid:
+        await sio.emit("status", {"status": status}, to=sid)
+
+
 async def _parse_webhook_body(request: Request) -> dict[Any, Any]:
     return json.loads((await request.body()).decode("ascii"))
 
@@ -112,10 +176,7 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                                 auth_session.connection_id = (
                                     connection_id  # Update with real connection ID
                                 )
-                                await AuthSessionCRUD(db).patch(
-                                    str(auth_session.id),
-                                    AuthSessionPatch(**auth_session.model_dump()),
-                                )
+                                await _update_auth_session(db, auth_session)
 
                                 logger.info(
                                     f"Presentation request sent successfully: {pres_response.pres_ex_id}"
@@ -126,34 +187,18 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                                 )
                                 # Set auth session to failed state
                                 auth_session.proof_status = AuthSessionState.FAILED
-                                await AuthSessionCRUD(db).patch(
-                                    str(auth_session.id),
-                                    AuthSessionPatch(**auth_session.model_dump()),
-                                )
+                                await _update_auth_session(db, auth_session)
 
                                 # Send problem report if we have a presentation exchange ID
                                 if auth_session.pres_exch_id:
-                                    try:
-                                        client.send_problem_report(
-                                            auth_session.pres_exch_id,
-                                            f"Failed to send presentation request: {str(e)}",
-                                        )
-                                        logger.info(
-                                            f"Problem report sent for pres_ex_id: {auth_session.pres_exch_id}"
-                                        )
-                                    except Exception as problem_report_error:
-                                        logger.error(
-                                            f"Failed to send problem report: {problem_report_error}"
-                                        )
+                                    await _send_problem_report_safely(
+                                        client,
+                                        auth_session.pres_exch_id,
+                                        f"Failed to send presentation request: {str(e)}",
+                                    )
 
                                 # Emit failure status to frontend
-                                sid = await get_socket_id_for_pid(
-                                    str(auth_session.id), db
-                                )
-                                if sid:
-                                    await sio.emit(
-                                        "status", {"status": "failed"}, to=sid
-                                    )
+                                await _emit_status_to_socket(db, auth_session, "failed")
                         else:
                             logger.debug(
                                 f"Auth session found but no proof_request: {auth_session.id}"
@@ -258,35 +303,24 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                             f"Cleanup failed for presentation record {webhook_body['pres_ex_id']}: {cleanup_error} - will be handled by background cleanup"
                         )
 
-                    if sid:
-                        await sio.emit("status", {"status": "verified"}, to=sid)
+                    await _emit_status_to_socket(db, auth_session, "verified")
                 else:
                     auth_session.proof_status = AuthSessionState.FAILED
-                    if sid:
-                        await sio.emit("status", {"status": "failed"}, to=sid)
+                    await _emit_status_to_socket(db, auth_session, "failed")
 
                     # Send problem report for failed verification in connection-based flow
                     if (
                         settings.USE_CONNECTION_BASED_VERIFICATION
                         and auth_session.pres_exch_id
                     ):
-                        try:
-                            client = AcapyClient()
-                            client.send_problem_report(
-                                auth_session.pres_exch_id,
-                                f"Presentation verification failed: {webhook_body.get('error_msg', 'Unknown error')}",
-                            )
-                            logger.info(
-                                f"Problem report sent for failed verification: {auth_session.pres_exch_id}"
-                            )
-                        except Exception as problem_report_error:
-                            logger.error(
-                                f"Failed to send problem report for failed verification: {problem_report_error}"
-                            )
+                        client = AcapyClient()
+                        await _send_problem_report_safely(
+                            client,
+                            auth_session.pres_exch_id,
+                            f"Presentation verification failed: {webhook_body.get('error_msg', 'Unknown error')}",
+                        )
 
-                await AuthSessionCRUD(db).patch(
-                    str(auth_session.id), AuthSessionPatch(**auth_session.model_dump())
-                )
+                await _update_auth_session(db, auth_session)
 
                 # Connection cleanup is now handled above in the combined cleanup operation
 
@@ -295,59 +329,24 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                 logger.info("ABANDONED")
                 logger.info(webhook_body["error_msg"])
                 auth_session.proof_status = AuthSessionState.ABANDONED
-                if sid:
-                    await sio.emit("status", {"status": "abandoned"}, to=sid)
+                await _emit_status_to_socket(db, auth_session, "abandoned")
 
                 # Send problem report for abandoned presentation in connection-based flow
                 if (
                     settings.USE_CONNECTION_BASED_VERIFICATION
                     and auth_session.pres_exch_id
                 ):
-                    try:
-                        client = AcapyClient()
-                        client.send_problem_report(
-                            auth_session.pres_exch_id,
-                            f"Presentation abandoned: {webhook_body.get('error_msg', 'Unknown error')}",
-                        )
-                        logger.info(
-                            f"Problem report sent for abandoned presentation: {auth_session.pres_exch_id}"
-                        )
-                    except Exception as problem_report_error:
-                        logger.error(
-                            f"Failed to send problem report for abandoned presentation: {problem_report_error}"
-                        )
+                    client = AcapyClient()
+                    await _send_problem_report_safely(
+                        client,
+                        auth_session.pres_exch_id,
+                        f"Presentation abandoned: {webhook_body.get('error_msg', 'Unknown error')}",
+                    )
 
-                await AuthSessionCRUD(db).patch(
-                    str(auth_session.id), AuthSessionPatch(**auth_session.model_dump())
-                )
+                await _update_auth_session(db, auth_session)
 
                 # Cleanup connection after verification is abandoned (for connection-based flow)
-                if (
-                    settings.USE_CONNECTION_BASED_VERIFICATION
-                    and auth_session.connection_id
-                    and not auth_session.multi_use  # Only delete single-use connections
-                ):
-                    try:
-                        client = AcapyClient()
-                        _, connection_deleted, errors = (
-                            client.delete_presentation_record_and_connection(
-                                None, auth_session.connection_id
-                            )
-                        )
-                        if connection_deleted:
-                            logger.info(
-                                f"Cleaned up connection {auth_session.connection_id} after abandonment"
-                            )
-                        else:
-                            logger.warning(
-                                f"Failed to cleanup connection {auth_session.connection_id}"
-                            )
-                            if errors:
-                                logger.warning(f"Connection cleanup errors: {errors}")
-                    except Exception as e:
-                        logger.error(
-                            f"Error cleaning up connection {auth_session.connection_id}: {e}"
-                        )
+                await _cleanup_single_use_connection(auth_session, "abandonment")
 
             # Calcuate the expiration time of the proof
             now_time = datetime.now(UTC)
@@ -376,59 +375,24 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
             ):
                 logger.info("EXPIRED")
                 auth_session.proof_status = AuthSessionState.EXPIRED
-                if sid:
-                    await sio.emit("status", {"status": "expired"}, to=sid)
+                await _emit_status_to_socket(db, auth_session, "expired")
 
                 # Send problem report for expired presentation in connection-based flow
                 if (
                     settings.USE_CONNECTION_BASED_VERIFICATION
                     and auth_session.pres_exch_id
                 ):
-                    try:
-                        client = AcapyClient()
-                        client.send_problem_report(
-                            auth_session.pres_exch_id,
-                            f"Presentation expired: timeout after {settings.CONTROLLER_PRESENTATION_EXPIRE_TIME} seconds",
-                        )
-                        logger.info(
-                            f"Problem report sent for expired presentation: {auth_session.pres_exch_id}"
-                        )
-                    except Exception as problem_report_error:
-                        logger.error(
-                            f"Failed to send problem report for expired presentation: {problem_report_error}"
-                        )
+                    client = AcapyClient()
+                    await _send_problem_report_safely(
+                        client,
+                        auth_session.pres_exch_id,
+                        f"Presentation expired: timeout after {settings.CONTROLLER_PRESENTATION_EXPIRE_TIME} seconds",
+                    )
 
-                await AuthSessionCRUD(db).patch(
-                    str(auth_session.id), AuthSessionPatch(**auth_session.model_dump())
-                )
+                await _update_auth_session(db, auth_session)
 
                 # Cleanup connection after verification expires (for connection-based flow)
-                if (
-                    settings.USE_CONNECTION_BASED_VERIFICATION
-                    and auth_session.connection_id
-                    and not auth_session.multi_use  # Only delete single-use connections
-                ):
-                    try:
-                        client = AcapyClient()
-                        _, connection_deleted, errors = (
-                            client.delete_presentation_record_and_connection(
-                                None, auth_session.connection_id
-                            )
-                        )
-                        if connection_deleted:
-                            logger.info(
-                                f"Cleaned up connection {auth_session.connection_id} after expiration"
-                            )
-                        else:
-                            logger.warning(
-                                f"Failed to cleanup connection {auth_session.connection_id}"
-                            )
-                            if errors:
-                                logger.warning(f"Connection cleanup errors: {errors}")
-                    except Exception as e:
-                        logger.error(
-                            f"Error cleaning up connection {auth_session.connection_id}: {e}"
-                        )
+                await _cleanup_single_use_connection(auth_session, "expiration")
 
             pass
         case _:
