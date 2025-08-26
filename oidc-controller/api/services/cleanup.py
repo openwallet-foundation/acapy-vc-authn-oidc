@@ -47,12 +47,6 @@ class PresentationCleanupService:
                 try:
                     # Parse the creation time - ACA-Py uses ISO format
                     created_at_str = record.get("created_at")
-                    if not created_at_str:
-                        logger.warning(
-                            f"Record {record.get('pres_ex_id')} has no created_at timestamp, skipping"
-                        )
-                        continue
-
                     # Parse ISO timestamp (handle both with and without timezone)
                     try:
                         if created_at_str.endswith("Z"):
