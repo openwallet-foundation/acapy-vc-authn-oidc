@@ -71,6 +71,7 @@ usage() {
 
       up -  Creates the application containers from the built images
             and starts the services based on the docker-compose.yml file.
+            Runs multiple controller pods by default for scalability.
 
             You can pass in a list of containers to start.
             By default all containers will be started.
@@ -78,6 +79,14 @@ usage() {
               $0 start
 
       start - Same as up.
+
+      single-pod - Run single controller pod setup for debugging.
+
+              $0 single-pod
+
+      scale - Scale controller to specific number of pods.
+
+              $0 scale 5
 
       logs - Display the logs from the docker compose run (ctrl-c to exit).
 
@@ -94,7 +103,7 @@ EOF
 # -----------------------------------------------------------------------------------------------------------------
 # Default Settings:
 # -----------------------------------------------------------------------------------------------------------------
-DEFAULT_CONTAINERS="keycloak keycloak-db controller-db"
+DEFAULT_CONTAINERS="keycloak keycloak-db controller-db redis controller-lb"
 ACAPY_CONTAINERS="aca-py wallet-db"
 PROD_CONTAINERS="controller"
 
@@ -198,6 +207,16 @@ configureEnvironment() {
   export USE_OOB_LOCAL_DID_SERVICE=${USE_OOB_LOCAL_DID_SERVICE:-"true"}
   export USE_CONNECTION_BASED_VERIFICATION=${USE_CONNECTION_BASED_VERIFICATION:-"true"}
   export WALLET_DEEP_LINK_PREFIX=${WALLET_DEEP_LINK_PREFIX:-"bcwallet://aries_proof-request"}
+
+  # Multi-pod configuration
+  export CONTROLLER_REPLICAS=${CONTROLLER_REPLICAS:-3}
+
+  # Redis Configuration (required for multi-pod)
+  export REDIS_HOST=${REDIS_HOST:-"redis"}
+  export REDIS_PORT=${REDIS_PORT:-"6379"}
+  export REDIS_PASSWORD=${REDIS_PASSWORD:-""}
+  export REDIS_DB=${REDIS_DB:-"0"}
+  export USE_REDIS_ADAPTER=${USE_REDIS_ADAPTER:-"true"}
 
   # agent
   export AGENT_TENANT_MODE="${AGENT_TENANT_MODE:-single}"
@@ -397,6 +416,8 @@ start|up)
 
   docker-compose up -d ${_startupParams} ${DEFAULT_CONTAINERS} ${ACAPY_CONTAINERS} ${PROD_CONTAINERS}
 
+  echo "Started with ${CONTROLLER_REPLICAS} controller replicas"
+
   docker-compose logs -f
  ;;
 logs)
@@ -421,6 +442,33 @@ build)
   _startupParams=$(getStartupParams $@)
   configureEnvironment $@
   buildImages
+  ;;
+scale)
+  REPLICAS=${REPLICAS:-3}
+  configureEnvironment $@
+
+  # Set the new replica count and recreate the controller service
+  export CONTROLLER_REPLICAS=${REPLICAS}
+  echo "Scaling controller to ${REPLICAS} replicas..."
+  docker-compose up -d --force-recreate controller
+  ;;
+single-pod)
+  if [[ ! -f ".env" ]]; then
+    # first/clean run, prompt user selections
+    initializeUserPrompts
+    echoWarning "User preferences were saved in docker/.env for future use"
+  else
+    # ngrok was already chosen, refresh containers/endpoints
+    echoInfo "Refreshing ngrok containers..."
+    startNgrokContainers
+    setNgrokEndpoints
+  fi
+
+  configureEnvironment $@
+  export CONTROLLER_REPLICAS=1
+  echo "Running single pod setup..."
+  docker-compose up -d ${DEFAULT_CONTAINERS} ${ACAPY_CONTAINERS} ${PROD_CONTAINERS}
+  docker-compose logs -f
   ;;
 *)
   usage

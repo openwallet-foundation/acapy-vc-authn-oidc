@@ -245,6 +245,14 @@ class GlobalConfig(BaseSettings):
     CONTROLLER_TEMPLATE_DIR: str = os.environ.get(
         "CONTROLLER_TEMPLATE_DIR", "/app/controller-config/templates"
     )
+
+    # Redis Configuration for multi-pod Socket.IO
+    REDIS_HOST: str = os.environ.get("REDIS_HOST", "redis")
+    REDIS_PORT: int = int(os.environ.get("REDIS_PORT", 6379))
+    REDIS_PASSWORD: str = os.environ.get("REDIS_PASSWORD", "")
+    REDIS_DB: int = int(os.environ.get("REDIS_DB", 0))
+    USE_REDIS_ADAPTER: bool = strtobool(os.environ.get("USE_REDIS_ADAPTER", True))
+
     model_config = ConfigDict(case_sensitive=True)
 
 

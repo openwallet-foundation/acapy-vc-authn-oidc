@@ -17,7 +17,7 @@ maintainers:
 # Charts the vc-authn-oidc service depends on
 dependencies:
   - name: acapy
-    version: 0.1.3
+    version: 0.1.7
     repository: https://openwallet-foundation.github.io/helm-charts/
   - name: mongodb
     version: 16.4.1
