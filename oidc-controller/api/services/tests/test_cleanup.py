@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, UTC
 from unittest.mock import Mock, patch, AsyncMock
 import pytest
 
-from api.services.cleanup import PresentationCleanupService
+from api.services.cleanup import PresentationCleanupService, cleanup_old_presentation_records
 
 
 class TestPresentationCleanupService:
@@ -16,7 +16,15 @@ class TestPresentationCleanupService:
         with patch("api.services.cleanup.settings") as mock_settings:
             mock_settings.CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS = 24
             mock_settings.CONTROLLER_PRESENTATION_CLEANUP_SCHEDULE_MINUTES = 60
-            self.service = PresentationCleanupService()
+            mock_settings.REDIS_HOST = "localhost"
+            mock_settings.REDIS_PORT = 6379
+            mock_settings.REDIS_PASSWORD = None
+            mock_settings.REDIS_DB = 0
+            with patch(
+                "api.services.cleanup.PresentationCleanupService._create_scheduler"
+            ) as mock_scheduler:
+                mock_scheduler.return_value = Mock()
+                self.service = PresentationCleanupService()
 
     @patch("api.services.cleanup.AcapyClient")
     @pytest.mark.asyncio
@@ -25,7 +33,6 @@ class TestPresentationCleanupService:
         # Arrange
         mock_client = Mock()
         mock_client_class.return_value = mock_client
-        self.service.client = mock_client
 
         # Create test records - one old, one recent
         old_time = datetime.now(UTC) - timedelta(hours=25)
@@ -57,7 +64,7 @@ class TestPresentationCleanupService:
         )
 
         # Act
-        result = await self.service.cleanup_old_presentation_records()
+        result = await cleanup_old_presentation_records()
 
         # Assert
         assert result["total_records"] == 3
@@ -81,12 +88,11 @@ class TestPresentationCleanupService:
         # Arrange
         mock_client = Mock()
         mock_client_class.return_value = mock_client
-        self.service.client = mock_client
 
         mock_client.get_all_presentation_records.return_value = []
 
         # Act
-        result = await self.service.cleanup_old_presentation_records()
+        result = await cleanup_old_presentation_records()
 
         # Assert
         assert result["total_records"] == 0
@@ -94,7 +100,7 @@ class TestPresentationCleanupService:
         assert result["failed_cleanups"] == 0
         assert len(result["errors"]) == 0
 
-        mock_client.delete_presentation_record.assert_not_called()
+        mock_client.delete_presentation_record_and_connection.assert_not_called()
 
     @patch("api.services.cleanup.AcapyClient")
     @pytest.mark.asyncio
@@ -105,7 +111,6 @@ class TestPresentationCleanupService:
         # Arrange
         mock_client = Mock()
         mock_client_class.return_value = mock_client
-        self.service.client = mock_client
 
         old_time = datetime.now(UTC) - timedelta(hours=25)
         mock_records = [
@@ -129,7 +134,7 @@ class TestPresentationCleanupService:
         ]
 
         # Act
-        result = await self.service.cleanup_old_presentation_records()
+        result = await cleanup_old_presentation_records()
 
         # Assert
         assert result["total_records"] == 2
@@ -147,7 +152,6 @@ class TestPresentationCleanupService:
         # Arrange
         mock_client = Mock()
         mock_client_class.return_value = mock_client
-        self.service.client = mock_client
 
         mock_records = [
             {
@@ -165,16 +169,16 @@ class TestPresentationCleanupService:
         mock_client.get_all_presentation_records.return_value = mock_records
 
         # Act
-        result = await self.service.cleanup_old_presentation_records()
+        result = await cleanup_old_presentation_records()
 
         # Assert
         assert result["total_records"] == 2
         assert result["cleaned_records"] == 0
-        assert result["failed_cleanups"] == 0
-        assert len(result["errors"]) == 0
+        assert result["failed_cleanups"] == 1  # The first record fails processing
+        assert len(result["errors"]) == 1  # One error for the record with no timestamp
 
         # No deletion should be attempted for invalid records
-        mock_client.delete_presentation_record.assert_not_called()
+        mock_client.delete_presentation_record_and_connection.assert_not_called()
 
     @patch("api.services.cleanup.AcapyClient")
     @pytest.mark.asyncio
@@ -185,12 +189,11 @@ class TestPresentationCleanupService:
         # Arrange
         mock_client = Mock()
         mock_client_class.return_value = mock_client
-        self.service.client = mock_client
 
         mock_client.get_all_presentation_records.side_effect = Exception("API error")
 
         # Act
-        result = await self.service.cleanup_old_presentation_records()
+        result = await cleanup_old_presentation_records()
 
         # Assert
         assert result["total_records"] == 0
@@ -208,7 +211,6 @@ class TestPresentationCleanupService:
         # Arrange
         mock_client = Mock()
         mock_client_class.return_value = mock_client
-        self.service.client = mock_client
 
         old_time = datetime.now(UTC) - timedelta(hours=25)
         mock_records = [
@@ -232,7 +234,7 @@ class TestPresentationCleanupService:
         ]
 
         # Act
-        result = await self.service.cleanup_old_presentation_records()
+        result = await cleanup_old_presentation_records()
 
         # Assert
         assert result["total_records"] == 2
@@ -266,70 +268,152 @@ class TestPresentationCleanupService:
             except ValueError:
                 pytest.fail(f"Failed to parse timestamp: {timestamp_str}")
 
-    @patch("api.services.cleanup.asyncio.sleep")
-    @patch("api.services.cleanup.AcapyClient")
+    @patch("apscheduler.schedulers.asyncio.AsyncIOScheduler")
     @pytest.mark.asyncio
-    async def test_start_background_cleanup_task_success(
-        self, mock_client_class, mock_sleep
-    ):
-        """Test background cleanup task execution."""
+    async def test_start_scheduler_success(self, mock_scheduler_class):
+        """Test APScheduler startup."""
         # Arrange
-        mock_client = Mock()
-        mock_client_class.return_value = mock_client
-        self.service.client = mock_client
+        mock_scheduler = Mock()
+        mock_scheduler_class.return_value = mock_scheduler
+        self.service.scheduler = mock_scheduler
 
-        mock_client.get_all_presentation_records.return_value = []
+        # Act
+        await self.service.start_scheduler()
 
-        # Mock sleep to prevent infinite loop in test
-        mock_sleep.side_effect = [None, asyncio.CancelledError()]
+        # Assert
+        mock_scheduler.add_job.assert_called_once()
+        mock_scheduler.start.assert_called_once()
+
+        # Verify job configuration
+        call_args = mock_scheduler.add_job.call_args
+        assert call_args[1]["id"] == "presentation_cleanup"
+        assert call_args[1]["max_instances"] == 1
+        assert call_args[1]["replace_existing"] == True
+
+    @patch("apscheduler.schedulers.asyncio.AsyncIOScheduler")
+    @pytest.mark.asyncio
+    async def test_start_scheduler_with_exception(self, mock_scheduler_class):
+        """Test APScheduler startup handles exceptions."""
+        # Arrange
+        mock_scheduler = Mock()
+        mock_scheduler.start.side_effect = Exception("Scheduler error")
+        mock_scheduler_class.return_value = mock_scheduler
+        self.service.scheduler = mock_scheduler
 
         # Act & Assert
-        with pytest.raises(asyncio.CancelledError):
-            await self.service.start_background_cleanup_task()
+        with pytest.raises(Exception, match="Scheduler error"):
+            await self.service.start_scheduler()
 
-        # Verify cleanup was called
-        mock_client.get_all_presentation_records.assert_called()
-
-        # Verify sleep was called with correct interval (60 minutes * 60 seconds)
-        mock_sleep.assert_called_with(3600)
-
-    @patch("api.services.cleanup.asyncio.sleep")
-    @patch.object(PresentationCleanupService, "cleanup_old_presentation_records")
+    @patch("apscheduler.schedulers.asyncio.AsyncIOScheduler")
     @pytest.mark.asyncio
-    async def test_start_background_cleanup_task_with_exception(
-        self, mock_cleanup_method, mock_sleep
-    ):
-        """Test background cleanup task handles exceptions."""
+    async def test_stop_scheduler_success(self, mock_scheduler_class):
+        """Test APScheduler shutdown."""
         # Arrange
-        # First call throws exception, second succeeds, then cancel
-        mock_cleanup_method.side_effect = [
-            Exception("Temporary error"),
-            None,
-            asyncio.CancelledError(),
-        ]
+        mock_scheduler = Mock()
+        mock_scheduler.running = True
+        mock_scheduler_class.return_value = mock_scheduler
+        self.service.scheduler = mock_scheduler
 
-        mock_sleep.side_effect = [None, None, asyncio.CancelledError()]
+        # Act
+        await self.service.stop_scheduler()
 
-        # Act & Assert
-        with pytest.raises(asyncio.CancelledError):
-            await self.service.start_background_cleanup_task()
+        # Assert
+        mock_scheduler.shutdown.assert_called_once_with(wait=True)
 
-        # Verify cleanup was attempted multiple times
-        assert mock_cleanup_method.call_count >= 2
+    @patch("apscheduler.schedulers.asyncio.AsyncIOScheduler")
+    @pytest.mark.asyncio
+    async def test_stop_scheduler_not_running(self, mock_scheduler_class):
+        """Test APScheduler shutdown when not running."""
+        # Arrange
+        mock_scheduler = Mock()
+        mock_scheduler.running = False
+        mock_scheduler_class.return_value = mock_scheduler
+        self.service.scheduler = mock_scheduler
 
-        # Verify error recovery sleep (5 minutes = 300 seconds) was called
-        mock_sleep.assert_any_call(300)
+        # Act
+        await self.service.stop_scheduler()
+
+        # Assert
+        mock_scheduler.shutdown.assert_not_called()
 
     @patch("api.services.cleanup.settings")
     def test_cleanup_service_configuration(self, mock_settings):
         """Test that cleanup service uses configuration correctly."""
         # Arrange
-        mock_settings.CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS = 48
         mock_settings.CONTROLLER_PRESENTATION_CLEANUP_SCHEDULE_MINUTES = 30
+        mock_settings.REDIS_HOST = "localhost"
+        mock_settings.REDIS_PORT = 6379
+        mock_settings.REDIS_PASSWORD = None
+        mock_settings.REDIS_DB = 0
+
+        with patch(
+            "api.services.cleanup.PresentationCleanupService._create_scheduler"
+        ) as mock_scheduler:
+            mock_scheduler.return_value = Mock()
+            # Act
+            service = PresentationCleanupService()
+
+            # Assert
+            assert service.schedule_minutes == 30
+
+    def test_setup_cleanup_job(self):
+        """Test APScheduler job setup."""
+        # Arrange
+        mock_scheduler = Mock()
+        self.service.scheduler = mock_scheduler
 
         # Act
-        service = PresentationCleanupService()
+        self.service.setup_cleanup_job()
 
         # Assert
-        assert service.retention_hours == 48
-        assert service.schedule_minutes == 30
+        mock_scheduler.add_job.assert_called_once()
+        call_args = mock_scheduler.add_job.call_args
+
+        # Verify job parameters
+        assert call_args[1]["func"] == cleanup_old_presentation_records
+        assert call_args[1]["id"] == "presentation_cleanup"
+        assert call_args[1]["max_instances"] == 1
+        assert call_args[1]["replace_existing"] == True
+        assert call_args[1]["misfire_grace_time"] == 300
+
+    @patch("api.services.cleanup.settings")
+    def test_build_redis_url_with_password(self, mock_settings):
+        """Test Redis URL building with password."""
+        # Arrange
+        mock_settings.REDIS_HOST = "redis-host"
+        mock_settings.REDIS_PORT = 6380
+        mock_settings.REDIS_PASSWORD = "secret"
+        mock_settings.REDIS_DB = 2
+
+        with patch(
+            "api.services.cleanup.PresentationCleanupService._create_scheduler"
+        ) as mock_scheduler:
+            mock_scheduler.return_value = Mock()
+            service = PresentationCleanupService()
+
+            # Act
+            url = service._build_redis_url()
+
+            # Assert - password should be masked
+            assert url == "redis://***@redis-host:6380/3"
+
+    @patch("api.services.cleanup.settings")
+    def test_build_redis_url_without_password(self, mock_settings):
+        """Test Redis URL building without password."""
+        # Arrange
+        mock_settings.REDIS_HOST = "redis-host"
+        mock_settings.REDIS_PORT = 6379
+        mock_settings.REDIS_PASSWORD = None
+        mock_settings.REDIS_DB = 0
+
+        with patch(
+            "api.services.cleanup.PresentationCleanupService._create_scheduler"
+        ) as mock_scheduler:
+            mock_scheduler.return_value = Mock()
+            service = PresentationCleanupService()
+
+            # Act
+            url = service._build_redis_url()
+
+            # Assert
+            assert url == "redis://redis-host:6379/1"
