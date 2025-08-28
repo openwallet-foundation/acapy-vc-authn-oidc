@@ -5,7 +5,6 @@ from pymongo.database import Database
 from pymongo.errors import DuplicateKeyError
 from fastapi import HTTPException
 from fastapi import status as http_status
-from fastapi.encoders import jsonable_encoder
 
 from ..core.models import PyObjectId
 from .models import (
@@ -25,7 +24,7 @@ class AuthSessionCRUD:
 
     async def create(self, auth_session: AuthSessionCreate) -> AuthSession:
         col = self._db.get_collection(COLLECTION_NAMES.AUTH_SESSION)
-        result = col.insert_one(jsonable_encoder(auth_session))
+        result = col.insert_one(auth_session.model_dump())
         return AuthSession(**col.find_one({"_id": result.inserted_id}))
 
     async def get_by_connection_id(self, connection_id: str) -> AuthSession | None:
