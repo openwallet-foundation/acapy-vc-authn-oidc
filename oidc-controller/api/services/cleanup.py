@@ -106,7 +106,9 @@ class PresentationCleanupService:
     """Service for cleaning up old presentation records."""
 
     def __init__(self):
-        self.schedule_minutes = settings.CONTROLLER_PRESENTATION_CLEANUP_SCHEDULE_MINUTES
+        self.schedule_minutes = (
+            settings.CONTROLLER_PRESENTATION_CLEANUP_SCHEDULE_MINUTES
+        )
 
         # Initialize APScheduler with Redis job store
         self.scheduler = self._create_scheduler()

@@ -6,7 +6,10 @@ from datetime import datetime, timedelta, UTC
 from unittest.mock import Mock, patch, AsyncMock
 import pytest
 
-from api.services.cleanup import PresentationCleanupService, cleanup_old_presentation_records
+from api.services.cleanup import (
+    PresentationCleanupService,
+    cleanup_old_presentation_records,
+)
 from api.core.acapy.client import AcapyClient
 
 
@@ -308,7 +311,9 @@ class TestCleanupIntegration:
         assert result["total_records"] == 0
         assert result["cleaned_records"] == 0
         assert result["failed_cleanups"] == 0
-        assert len(result["errors"]) == 0  # No errors because client handles them gracefully
+        assert (
+            len(result["errors"]) == 0
+        )  # No errors because client handles them gracefully
 
     @patch("api.core.acapy.client.requests.get")
     @patch("api.core.acapy.client.requests.delete")

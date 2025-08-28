@@ -5,7 +5,10 @@ from datetime import datetime, timedelta, UTC
 from unittest.mock import Mock, patch, AsyncMock
 import pytest
 
-from api.services.cleanup import PresentationCleanupService, cleanup_old_presentation_records
+from api.services.cleanup import (
+    PresentationCleanupService,
+    cleanup_old_presentation_records,
+)
 
 
 class TestPresentationCleanupService:
