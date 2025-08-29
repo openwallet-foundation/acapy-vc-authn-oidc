@@ -4,8 +4,6 @@ metadata:
   name: {{ include "global.fullname" . }}
   labels:
     {{- include "vc-authn-oidc.labels" . | nindent 4 }}
-  annotations:
-    checksum/db-api-secrets: {{ include (print $.Template.BasePath "/secrets.yaml") . | sha256sum }}
 spec:
   {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.replicaCount }}
@@ -16,6 +14,7 @@ spec:
   template:
     metadata:
       annotations:
+        checksum/db-api-secrets: {{ include (print $.Template.BasePath "/secrets.yaml") . | sha256sum }}
         helm.sh/last-deploy: {{ now | quote }}
       {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
