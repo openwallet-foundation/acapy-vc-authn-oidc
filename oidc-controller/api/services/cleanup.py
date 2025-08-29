@@ -75,10 +75,9 @@ async def cleanup_old_presentation_records() -> dict:
                             logger.warning(error_msg)
 
                     # Log any additional errors from the cleanup operation
-                    if errors:
-                        for error in errors:
-                            cleanup_stats["errors"].append(error)
-                            logger.warning(f"Cleanup error: {error}")
+                    for error in errors:
+                        cleanup_stats["errors"].append(error)
+                        logger.warning(f"Cleanup error: {error}")
                 else:
                     logger.debug(
                         f"Record {record.get('pres_ex_id')} is too recent to clean up"
