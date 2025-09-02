@@ -19,8 +19,11 @@ jobs:
           git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
       - name: Install Helm
         uses: azure/setup-helm@v4
-      - name: Add bitnami repository
-        run: helm repo add bitnami https://charts.bitnami.com/bitnami
+      - name: Add helm repositories
+        run: |
+          helm repo add bitnami https://charts.bitnami.com/bitnami
+          helm repo add owf https://openwallet-foundation.github.io/helm-charts/
+          helm repo update
       - name: Run chart-releaser
         uses: ./.github/actions/chart_releaser
         with:

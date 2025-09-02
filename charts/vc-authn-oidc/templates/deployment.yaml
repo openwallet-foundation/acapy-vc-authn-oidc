@@ -6,6 +6,7 @@ metadata:
     {{- include "vc-authn-oidc.labels" . | nindent 4 }}
   annotations:
     checksum/db-api-secrets: {{ include (print $.Template.BasePath "/secrets.yaml") . | sha256sum }}
+    helm.sh/last-deploy: {{ now | quote }}
 spec:
   {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.replicaCount }}
