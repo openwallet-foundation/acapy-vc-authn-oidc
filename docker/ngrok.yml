@@ -1,7 +1,7 @@
 version: 2
 tunnels:
   controller-ngrok:
-    addr: controller:5000
+    addr: controller-lb:80
     proto: http
     schemes:
       - https
