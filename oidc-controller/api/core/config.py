@@ -249,7 +249,7 @@ class GlobalConfig(BaseSettings):
     # Redis Configuration for multi-pod Socket.IO
     REDIS_HOST: str = os.environ.get("REDIS_HOST", "redis")
     REDIS_PORT: int = int(os.environ.get("REDIS_PORT", 6379))
-    REDIS_PASSWORD: str = os.environ.get("REDIS_PASSWORD", "")
+    REDIS_PASSWORD: str | None = os.environ.get("REDIS_PASSWORD")
     REDIS_DB: int = int(os.environ.get("REDIS_DB", 0))
     USE_REDIS_ADAPTER: bool = strtobool(os.environ.get("USE_REDIS_ADAPTER", True))
 
