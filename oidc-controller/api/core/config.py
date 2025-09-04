@@ -175,6 +175,16 @@ class GlobalConfig(BaseSettings):
         "CONTROLLER_PRESENTATION_CLEANUP_TIME", 86400
     )
 
+    # Presentation record cleanup configuration
+    # How long to retain presentation records in hours (default: 24 hours)
+    CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS: int = int(
+        os.environ.get("CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS", 24)
+    )
+    # How often to run the background cleanup task in minutes (default: 60 minutes)
+    CONTROLLER_PRESENTATION_CLEANUP_SCHEDULE_MINUTES: int = int(
+        os.environ.get("CONTROLLER_PRESENTATION_CLEANUP_SCHEDULE_MINUTES", 60)
+    )
+
     CONTROLLER_SESSION_TIMEOUT_CONFIG_FILE: str | None = os.environ.get(
         "CONTROLLER_SESSION_TIMEOUT_CONFIG_FILE"
     )
@@ -235,6 +245,14 @@ class GlobalConfig(BaseSettings):
     CONTROLLER_TEMPLATE_DIR: str = os.environ.get(
         "CONTROLLER_TEMPLATE_DIR", "/app/controller-config/templates"
     )
+
+    # Redis Configuration for multi-pod Socket.IO
+    REDIS_HOST: str = os.environ.get("REDIS_HOST", "redis")
+    REDIS_PORT: int = int(os.environ.get("REDIS_PORT", 6379))
+    REDIS_PASSWORD: str | None = os.environ.get("REDIS_PASSWORD")
+    REDIS_DB: int = int(os.environ.get("REDIS_DB", 0))
+    USE_REDIS_ADAPTER: bool = strtobool(os.environ.get("USE_REDIS_ADAPTER", True))
+
     model_config = ConfigDict(case_sensitive=True)
 
 

@@ -1,4 +1,17 @@
 services:
+  # Load balancer for multiple controller pods
+  controller-lb:
+    image: nginx:alpine
+    ports:
+      - "${CONTROLLER_SERVICE_PORT:-5000}:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      - vc_auth
+    depends_on:
+      - controller
+    restart: unless-stopped
+
   controller:
     image: acapy-vc-authn-oidc-controller
     entrypoint: /bin/bash
@@ -26,6 +39,8 @@ services:
       - CONTROLLER_PRESENTATION_EXPIRE_TIME=${CONTROLLER_PRESENTATION_EXPIRE_TIME}
       - CONTROLLER_PRESENTATION_CLEANUP_TIME=${CONTROLLER_PRESENTATION_CLEANUP_TIME}
       - CONTROLLER_SESSION_TIMEOUT_CONFIG_FILE=${CONTROLLER_SESSION_TIMEOUT_CONFIG_FILE}
+      - CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS=${CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS}
+      - CONTROLLER_PRESENTATION_CLEANUP_SCHEDULE_MINUTES=${CONTROLLER_PRESENTATION_CLEANUP_SCHEDULE_MINUTES}
       - CONTROLLER_VARIABLE_SUBSTITUTION_OVERRIDE=${CONTROLLER_VARIABLE_SUBSTITUTION_OVERRIDE}
       - CONTROLLER_TEMPLATE_DIR=${CONTROLLER_TEMPLATE_DIR}
       - ACAPY_TENANCY=${AGENT_TENANT_MODE}
@@ -39,9 +54,19 @@ services:
       - USE_CONNECTION_BASED_VERIFICATION=${USE_CONNECTION_BASED_VERIFICATION}
       - WALLET_DEEP_LINK_PREFIX=${WALLET_DEEP_LINK_PREFIX}
       - INVITATION_LABEL=${INVITATION_LABEL}
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT}
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - REDIS_DB=${REDIS_DB}
+      - USE_REDIS_ADAPTER=${USE_REDIS_ADAPTER}
+    # Expose debugger ports as a range
     ports:
-      - ${CONTROLLER_SERVICE_PORT}:5000
-      - 5678:5678
+      - "5678-5688:5678"
+    # Remove direct port exposure - goes through load balancer
+    expose:
+      - "5000"
+    deploy:
+      replicas: ${CONTROLLER_REPLICAS:-3}
     volumes:
       - ../oidc-controller:/app/src:rw
       - ./oidc-controller/config/user_variable_substitution.py:/app/controller-config/user_variable_substitution.py
@@ -49,6 +74,25 @@ services:
       - ../html-templates:/app/controller-config/templates:rw
     networks:
       - vc_auth
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  redis:
+    image: redis:8-alpine
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - vc_auth
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
 
   controller-db:
     image: mongo:8.0
@@ -119,6 +163,7 @@ services:
       - ACAPY_LOG_LEVEL=info
       - ACAPY_WEBHOOK_URL=${CONTROLLER_WEB_HOOK_URL}
       - ACAPY_AUTO_PROVISION=true
+      - ACAPY_PRESERVE_EXCHANGE_RECORDS=true
       - POSTGRESQL_WALLET_HOST=${POSTGRESQL_WALLET_HOST}
       - POSTGRESQL_WALLET_PORT=${POSTGRESQL_WALLET_PORT}
       - POSTGRESQL_WALLET_USER=${POSTGRESQL_WALLET_USER}
@@ -136,7 +181,7 @@ services:
     command:
       [
         "-c",
-        'sleep 15; aca-py start --inbound-transport http ''0.0.0.0'' ${AGENT_HTTP_PORT} --outbound-transport http --wallet-storage-config ''{"url":"${POSTGRESQL_WALLET_HOST}:${POSTGRESQL_WALLET_PORT}","max_connections":5}'' --wallet-storage-creds ''{"account":"${POSTGRESQL_WALLET_USER}","password":"${POSTGRESQL_WALLET_PASSWORD}","admin_account":"${POSTGRESQL_WALLET_USER}","admin_password":"${POSTGRESQL_WALLET_PASSWORD}"}'' --admin ''0.0.0.0'' ${AGENT_ADMIN_PORT} --${AGENT_ADMIN_MODE} ',
+        'sleep 15; aca-py start --inbound-transport http ''0.0.0.0'' ${AGENT_HTTP_PORT} --outbound-transport http --wallet-storage-config ''{"url":"${POSTGRESQL_WALLET_HOST}:${POSTGRESQL_WALLET_PORT}","max_connections":5}'' --wallet-storage-creds ''{"account":"${POSTGRESQL_WALLET_USER}","password":"${POSTGRESQL_WALLET_PASSWORD}","admin_account":"${POSTGRESQL_WALLET_USER}","admin_password":"${POSTGRESQL_WALLET_PASSWORD}"}'' --admin ''0.0.0.0'' ${AGENT_ADMIN_PORT} --${AGENT_ADMIN_MODE}',
       ]
 
   wallet-db:
@@ -160,3 +205,4 @@ volumes:
   controller-db-data:
   keycloak-db-data:
   agent-wallet-db:
+  redis-data:

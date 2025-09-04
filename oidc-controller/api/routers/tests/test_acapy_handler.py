@@ -537,8 +537,19 @@ class TestConnectionBasedVerificationIntegration:
         )
         mock_auth_session_crud.return_value.patch = AsyncMock()
 
+        # Set up auth session for single-use connection cleanup
+        mock_auth_session.multi_use = False
+
         mock_client_instance = MagicMock()
-        mock_client_instance.delete_connection.return_value = True
+        # Setup the new wrapper function to return tuples
+        mock_client_instance.get_presentation_request.return_value = {
+            "by_format": {"test": "presentation"}
+        }
+        mock_client_instance.delete_presentation_record_and_connection.return_value = (
+            True,  # presentation_deleted: True
+            True,  # connection_deleted: True
+            [],  # errors: empty list
+        )
         mock_acapy_client.return_value = mock_client_instance
 
         mock_get_socket_id.return_value = "test-socket-id"
@@ -549,8 +560,9 @@ class TestConnectionBasedVerificationIntegration:
 
         # Verify
         assert result == {}
-        mock_client_instance.delete_connection.assert_called_once_with(
-            "test-connection-id"
+        # Verify the wrapper function was called once for both presentation and connection cleanup
+        mock_client_instance.delete_presentation_record_and_connection.assert_called_once_with(
+            "test-pres-ex-id", "test-connection-id"
         )
         mock_sio.emit.assert_called_once_with(
             "status", {"status": "verified"}, to="test-socket-id"
