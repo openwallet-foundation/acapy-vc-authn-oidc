@@ -30,9 +30,15 @@ NGROK_AUTHTOKEN=<your token here>
 
 Open a shell in the [docker](docker/) folder and run the following commands:
 
-- `./manage build`: this command will build the controller image. This step is required the first time the project is run, and when dependencies in change in the requirements file(s).
-- `./manage start`: this will start the project. Follow the script prompts to select the appropriate runtime options: they will be saved in an `env` file for the next execution.
+- `./manage build`: this command will build the controller image. This step is required the first time the project is run, and when dependencies change in the requirements file(s).
+- `./manage start`: this will start the project with **multiple controller pods by default** for scalability. Follow the script prompts to select the appropriate runtime options: they will be saved in an `env` file for the next execution.
 - To reset everything (including removing container data and selected options in the `env` file) execute `./manage rm`.
+
+### Additional Commands
+
+- `./manage single-pod`: Run single pod setup for debugging
+- `./manage scale <number>`: Scale to specific number of controller pods
+- `CONTROLLER_REPLICAS=<number> ./manage start`: Set replica count via environment
 
 A list of all available commands is visible by executing `./manage -h`.
 
@@ -106,9 +112,34 @@ After all these steps have been completed, you should be able to authenticate wi
 
 ## Debugging
 
-To connect a debugger to the `vc-authn` controller service, start the project using `DEBUGGER=true ./manage start` and then launch the debugger, it should connect automatically to the container.
+To connect a debugger to the `vc-authn` controller service, start the project using `DEBUGGER=true ./manage single-pod` and then launch the debugger.
 
-This is a sample debugger launch configuration for VSCode that can be used by adding it to `launch.json`, it assumes a `.venv` folder containing the virtual environment was created in the repository root:
+### Finding the Debugger Port
+
+When using `DEBUGGER=true`, the debugger port is dynamically assigned from the range 5678-5688 to avoid conflicts between replicas.
+
+To find the actual debugger port:
+```bash
+# Start with debugger enabled (use single-pod for debugging)
+DEBUGGER=true ./manage single-pod
+
+# Find the assigned port
+docker ps | grep controller
+# Look for port mapping like: 0.0.0.0:5679->5678/tcp
+# Connect your debugger to the host port (5679 in this example)
+```
+
+**Example output:**
+```
+CONTAINER ID   IMAGE                              PORTS
+abc123def456   acapy-vc-authn-oidc-controller    0.0.0.0:5679->5678/tcp
+```
+
+In this example, connect your debugger to `localhost:5679`.
+
+### VSCode Configuration
+
+This is a sample debugger launch configuration for VSCode that can be used by adding it to `launch.json`, it assumes a `.venv` folder containing the virtual environment was created in the repository root. **Note:** Update the `port` value to match the discovered port from the `docker ps` command above.
 
 ```json
 {
