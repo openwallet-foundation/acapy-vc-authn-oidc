@@ -241,7 +241,7 @@ class GlobalConfig(BaseSettings):
     REDIS_PORT: int = int(os.environ.get("REDIS_PORT", 6379))
     REDIS_PASSWORD: str = os.environ.get("REDIS_PASSWORD", "")
     REDIS_DB: int = int(os.environ.get("REDIS_DB", 0))
-    USE_REDIS_ADAPTER: bool = strtobool(os.environ.get("USE_REDIS_ADAPTER", True))
+    USE_REDIS_ADAPTER: bool = strtobool(os.environ.get("USE_REDIS_ADAPTER", False))
 
     model_config = ConfigDict(case_sensitive=True)
 
