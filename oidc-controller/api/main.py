@@ -19,7 +19,7 @@ from .db.session import get_db, init_db
 from .routers import acapy_handler, oidc, presentation_request, well_known_oid_config
 from .verificationConfigs.router import router as ver_configs_router
 from .clientConfigurations.router import router as client_config_router
-from .routers.socketio import sio_app
+from .routers.socketio import sio_app, validate_redis_connection
 from api.core.oidc.provider import init_provider
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
@@ -132,6 +132,10 @@ async def on_tenant_startup():
     """Register any events we need to respond to."""
     await init_db()
     await init_provider(await get_db())
+
+    # Validate Redis connection if USE_REDIS_ADAPTER is enabled
+    await validate_redis_connection()
+
     logger.info(">>> Starting up app new ...")
 
 

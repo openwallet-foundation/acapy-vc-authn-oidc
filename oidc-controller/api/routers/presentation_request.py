@@ -9,7 +9,7 @@ from ..authSessions.crud import AuthSessionCRUD
 from ..authSessions.models import AuthSession, AuthSessionState
 
 from ..core.config import settings
-from ..routers.socketio import sio, get_socket_id_for_pid
+from ..routers.socketio import sio, get_socket_id_for_pid, safe_emit
 from ..routers.oidc import gen_deep_link
 from ..db.session import get_db
 
@@ -24,7 +24,7 @@ async def toggle_pending(db, auth_session: AuthSession):
     await AuthSessionCRUD(db).patch(auth_session.id, auth_session)
     sid = await get_socket_id_for_pid(str(auth_session.id), db)
     if sid:
-        await sio.emit("status", {"status": "pending"}, to=sid)
+        await safe_emit("status", {"status": "pending"}, to=sid)
 
 
 @router.get("/url/pres_exch/{pres_exch_id}")

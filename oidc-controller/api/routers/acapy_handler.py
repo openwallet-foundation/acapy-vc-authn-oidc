@@ -13,7 +13,7 @@ from ..core.acapy.client import AcapyClient
 from ..verificationConfigs.crud import VerificationConfigCRUD
 
 from ..core.config import settings
-from ..routers.socketio import sio, get_socket_id_for_pid
+from ..routers.socketio import sio, get_socket_id_for_pid, safe_emit
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
 
@@ -151,7 +151,7 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                                     str(auth_session.id), db
                                 )
                                 if sid:
-                                    await sio.emit(
+                                    await safe_emit(
                                         "status", {"status": "failed"}, to=sid
                                     )
                         else:
@@ -185,11 +185,11 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                     auth_session.proof_status = AuthSessionState.VERIFIED
                     auth_session.presentation_exchange = webhook_body["by_format"]
                     if sid:
-                        await sio.emit("status", {"status": "verified"}, to=sid)
+                        await safe_emit("status", {"status": "verified"}, to=sid)
                 else:
                     auth_session.proof_status = AuthSessionState.FAILED
                     if sid:
-                        await sio.emit("status", {"status": "failed"}, to=sid)
+                        await safe_emit("status", {"status": "failed"}, to=sid)
 
                     # Send problem report for failed verification in connection-based flow
                     if (
@@ -250,7 +250,7 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                 logger.info(webhook_body["error_msg"])
                 auth_session.proof_status = AuthSessionState.ABANDONED
                 if sid:
-                    await sio.emit("status", {"status": "abandoned"}, to=sid)
+                    await safe_emit("status", {"status": "abandoned"}, to=sid)
 
                 # Send problem report for abandoned presentation in connection-based flow
                 if (
@@ -324,7 +324,7 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                 logger.info("EXPIRED")
                 auth_session.proof_status = AuthSessionState.EXPIRED
                 if sid:
-                    await sio.emit("status", {"status": "expired"}, to=sid)
+                    await safe_emit("status", {"status": "expired"}, to=sid)
 
                 # Send problem report for expired presentation in connection-based flow
                 if (

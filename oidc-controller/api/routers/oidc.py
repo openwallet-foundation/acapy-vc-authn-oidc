@@ -31,7 +31,7 @@ from ..core.oidc.issue_token_service import Token
 from ..db.session import get_db
 
 # Access to the websocket
-from ..routers.socketio import get_socket_id_for_pid, sio
+from ..routers.socketio import get_socket_id_for_pid, sio, safe_emit
 
 from ..verificationConfigs.crud import VerificationConfigCRUD
 from ..verificationConfigs.helpers import VariableSubstitutionError
@@ -80,7 +80,7 @@ async def poll_pres_exch_complete(pid: str, db: Database = Depends(get_db)):
         )
         # Send message through the websocket.
         if sid:
-            await sio.emit("status", {"status": "expired"}, to=sid)
+            await safe_emit("status", {"status": "expired"}, to=sid)
 
         # Cleanup connection after verification expires (for connection-based flow)
         if (
