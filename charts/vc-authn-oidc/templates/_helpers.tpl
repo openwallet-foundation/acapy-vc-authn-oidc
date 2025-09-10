@@ -230,8 +230,8 @@ We truncate at 63 chars because some Kubernetes name fields are limited to this 
 Return the acapy secret name
 */}}
 {{- define "vc-authn-oidc.acapy.secretName" -}}
-    {{- if .Values.acapy.existingSecret -}}
-        {{- .Values.acapy.existingSecret -}}
+    {{- if .Values.acapy.secrets.api.existingSecret -}}
+        {{- .Values.acapy.secrets.api.existingSecret -}}
     {{- else -}}
           {{- printf "%s-%s-api" (include "global.fullname" .) (include "vc-authn-oidc.acapy.name" .) | trunc 63 | trimSuffix "-" -}}
     {{- end -}}

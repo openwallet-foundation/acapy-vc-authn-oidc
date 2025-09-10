@@ -279,12 +279,6 @@ acapy:
   ## @param acapy.enabled Deploy AcaPy agent instance
   enabled: true
 
-  ## @param acapy.existingSecret Name of existing secret, required if `enabled` is `false`; Secret must contain `adminApiKey`, `walletKey`, and `webhookApiKey` keys.
-  existingSecret: ""
-  ## @param acapy.agentSeed.existingSecret Name of existing secret with the 'seed' key.
-  agentSeed:
-    existingSecret: ""
-
   ## @param acapy.image.registry
   ## @param acapy.image.repository
   ## @param acapy.image.pullPolicy
@@ -420,6 +414,30 @@ acapy:
       http: 8021
       admin: 8022
       ws: 8023
+
+  ## @param acapy.secrets.api.retainOnUninstall When true, adds helm.sh/resource-policy: keep to generated api secret
+  ## @param acapy.secrets.api.existingSecret Name of an existing Secret providing API related keys. If set, the chart will NOT create the api secret.
+  ## @param acapy.secrets.api.secretKeys.adminApiKey Key in the API secret holding the admin API key.
+  ## @param acapy.secrets.api.secretKeys.jwtKey Key in the API secret holding the multitenant JWT signing secret.
+  ## @param acapy.secrets.api.secretKeys.walletKey Key in the API secret holding the wallet key.
+  ## @param acapy.secrets.api.secretKeys.webhookapiKey Key in the API secret holding the webhook API key (used when embedding in webhook-url).
+  ## @param acapy.secrets.seed.retainOnUninstall When true, adds helm.sh/resource-policy: keep to generated seed secret
+  ## @param acapy.secrets.seed.existingSecret Name of an existing Secret providing the wallet seed. If set, the chart will NOT create the seed secret.
+  ## @param acapy.secrets.seed.secretKeys.seed Key in the seed secret holding the wallet seed value.
+  secrets:
+    api:
+      retainOnUninstall: true
+      existingSecret: ""
+      secretKeys:
+        adminApiKey: adminApiKey
+        jwtKey: jwt
+        walletKey: walletKey
+        webhookapiKey: webhookapi
+    seed:
+      retainOnUninstall: true
+      existingSecret: ""
+      secretKeys:
+        seed: seed
 
   ## @section Acapy NetworkPolicy parameters
 
