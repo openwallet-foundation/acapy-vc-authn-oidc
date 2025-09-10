@@ -105,7 +105,7 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: {{ include "vc-authn-oidc.acapy.secretName" . }}
-                  key: adminApiKey
+                  key: {{ .Values.acapy.secrets.api.secretKeys.adminApiKey | default "adminApiKey" }}
             - name: ST_ACAPY_ADMIN_API_KEY_NAME
               value: "x-api-key"
             {{- else }}
@@ -115,7 +115,7 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: {{ include "vc-authn-oidc.acapy.secretName" . }}
-                  key: walletKey
+                  key: {{ .Values.acapy.secrets.api.secretKeys.walletKey | default "walletKey" }}
             {{- end }}
             - name: SIGNING_KEY_FILEPATH
               value: {{ printf "/opt/token/%s" .Values.auth.token.privateKey.filename }}
