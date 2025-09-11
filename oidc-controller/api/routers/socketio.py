@@ -1,3 +1,4 @@
+import sys
 import redis.asyncio as async_redis
 import redis
 import socketio  # For using websockets
@@ -52,8 +53,6 @@ def _build_redis_url():
 
 def _validate_redis_before_manager_creation(redis_url):
     """Synchronously validate Redis connection before creating AsyncRedisManager"""
-    import os
-
     try:
         # Use synchronous Redis client to avoid event loop conflicts
         redis_client = redis.from_url(redis_url)
@@ -65,7 +64,7 @@ def _validate_redis_before_manager_creation(redis_url):
             _handle_redis_error("validation before manager creation", e)
         except:
             # If exception handling fails during import, force immediate exit
-            os._exit(1)
+            sys.exit(1)
 
 
 def _patch_redis_manager_for_crash_on_failure(manager):
@@ -84,7 +83,7 @@ def _patch_redis_manager_for_crash_on_failure(manager):
             logger.error(
                 "USE_REDIS_ADAPTER=true but Redis background thread failed. Crashing application."
             )
-            os._exit(1)  # Immediate process termination
+            sys.exit(1)  # Immediate process termination
 
     # Replace the background thread method
     manager._thread = crash_on_redis_failure_thread
