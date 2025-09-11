@@ -635,10 +635,14 @@ class TestCreateSocketManager:
         mock_settings.REDIS_PORT = 6379
         mock_settings.REDIS_PASSWORD = ""
         mock_settings.REDIS_DB = 0
-        mock_validate_redis.side_effect = RedisCriticalError("Redis validation failed before manager creation: Connection refused")
+        mock_validate_redis.side_effect = RedisCriticalError(
+            "Redis validation failed before manager creation: Connection refused"
+        )
 
         # Execute and verify crash
-        with pytest.raises(RedisCriticalError, match="Redis validation failed before manager creation"):
+        with pytest.raises(
+            RedisCriticalError, match="Redis validation failed before manager creation"
+        ):
             result = create_socket_manager()
 
         # Verify

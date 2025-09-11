@@ -133,7 +133,9 @@ class TestRedisValidation:
         with patch("api.routers.socketio.async_redis.from_url") as mock_redis:
             mock_redis.side_effect = Exception("Connection failed")
 
-            with pytest.raises(RedisCriticalError, match="Redis connection validation failed"):
+            with pytest.raises(
+                RedisCriticalError, match="Redis connection validation failed"
+            ):
                 await validate_redis_connection()
 
 
@@ -214,9 +216,13 @@ class TestRedisConfiguration:
         mock_settings.REDIS_DB = 0
 
         # Simulate Redis validation failure
-        mock_validate_redis.side_effect = RedisCriticalError("Redis validation failed before manager creation: Connection refused")
+        mock_validate_redis.side_effect = RedisCriticalError(
+            "Redis validation failed before manager creation: Connection refused"
+        )
 
-        with pytest.raises(RedisCriticalError, match="Redis validation failed before manager creation"):
+        with pytest.raises(
+            RedisCriticalError, match="Redis validation failed before manager creation"
+        ):
             manager = create_socket_manager()
 
 
