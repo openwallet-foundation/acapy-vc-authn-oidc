@@ -75,6 +75,11 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "localhost:5000/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
 
   redis:
     image: redis:8-alpine

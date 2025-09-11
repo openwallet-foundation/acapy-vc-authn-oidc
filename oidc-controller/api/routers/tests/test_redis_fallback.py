@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Test Redis fallback behavior to ensure graceful degradation.
+Test Redis fallback behavior to ensure proper handling when USE_REDIS_ADAPTER is enabled/disabled.
 """
 
 import pytest
@@ -14,6 +14,7 @@ from api.routers.socketio import (
     _should_use_redis_adapter,
     validate_redis_connection,
     sio,
+    RedisCriticalError,
 )
 
 
@@ -34,9 +35,9 @@ class TestSafeEmit:
 
     @pytest.mark.asyncio
     @patch("api.routers.socketio.settings")
-    async def test_safe_emit_graceful_failure(self, mock_settings):
-        """Test safe_emit continues gracefully when Redis fails and REDIS_REQUIRED=false."""
-        mock_settings.REDIS_REQUIRED = False
+    async def test_safe_emit_graceful_failure_adapter_disabled(self, mock_settings):
+        """Test safe_emit continues gracefully when Redis fails and USE_REDIS_ADAPTER=false."""
+        mock_settings.USE_REDIS_ADAPTER = False
 
         with patch.object(sio, "emit", new_callable=AsyncMock) as mock_emit:
             mock_emit.side_effect = Exception("Redis connection failed")
@@ -50,22 +51,21 @@ class TestSafeEmit:
 
     @pytest.mark.asyncio
     @patch("api.routers.socketio.settings")
-    async def test_safe_emit_crash_on_required_failure(self, mock_settings):
-        """Test safe_emit crashes when Redis fails and REDIS_REQUIRED=true."""
-        mock_settings.REDIS_REQUIRED = True
+    async def test_safe_emit_crash_on_adapter_enabled_failure(self, mock_settings):
+        """Test safe_emit crashes when Redis fails and USE_REDIS_ADAPTER=true."""
+        mock_settings.USE_REDIS_ADAPTER = True
 
         with patch.object(sio, "emit", new_callable=AsyncMock) as mock_emit:
             mock_emit.side_effect = Exception("Redis connection failed")
 
-            with patch("sys.exit") as mock_exit:
+            with pytest.raises(RedisCriticalError, match="Redis Socket.IO emit failed"):
                 await safe_emit("test_event", {"data": "test"}, to="test_room")
-                mock_exit.assert_called_once_with(1)
 
     @pytest.mark.asyncio
     @patch("api.routers.socketio.settings")
     async def test_safe_emit_handles_various_kwargs(self, mock_settings):
         """Test safe_emit handles various Socket.IO parameters correctly."""
-        mock_settings.REDIS_REQUIRED = False
+        mock_settings.USE_REDIS_ADAPTER = False
 
         with patch.object(sio, "emit", new_callable=AsyncMock) as mock_emit:
             mock_emit.return_value = True
@@ -92,9 +92,9 @@ class TestRedisValidation:
 
     @pytest.mark.asyncio
     @patch("api.routers.socketio.settings")
-    async def test_validate_redis_skipped_when_not_required(self, mock_settings):
-        """Test validation is skipped when REDIS_REQUIRED=false."""
-        mock_settings.REDIS_REQUIRED = False
+    async def test_validate_redis_skipped_when_adapter_disabled(self, mock_settings):
+        """Test validation is skipped when USE_REDIS_ADAPTER=false."""
+        mock_settings.USE_REDIS_ADAPTER = False
 
         # Should complete without error
         await validate_redis_connection()
@@ -103,13 +103,13 @@ class TestRedisValidation:
     @patch("api.routers.socketio.settings")
     async def test_validate_redis_success(self, mock_settings):
         """Test validation succeeds when Redis is available."""
-        mock_settings.REDIS_REQUIRED = True
+        mock_settings.USE_REDIS_ADAPTER = True
         mock_settings.REDIS_PASSWORD = ""
         mock_settings.REDIS_HOST = "redis"
         mock_settings.REDIS_PORT = 6379
         mock_settings.REDIS_DB = 0
 
-        with patch("redis.asyncio.from_url") as mock_redis:
+        with patch("api.routers.socketio.async_redis.from_url") as mock_redis:
             mock_client = AsyncMock()
             mock_redis.return_value = mock_client
             mock_client.ping = AsyncMock()
@@ -123,19 +123,18 @@ class TestRedisValidation:
     @pytest.mark.asyncio
     @patch("api.routers.socketio.settings")
     async def test_validate_redis_failure_crashes(self, mock_settings):
-        """Test validation crashes when Redis is required but unavailable."""
-        mock_settings.REDIS_REQUIRED = True
+        """Test validation crashes when Redis adapter is enabled but Redis is unavailable."""
+        mock_settings.USE_REDIS_ADAPTER = True
         mock_settings.REDIS_PASSWORD = ""
         mock_settings.REDIS_HOST = "nonexistent-redis"
         mock_settings.REDIS_PORT = 6379
         mock_settings.REDIS_DB = 0
 
-        with patch("redis.asyncio.from_url") as mock_redis:
+        with patch("api.routers.socketio.async_redis.from_url") as mock_redis:
             mock_redis.side_effect = Exception("Connection failed")
 
-            with patch("sys.exit") as mock_exit:
+            with pytest.raises(RedisCriticalError, match="Redis connection validation failed"):
                 await validate_redis_connection()
-                mock_exit.assert_called_once_with(1)
 
 
 class TestRedisConfiguration:
@@ -178,9 +177,10 @@ class TestRedisConfiguration:
         assert manager is None
 
     @patch("api.routers.socketio.settings")
+    @patch("api.routers.socketio._validate_redis_before_manager_creation")
     @patch("socketio.AsyncRedisManager")
     def test_create_socket_manager_redis_enabled(
-        self, mock_redis_manager, mock_settings
+        self, mock_redis_manager, mock_validate_redis, mock_settings
     ):
         """Test socket manager creates Redis manager when enabled."""
         mock_settings.USE_REDIS_ADAPTER = True
@@ -188,7 +188,9 @@ class TestRedisConfiguration:
         mock_settings.REDIS_PORT = 6379
         mock_settings.REDIS_PASSWORD = ""
         mock_settings.REDIS_DB = 0
-        mock_settings.REDIS_REQUIRED = False
+
+        # Mock successful validation
+        mock_validate_redis.return_value = None
 
         mock_instance = Mock()
         mock_redis_manager.return_value = mock_instance
@@ -196,44 +198,26 @@ class TestRedisConfiguration:
         manager = create_socket_manager()
 
         assert manager is mock_instance
+        mock_validate_redis.assert_called_once_with("redis://redis:6379/0")
         mock_redis_manager.assert_called_once_with("redis://redis:6379/0")
 
     @patch("api.routers.socketio.settings")
-    @patch("socketio.AsyncRedisManager")
-    def test_create_socket_manager_redis_failure_graceful(
-        self, mock_redis_manager, mock_settings
-    ):
-        """Test socket manager graceful fallback when Redis fails to initialize."""
-        mock_settings.USE_REDIS_ADAPTER = True
-        mock_settings.REDIS_HOST = "redis"
-        mock_settings.REDIS_PORT = 6379
-        mock_settings.REDIS_PASSWORD = ""
-        mock_settings.REDIS_DB = 0
-        mock_settings.REDIS_REQUIRED = False
-
-        mock_redis_manager.side_effect = Exception("Redis connection failed")
-
-        manager = create_socket_manager()
-        assert manager is None
-
-    @patch("api.routers.socketio.settings")
-    @patch("socketio.AsyncRedisManager")
+    @patch("api.routers.socketio._validate_redis_before_manager_creation")
     def test_create_socket_manager_redis_failure_crash(
-        self, mock_redis_manager, mock_settings
+        self, mock_validate_redis, mock_settings
     ):
-        """Test socket manager crashes when Redis required but fails to initialize."""
+        """Test socket manager crashes when Redis validation fails before manager creation."""
         mock_settings.USE_REDIS_ADAPTER = True
         mock_settings.REDIS_HOST = "redis"
         mock_settings.REDIS_PORT = 6379
         mock_settings.REDIS_PASSWORD = ""
         mock_settings.REDIS_DB = 0
-        mock_settings.REDIS_REQUIRED = True
 
-        mock_redis_manager.side_effect = Exception("Redis connection failed")
+        # Simulate Redis validation failure
+        mock_validate_redis.side_effect = RedisCriticalError("Redis validation failed before manager creation: Connection refused")
 
-        with patch("sys.exit") as mock_exit:
+        with pytest.raises(RedisCriticalError, match="Redis validation failed before manager creation"):
             manager = create_socket_manager()
-            mock_exit.assert_called_once_with(1)
 
 
 class TestIntegrationScenarios:
@@ -241,9 +225,9 @@ class TestIntegrationScenarios:
 
     @pytest.mark.asyncio
     @patch("api.routers.socketio.settings")
-    async def test_issue_854_no_infinite_loops(self, mock_settings):
-        """Test that Redis failures don't cause infinite loops (Issue #854)."""
-        mock_settings.REDIS_REQUIRED = False
+    async def test_graceful_degradation_when_adapter_disabled(self, mock_settings):
+        """Test graceful degradation when USE_REDIS_ADAPTER=false and Redis fails."""
+        mock_settings.USE_REDIS_ADAPTER = False
 
         with patch.object(sio, "emit", new_callable=AsyncMock) as mock_emit:
             mock_emit.side_effect = Exception("Redis publish failed")
@@ -261,9 +245,9 @@ class TestIntegrationScenarios:
 
     @pytest.mark.asyncio
     @patch("api.routers.socketio.settings")
-    async def test_graceful_degradation_scenario(self, mock_settings):
-        """Test graceful degradation when Redis becomes unavailable during runtime."""
-        mock_settings.REDIS_REQUIRED = False
+    async def test_graceful_degradation_scenario_adapter_disabled(self, mock_settings):
+        """Test graceful degradation when Redis becomes unavailable during runtime and adapter is disabled."""
+        mock_settings.USE_REDIS_ADAPTER = False
 
         call_count = 0
 
@@ -288,15 +272,14 @@ class TestIntegrationScenarios:
 
     @pytest.mark.asyncio
     @patch("api.routers.socketio.settings")
-    async def test_strict_mode_scenario(self, mock_settings):
-        """Test strict mode crashes immediately on Redis failure."""
-        mock_settings.REDIS_REQUIRED = True
+    async def test_strict_mode_scenario_adapter_enabled(self, mock_settings):
+        """Test strict mode crashes immediately on Redis failure when adapter is enabled."""
+        mock_settings.USE_REDIS_ADAPTER = True
 
         with patch.object(sio, "emit", new_callable=AsyncMock) as mock_emit:
             mock_emit.side_effect = Exception("Critical Redis failure")
 
-            with patch("sys.exit") as mock_exit:
+            with pytest.raises(RedisCriticalError, match="Redis Socket.IO emit failed"):
                 await safe_emit("status", {"status": "verified"})
-                mock_exit.assert_called_once_with(1)
-                # Only one call should be made before crashing
-                assert mock_emit.call_count == 1
+            # Only one call should be made before crashing
+            assert mock_emit.call_count == 1

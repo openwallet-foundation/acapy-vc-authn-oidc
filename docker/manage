@@ -210,7 +210,6 @@ configureEnvironment() {
   export REDIS_PASSWORD=${REDIS_PASSWORD:-""}
   export REDIS_DB=${REDIS_DB:-"0"}
   export USE_REDIS_ADAPTER=${USE_REDIS_ADAPTER:-"true"}
-  export REDIS_REQUIRED=${REDIS_REQUIRED:-"true"}
 
   # agent
   export AGENT_TENANT_MODE="${AGENT_TENANT_MODE:-single}"

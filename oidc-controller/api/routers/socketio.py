@@ -1,3 +1,5 @@
+import redis.asyncio as async_redis
+import redis
 import socketio  # For using websockets
 import logging
 import structlog
@@ -9,6 +11,19 @@ from ..db.session import get_db, client
 from ..core.config import settings
 
 logger = structlog.getLogger(__name__)
+
+
+class RedisCriticalError(Exception):
+    """Critical Redis error that should terminate the application immediately"""
+
+    pass
+
+
+def _handle_redis_error(operation: str, error: Exception) -> None:
+    """Common error handling for Redis failures"""
+    logger.error(f"Redis {operation} failed: {error}")
+    logger.error("USE_REDIS_ADAPTER=true but Redis failed. Crashing application.")
+    raise RedisCriticalError(f"Redis {operation} failed: {error}") from error
 
 
 def _should_use_redis_adapter():
@@ -35,6 +50,46 @@ def _build_redis_url():
         )
 
 
+def _validate_redis_before_manager_creation(redis_url):
+    """Synchronously validate Redis connection before creating AsyncRedisManager"""
+    import os
+
+    try:
+        # Use synchronous Redis client to avoid event loop conflicts
+        redis_client = redis.from_url(redis_url)
+        redis_client.ping()
+        redis_client.close()
+
+    except Exception as e:
+        try:
+            _handle_redis_error("validation before manager creation", e)
+        except:
+            # If exception handling fails during import, force immediate exit
+            os._exit(1)
+
+
+def _patch_redis_manager_for_crash_on_failure(manager):
+    """Patch Redis manager to crash app if background thread fails"""
+    if manager is None:
+        return
+
+    # Store original _thread method
+    original_thread = manager._thread
+
+    async def crash_on_redis_failure_thread():
+        try:
+            await original_thread()
+        except Exception as e:
+            logger.error(f"Redis background thread failed: {e}")
+            logger.error(
+                "USE_REDIS_ADAPTER=true but Redis background thread failed. Crashing application."
+            )
+            os._exit(1)  # Immediate process termination
+
+    # Replace the background thread method
+    manager._thread = crash_on_redis_failure_thread
+
+
 def create_socket_manager():
     """Create Socket.IO manager with Redis adapter if configured"""
     if not _should_use_redis_adapter():
@@ -45,79 +100,64 @@ def create_socket_manager():
         # Build Redis URL
         redis_url = _build_redis_url()
 
-        # Use standard AsyncRedisManager directly
+        # Part 1: Validate Redis connectivity BEFORE creating manager
+        # This prevents background threads from starting with bad Redis config
+        _validate_redis_before_manager_creation(redis_url)
+
+        # Create manager only if Redis validation passed
         manager = socketio.AsyncRedisManager(redis_url)
+
+        # Part 2: Patch manager for runtime protection
+        # This ensures background thread failures crash the app
+        _patch_redis_manager_for_crash_on_failure(manager)
 
         logger.info(
             f"Redis adapter configured: {settings.REDIS_HOST}:{settings.REDIS_PORT}"
         )
         return manager
 
+    except RedisCriticalError:
+        # Re-raise our custom exceptions as-is
+        raise
     except Exception as e:
-        # If REDIS_REQUIRED is true, crash the application immediately
-        if settings.REDIS_REQUIRED:
-            logger.error(f"Failed to initialize Redis adapter: {e}")
-            logger.error(
-                "REDIS_REQUIRED=true but Redis initialization failed. Crashing application."
-            )
-            import sys
-
-            sys.exit(1)
-
-        logger.error(f"Failed to initialize Redis adapter: {e}")
-        logger.warning(
-            "Falling back to default Socket.IO manager - cross-pod communication disabled"
-        )
-        return None
+        # Convert any other exceptions to RedisCriticalError
+        _handle_redis_error("adapter initialization", e)
 
 
 async def validate_redis_connection():
-    """Validate Redis connection when Redis is required"""
-    if not settings.REDIS_REQUIRED:
+    """Validate Redis connection when Redis adapter is enabled"""
+    if not settings.USE_REDIS_ADAPTER:
         return
-
-    import redis.asyncio as redis
 
     try:
         # Build Redis URL
         redis_url = _build_redis_url()
 
         # Test Redis connection
-        redis_client = redis.from_url(redis_url)
+        redis_client = async_redis.from_url(redis_url)
         await redis_client.ping()
         await redis_client.close()
         logger.info("Redis connection validated successfully")
 
     except Exception as e:
-        logger.error(f"Redis connection validation failed: {e}")
-        logger.error(
-            "REDIS_REQUIRED=true but cannot connect to Redis. Crashing application."
-        )
-        import sys
-
-        sys.exit(1)
+        _handle_redis_error("connection validation", e)
 
 
 async def safe_emit(event, data=None, **kwargs):
     """
     Safely emit to Socket.IO with Redis failure handling.
 
-    This function handles Redis connection failures gracefully based on the REDIS_REQUIRED setting:
-    - If REDIS_REQUIRED=true: crashes the application when Redis fails
-    - If REDIS_REQUIRED=false: logs warning and continues without Redis (fixes issue #854)
+    When USE_REDIS_ADAPTER=true, Redis is always required and any failure will crash the application.
+    When USE_REDIS_ADAPTER=false, Redis is not used and this function simply calls sio.emit.
     """
     try:
         await sio.emit(event, data, **kwargs)
     except Exception as e:
-        if settings.REDIS_REQUIRED:
-            logger.error(f"Redis required but Socket.IO emit failed: {e}")
-            logger.error("REDIS_REQUIRED=true but Redis failed. Crashing application.")
-            import sys
-
-            sys.exit(1)
+        if settings.USE_REDIS_ADAPTER:
+            _handle_redis_error("Socket.IO emit", e)
         else:
             logger.warning(f"Socket.IO emit failed, continuing gracefully: {e}")
-            # Continue without Redis - this resolves issue #854 infinite loops
+            # Continue without Redis when adapter is disabled
 
 
 # Create Socket.IO server with Redis adapter

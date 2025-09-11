@@ -19,7 +19,7 @@ from .db.session import get_db, init_db
 from .routers import acapy_handler, oidc, presentation_request, well_known_oid_config
 from .verificationConfigs.router import router as ver_configs_router
 from .clientConfigurations.router import router as client_config_router
-from .routers.socketio import sio_app, validate_redis_connection
+from .routers.socketio import sio_app, validate_redis_connection, RedisCriticalError
 from api.core.oidc.provider import init_provider
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
@@ -97,34 +97,35 @@ async def logging_middleware(request: Request, call_next) -> Response:
     try:
         response: Response = await call_next(request)
         return response
-    finally:
+    except RedisCriticalError:
+        # Don't catch Redis critical errors - let them crash the app
+        raise
+    except Exception as e:
         process_time = time.time() - start_time
-        # If we have a response object, log the details
-        if "response" in locals():
-            logger.info(
-                "processed a request",
-                status_code=response.status_code,
-                process_time=process_time,
-            )
-        # Otherwise, extract the exception from traceback, log and return a 500 response
-        else:
-            logger.info(
-                "failed to process a request",
-                status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
-                process_time=process_time,
-            )
+        logger.info(
+            "failed to process a request",
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            process_time=process_time,
+        )
 
-            # Need to explicitly log the traceback
-            logger.error(traceback.format_exc())
+        # Need to explicitly log the traceback
+        logger.error(traceback.format_exc())
 
-            return JSONResponse(
-                status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
-                content={
-                    "status": "error",
-                    "message": "Internal Server Error",
-                    "process_time": process_time,
-                },
-            )
+        return JSONResponse(
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={
+                "status": "error",
+                "message": "Internal Server Error",
+                "process_time": process_time,
+            },
+        )
+    else:
+        process_time = time.time() - start_time
+        logger.info(
+            "processed a request",
+            status_code=response.status_code,
+            process_time=process_time,
+        )
 
 
 @app.on_event("startup")
