@@ -12,6 +12,8 @@ from api.routers.socketio import (
     safe_emit,
     create_socket_manager,
     _should_use_redis_adapter,
+    _validate_redis_before_manager_creation,
+    _patch_redis_manager_for_crash_on_failure,
     validate_redis_connection,
     sio,
     RedisCriticalError,
@@ -224,6 +226,122 @@ class TestRedisConfiguration:
             RedisCriticalError, match="Redis validation failed before manager creation"
         ):
             manager = create_socket_manager()
+
+    @patch("api.routers.socketio.settings")
+    @patch("api.routers.socketio._should_use_redis_adapter")
+    @patch("api.routers.socketio._validate_redis_before_manager_creation")
+    @patch("api.routers.socketio.socketio.AsyncRedisManager")
+    def test_create_socket_manager_unexpected_exception(
+        self, mock_manager, mock_validate, mock_should_use, mock_settings
+    ):
+        """Test socket manager handles unexpected exceptions during creation."""
+        mock_settings.USE_REDIS_ADAPTER = True
+        mock_settings.REDIS_HOST = "redis"
+        mock_settings.REDIS_PORT = 6379
+        mock_settings.REDIS_PASSWORD = ""
+        mock_settings.REDIS_DB = 0
+
+        # Setup
+        mock_should_use.return_value = True
+        mock_validate.return_value = None  # Validation passes
+        mock_manager.side_effect = RuntimeError("Unexpected socket.io error")
+
+        # Execute and verify
+        with pytest.raises(
+            RedisCriticalError, match="Redis adapter initialization failed"
+        ):
+            create_socket_manager()
+
+
+class TestInternalRedisFunctions:
+    """Test internal Redis validation and patching functions."""
+
+    @patch("api.routers.socketio.redis.from_url")
+    def test_validate_redis_before_manager_creation_success(self, mock_redis):
+        """Test successful Redis validation before manager creation."""
+        # Setup
+        mock_client = Mock()
+        mock_redis.return_value = mock_client
+        mock_client.ping.return_value = True
+
+        # Execute - should not raise exception
+        _validate_redis_before_manager_creation("redis://localhost:6379/0")
+
+        # Verify
+        mock_redis.assert_called_once_with("redis://localhost:6379/0")
+        mock_client.ping.assert_called_once()
+        mock_client.close.assert_called_once()
+
+    @patch("api.routers.socketio.redis.from_url")
+    def test_validate_redis_before_manager_creation_failure(self, mock_redis):
+        """Test Redis validation failure before manager creation."""
+        # Setup
+        mock_redis.side_effect = Exception("Connection refused")
+
+        # Execute and verify - the function calls sys.exit when _handle_redis_error raises
+        with pytest.raises(SystemExit):
+            _validate_redis_before_manager_creation("redis://localhost:6379/0")
+
+    @patch("api.routers.socketio._handle_redis_error")
+    @patch("api.routers.socketio.redis.from_url")
+    @patch("sys.exit")
+    def test_validate_redis_before_manager_creation_handle_error_failure(
+        self, mock_exit, mock_redis, mock_handle_error
+    ):
+        """Test sys.exit fallback when error handling itself fails."""
+        # Setup
+        mock_redis.side_effect = Exception("Connection refused")
+        mock_handle_error.side_effect = Exception("Error handler failed")
+
+        # Execute
+        _validate_redis_before_manager_creation("redis://localhost:6379/0")
+
+        # Verify fallback to sys.exit
+        mock_exit.assert_called_once_with(1)
+
+    def test_patch_redis_manager_for_crash_on_failure_none_manager(self):
+        """Test patching function with None manager."""
+        # Execute - should not raise exception
+        result = _patch_redis_manager_for_crash_on_failure(None)
+
+        # Verify
+        assert result is None
+
+    @patch("api.routers.socketio.logger")
+    def test_patch_redis_manager_for_crash_on_failure_with_manager(self, mock_logger):
+        """Test patching function with actual manager."""
+        # Setup
+        mock_manager = Mock()
+        original_thread = AsyncMock()
+        mock_manager._thread = original_thread
+
+        # Execute
+        _patch_redis_manager_for_crash_on_failure(mock_manager)
+
+        # Verify the manager's _thread method was replaced
+        assert mock_manager._thread != original_thread
+
+    @patch("api.routers.socketio.logger")
+    @patch("sys.exit")
+    @pytest.mark.asyncio
+    async def test_patched_manager_background_thread_failure(
+        self, mock_exit, mock_logger
+    ):
+        """Test that patched manager background thread crashes on failure."""
+        # Setup
+        mock_manager = Mock()
+        original_thread = AsyncMock()
+        original_thread.side_effect = Exception("Background thread failed")
+        mock_manager._thread = original_thread
+
+        # Execute patching
+        _patch_redis_manager_for_crash_on_failure(mock_manager)
+
+        # Execute the patched thread function
+        await mock_manager._thread()
+
+        # Verify sys.exit was called
+        mock_exit.assert_called_once_with(1)
 
 
 class TestIntegrationScenarios:
