@@ -32,8 +32,9 @@ def create_socket_manager():
 
     try:
         # Build Redis URL
-        redis_url = f"redis://:{settings.REDIS_PASSWORD}@{settings.REDIS_HOST}:{settings.REDIS_PORT}/{settings.REDIS_DB}"
-        if not settings.REDIS_PASSWORD:
+        if settings.REDIS_PASSWORD:
+            redis_url = f"redis://:{settings.REDIS_PASSWORD}@{settings.REDIS_HOST}:{settings.REDIS_PORT}/{settings.REDIS_DB}"
+        else:
             redis_url = f"redis://{settings.REDIS_HOST}:{settings.REDIS_PORT}/{settings.REDIS_DB}"
 
         manager = socketio.AsyncRedisManager(redis_url)
