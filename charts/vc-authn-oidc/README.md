@@ -1,6 +1,6 @@
 # VC-AuthN OIDC
 
-![Version: 0.4.2](https://img.shields.io/badge/Version-0.4.2-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 2.3.0](https://img.shields.io/badge/AppVersion-2.3.0-informational?style=flat-square)
+![Version: 0.4.3](https://img.shields.io/badge/Version-0.4.3-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 2.3.0](https://img.shields.io/badge/AppVersion-2.3.0-informational?style=flat-square)
 
 A Helm chart to deploy Verifiable Credential Identity Provider for OpenID Connect.
 
@@ -168,27 +168,25 @@ kubectl delete secret,pvc --selector "app.kubernetes.io/instance"=my-release
 
 ### Acapy Configuration
 
-| Name                                                  | Description                                                                                                                          | Value                               |
-| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------- |
-| `acapy.enabled`                                       | Deploy AcaPy agent instance                                                                                                          | `true`                              |
-| `acapy.existingSecret`                                | Name of existing secret, required if `enabled` is `false`; Secret must contain `adminApiKey`, `walletKey`, and `webhookApiKey` keys. | `""`                                |
-| `acapy.agentSeed.existingSecret`                      | Name of existing secret with the 'seed' key.                                                                                         | `""`                                |
-| `acapy.image.registry`                                |                                                                                                                                      | `ghcr.io`                           |
-| `acapy.image.repository`                              |                                                                                                                                      | `openwallet-foundation/acapy-agent` |
-| `acapy.image.pullPolicy`                              |                                                                                                                                      | `IfNotPresent`                      |
-| `acapy.image.pullSecrets`                             |                                                                                                                                      | `[]`                                |
-| `acapy.image.tag`                                     |                                                                                                                                      | `py3.12-1.3.1`                      |
-| `acapy.serviceAccount.create`                         | Specifies whether a ServiceAccount should be created                                                                                 | `false`                             |
-| `acapy.serviceAccount.annotations`                    | Annotations for service account. Evaluated as a template. Only used if `create` is `true`.                                           | `{}`                                |
-| `acapy.serviceAccount.automountServiceAccountToken`   | Automount service account token for the server service account                                                                       | `true`                              |
-| `acapy.serviceAccount.name`                           | Name of the service account to use. If not set and create is true, a name is generated using the fullname template.                  | `""`                                |
-| `acapy.replicaCount`                                  | Number of AcaPy replicas to deploy                                                                                                   | `1`                                 |
-| `acapy.autoscaling.enabled`                           | Enable Horizontal POD autoscaling for AcaPy                                                                                          | `true`                              |
-| `acapy.autoscaling.minReplicas`                       | Minimum number of AcaPy replicas                                                                                                     | `1`                                 |
-| `acapy.autoscaling.maxReplicas`                       | Maximum number of AcaPy replicas                                                                                                     | `100`                               |
-| `acapy.autoscaling.targetCPUUtilizationPercentage`    | Target CPU utilization percentage                                                                                                    | `80`                                |
-| `acapy.autoscaling.targetMemoryUtilizationPercentage` | Target Memory utilization percentage                                                                                                 | `""`                                |
-| `acapy.autoscaling.stabilizationWindowSeconds`        | Stabilization window in seconds                                                                                                      | `300`                               |
+| Name                                                  | Description                                                                                                         | Value                               |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
+| `acapy.enabled`                                       | Deploy AcaPy agent instance                                                                                         | `true`                              |
+| `acapy.image.registry`                                |                                                                                                                     | `ghcr.io`                           |
+| `acapy.image.repository`                              |                                                                                                                     | `openwallet-foundation/acapy-agent` |
+| `acapy.image.pullPolicy`                              |                                                                                                                     | `IfNotPresent`                      |
+| `acapy.image.pullSecrets`                             |                                                                                                                     | `[]`                                |
+| `acapy.image.tag`                                     |                                                                                                                     | `py3.12-1.3.1`                      |
+| `acapy.serviceAccount.create`                         | Specifies whether a ServiceAccount should be created                                                                | `false`                             |
+| `acapy.serviceAccount.annotations`                    | Annotations for service account. Evaluated as a template. Only used if `create` is `true`.                          | `{}`                                |
+| `acapy.serviceAccount.automountServiceAccountToken`   | Automount service account token for the server service account                                                      | `true`                              |
+| `acapy.serviceAccount.name`                           | Name of the service account to use. If not set and create is true, a name is generated using the fullname template. | `""`                                |
+| `acapy.replicaCount`                                  | Number of AcaPy replicas to deploy                                                                                  | `1`                                 |
+| `acapy.autoscaling.enabled`                           | Enable Horizontal POD autoscaling for AcaPy                                                                         | `true`                              |
+| `acapy.autoscaling.minReplicas`                       | Minimum number of AcaPy replicas                                                                                    | `1`                                 |
+| `acapy.autoscaling.maxReplicas`                       | Maximum number of AcaPy replicas                                                                                    | `100`                               |
+| `acapy.autoscaling.targetCPUUtilizationPercentage`    | Target CPU utilization percentage                                                                                   | `80`                                |
+| `acapy.autoscaling.targetMemoryUtilizationPercentage` | Target Memory utilization percentage                                                                                | `""`                                |
+| `acapy.autoscaling.stabilizationWindowSeconds`        | Stabilization window in seconds                                                                                     | `300`                               |
 
 ### Acapy configuration file
 
@@ -220,14 +218,23 @@ Note: Secure values of the configuration are passed via equivalent environment v
 
 ### Acapy common configurations
 
-| Name                              | Description                                       | Value   |
-| --------------------------------- | ------------------------------------------------- | ------- |
-| `acapy.resources.limits`          | The cpu and memory limit for the Acapy containers | `{}`    |
-| `acapy.resources.requests.memory` | The requested memory for the Acapy containers     | `384Mi` |
-| `acapy.resources.requests.cpu`    | The requested cpu for the Acapy containers        | `250m`  |
-| `acapy.service.ports.http`        | AcaPy service HTTP port                           | `8021`  |
-| `acapy.service.ports.admin`       | AcaPy service admin port                          | `8022`  |
-| `acapy.service.ports.ws`          | AcaPy service websockets port                     | `8023`  |
+| Name                                         | Description                                                                                              | Value         |
+| -------------------------------------------- | -------------------------------------------------------------------------------------------------------- | ------------- |
+| `acapy.resources.limits`                     | The cpu and memory limit for the Acapy containers                                                        | `{}`          |
+| `acapy.resources.requests.memory`            | The requested memory for the Acapy containers                                                            | `384Mi`       |
+| `acapy.resources.requests.cpu`               | The requested cpu for the Acapy containers                                                               | `250m`        |
+| `acapy.service.ports.http`                   | AcaPy service HTTP port                                                                                  | `8021`        |
+| `acapy.service.ports.admin`                  | AcaPy service admin port                                                                                 | `8022`        |
+| `acapy.service.ports.ws`                     | AcaPy service websockets port                                                                            | `8023`        |
+| `acapy.secrets.api.retainOnUninstall`        | When true, adds helm.sh/resource-policy: keep to generated api secret                                    | `true`        |
+| `acapy.secrets.api.existingSecret`           | Name of an existing Secret providing API related keys. If set, the chart will NOT create the api secret. | `""`          |
+| `acapy.secrets.api.secretKeys.adminApiKey`   | Key in the API secret holding the admin API key.                                                         | `adminApiKey` |
+| `acapy.secrets.api.secretKeys.jwtKey`        | Key in the API secret holding the multitenant JWT signing secret.                                        | `jwt`         |
+| `acapy.secrets.api.secretKeys.walletKey`     | Key in the API secret holding the wallet key.                                                            | `walletKey`   |
+| `acapy.secrets.api.secretKeys.webhookapiKey` | Key in the API secret holding the webhook API key (used when embedding in webhook-url).                  | `webhookapi`  |
+| `acapy.secrets.seed.retainOnUninstall`       | When true, adds helm.sh/resource-policy: keep to generated seed secret                                   | `true`        |
+| `acapy.secrets.seed.existingSecret`          | Name of an existing Secret providing the wallet seed. If set, the chart will NOT create the seed secret. | `""`          |
+| `acapy.secrets.seed.secretKeys.seed`         | Key in the seed secret holding the wallet seed value.                                                    | `seed`        |
 
 ### Acapy NetworkPolicy parameters
 
