@@ -60,6 +60,9 @@ class TestPresentationCleanupService:
         ]
 
         mock_client.get_all_presentation_records.return_value = mock_records
+        mock_client.get_connections_batched.return_value = iter(
+            []
+        )  # No connections to clean
         mock_client.delete_presentation_record_and_connection.return_value = (
             True,
             None,
@@ -70,10 +73,16 @@ class TestPresentationCleanupService:
         result = await cleanup_old_presentation_records()
 
         # Assert
-        assert result["total_records"] == 3
-        assert result["cleaned_records"] == 2  # Only old records should be cleaned
+        assert result["total_presentation_records"] == 3
+        assert (
+            result["cleaned_presentation_records"] == 2
+        )  # Only old records should be cleaned
+        assert result["total_connections"] == 0
+        assert result["cleaned_connections"] == 0
         assert result["failed_cleanups"] == 0
         assert len(result["errors"]) == 0
+        assert result["hit_presentation_limit"] == False
+        assert result["hit_connection_limit"] == False
 
         # Verify delete was called for old records only
         assert mock_client.delete_presentation_record_and_connection.call_count == 2
@@ -93,15 +102,20 @@ class TestPresentationCleanupService:
         mock_client_class.return_value = mock_client
 
         mock_client.get_all_presentation_records.return_value = []
+        mock_client.get_connections_batched.return_value = iter(
+            []
+        )  # No connections to clean
 
         # Act
         result = await cleanup_old_presentation_records()
 
         # Assert
-        assert result["total_records"] == 0
-        assert result["cleaned_records"] == 0
+        assert result["total_presentation_records"] == 0
+        assert result["cleaned_presentation_records"] == 0
         assert result["failed_cleanups"] == 0
         assert len(result["errors"]) == 0
+        assert result["hit_presentation_limit"] == False
+        assert result["hit_connection_limit"] == False
 
         mock_client.delete_presentation_record_and_connection.assert_not_called()
 
@@ -130,6 +144,9 @@ class TestPresentationCleanupService:
         ]
 
         mock_client.get_all_presentation_records.return_value = mock_records
+        mock_client.get_connections_batched.return_value = iter(
+            []
+        )  # No connections to clean
         # First delete succeeds, second fails
         mock_client.delete_presentation_record_and_connection.side_effect = [
             (True, None, []),  # First record succeeds
@@ -140,11 +157,13 @@ class TestPresentationCleanupService:
         result = await cleanup_old_presentation_records()
 
         # Assert
-        assert result["total_records"] == 2
-        assert result["cleaned_records"] == 1
+        assert result["total_presentation_records"] == 2
+        assert result["cleaned_presentation_records"] == 1
         assert result["failed_cleanups"] == 1
         assert len(result["errors"]) == 1
         assert "Failed to delete presentation record record-2" in result["errors"][0]
+        assert result["hit_presentation_limit"] == False
+        assert result["hit_connection_limit"] == False
 
     @patch("api.services.cleanup.AcapyClient")
     @pytest.mark.asyncio
@@ -170,15 +189,20 @@ class TestPresentationCleanupService:
         ]
 
         mock_client.get_all_presentation_records.return_value = mock_records
+        mock_client.get_connections_batched.return_value = iter(
+            []
+        )  # No connections to clean
 
         # Act
         result = await cleanup_old_presentation_records()
 
         # Assert
-        assert result["total_records"] == 2
-        assert result["cleaned_records"] == 0
+        assert result["total_presentation_records"] == 2
+        assert result["cleaned_presentation_records"] == 0
         assert result["failed_cleanups"] == 1  # The first record fails processing
         assert len(result["errors"]) == 1  # One error for the record with no timestamp
+        assert result["hit_presentation_limit"] == False
+        assert result["hit_connection_limit"] == False
 
         # No deletion should be attempted for invalid records
         mock_client.delete_presentation_record_and_connection.assert_not_called()
@@ -199,11 +223,13 @@ class TestPresentationCleanupService:
         result = await cleanup_old_presentation_records()
 
         # Assert
-        assert result["total_records"] == 0
-        assert result["cleaned_records"] == 0
+        assert result["total_presentation_records"] == 0
+        assert result["cleaned_presentation_records"] == 0
         assert result["failed_cleanups"] == 0
         assert len(result["errors"]) == 1
         assert "Background cleanup failed: API error" in result["errors"][0]
+        assert result["hit_presentation_limit"] == False
+        assert result["hit_connection_limit"] == False
 
     @patch("api.services.cleanup.AcapyClient")
     @pytest.mark.asyncio
@@ -230,6 +256,9 @@ class TestPresentationCleanupService:
         ]
 
         mock_client.get_all_presentation_records.return_value = mock_records
+        mock_client.get_connections_batched.return_value = iter(
+            []
+        )  # No connections to clean
         # First delete succeeds, second throws exception
         mock_client.delete_presentation_record_and_connection.side_effect = [
             (True, None, []),  # First record succeeds
@@ -240,11 +269,13 @@ class TestPresentationCleanupService:
         result = await cleanup_old_presentation_records()
 
         # Assert
-        assert result["total_records"] == 2
-        assert result["cleaned_records"] == 1
+        assert result["total_presentation_records"] == 2
+        assert result["cleaned_presentation_records"] == 1
         assert result["failed_cleanups"] == 1
         assert len(result["errors"]) == 1
         assert "Error processing record bad-record" in result["errors"][0]
+        assert result["hit_presentation_limit"] == False
+        assert result["hit_connection_limit"] == False
 
     def test_cleanup_timestamp_parsing_variations(self):
         """Test different timestamp format parsing."""
@@ -358,6 +389,46 @@ class TestPresentationCleanupService:
 
             # Assert
             assert service.schedule_minutes == 30
+
+    @patch("api.services.cleanup.AcapyClient")
+    @pytest.mark.asyncio
+    async def test_cleanup_resource_limits(self, mock_client_class):
+        """Test that resource limits prevent excessive processing."""
+        # Arrange
+        mock_client = Mock()
+        mock_client_class.return_value = mock_client
+
+        # Create more records than the limit
+        old_time = datetime.now(UTC) - timedelta(hours=25)
+        mock_records = []
+        for i in range(1200):  # More than MAX_PRESENTATION_RECORDS_PER_CLEANUP (1000)
+            mock_records.append(
+                {
+                    "pres_ex_id": f"record-{i}",
+                    "created_at": old_time.isoformat().replace("+00:00", "Z"),
+                    "state": "done",
+                }
+            )
+
+        mock_client.get_all_presentation_records.return_value = mock_records
+        mock_client.get_connections_batched.return_value = iter([])  # No connections
+        mock_client.delete_presentation_record_and_connection.return_value = (
+            True,
+            None,
+            [],
+        )
+
+        # Act
+        result = await cleanup_old_presentation_records()
+
+        # Assert
+        assert result["total_presentation_records"] == 1200
+        assert result["cleaned_presentation_records"] == 1000  # Limited to MAX
+        assert result["hit_presentation_limit"] == True
+        assert result["hit_connection_limit"] == False
+
+        # Verify only 1000 deletes were attempted
+        assert mock_client.delete_presentation_record_and_connection.call_count == 1000
 
     def test_setup_cleanup_job(self):
         """Test APScheduler job setup."""

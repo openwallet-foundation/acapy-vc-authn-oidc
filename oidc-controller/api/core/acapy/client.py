@@ -282,6 +282,121 @@ class AcapyClient:
         logger.debug(f"<<< list_connections -> {len(connections)} connections")
         return connections
 
+    def _get_connections_page(
+        self, state: str | None = None, limit: int = 100, offset: int = 0
+    ) -> list[dict]:
+        """
+        Get a page of connections with pagination support.
+
+        Args:
+            state: Optional state filter (e.g., "invitation", "active")
+            limit: Maximum number of connections to return
+            offset: Number of connections to skip
+
+        Returns:
+            list[dict]: List of connection records for this page
+        """
+        logger.debug(
+            f">>> _get_connections_page: state={state}, limit={limit}, offset={offset}"
+        )
+
+        params = {}
+        if state:
+            params["state"] = state
+
+        # Try pagination parameters (may not be supported by all ACA-Py versions)
+        params["limit"] = limit
+        params["offset"] = offset
+
+        try:
+            resp_raw = requests.get(
+                self.acapy_host + CONNECTIONS_URI,
+                headers=self.agent_config.get_headers(),
+                params=params,
+            )
+
+            if resp_raw.status_code != 200:
+                logger.warning(
+                    f"Failed to get connections page: {resp_raw.status_code}"
+                )
+                return []
+
+            resp = json.loads(resp_raw.content)
+            connections = resp.get("results", [])
+
+            logger.debug(f"<<< _get_connections_page -> {len(connections)} connections")
+            return connections
+
+        except Exception as e:
+            logger.error(f"Error getting connections page: {e}")
+            return []
+
+    def get_connections_batched(self, state: str = "invitation", batch_size: int = 100):
+        """
+        Get connections in batches using iterator pattern for memory efficiency.
+
+        Args:
+            state: State filter for connections (default: "invitation")
+            batch_size: Number of connections per batch (default: 100)
+
+        Yields:
+            list[dict]: Batches of connection records
+        """
+        logger.debug(
+            f">>> get_connections_batched: state={state}, batch_size={batch_size}"
+        )
+
+        offset = 0
+        total_yielded = 0
+
+        while True:
+            batch = self._get_connections_page(state, batch_size, offset)
+
+            if not batch:  # No more results
+                break
+
+            total_yielded += len(batch)
+            logger.debug(
+                f"Yielding batch of {len(batch)} connections (total so far: {total_yielded})"
+            )
+            yield batch
+
+            # If we got less than batch_size, we've reached the end
+            if len(batch) < batch_size:
+                break
+
+            offset += batch_size
+
+        logger.debug(
+            f"<<< get_connections_batched -> yielded {total_yielded} total connections"
+        )
+
+    def get_all_connections(self) -> list[dict]:
+        """Get all connections for cleanup purposes"""
+        logger.debug(">>> get_all_connections")
+
+        try:
+            resp_raw = requests.get(
+                f"{self.acapy_host}{CONNECTIONS_URI}",
+                headers=self.agent_config.get_headers(),
+            )
+
+            if resp_raw.status_code != 200:
+                logger.warning(
+                    f"Failed to get connections: {resp_raw.status_code}, {resp_raw.content}"
+                )
+                return []
+
+            resp = json.loads(resp_raw.content)
+            connections = resp.get("results", [])
+
+            logger.debug(f"<<< get_all_connections -> {len(connections)} connections")
+            return connections
+
+        except Exception as e:
+            logger.error(f"Error getting all connections: {e}")
+            return []
+
     def delete_connection(self, connection_id: str) -> bool:
         """
         Delete a connection.

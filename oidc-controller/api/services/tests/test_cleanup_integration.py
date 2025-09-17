@@ -27,6 +27,12 @@ class TestCleanupIntegration:
         # Arrange - Mock ACA-Py API responses
         old_time = datetime.now(UTC) - timedelta(hours=25)
         recent_time = datetime.now(UTC) - timedelta(hours=1)
+        expired_connection_time = datetime.now(UTC) - timedelta(
+            seconds=30
+        )  # Expired connection
+        recent_connection_time = datetime.now(UTC) - timedelta(
+            seconds=5
+        )  # Recent connection
 
         # Mock get_all_presentation_records response
         mock_records = [
@@ -47,10 +53,51 @@ class TestCleanupIntegration:
             },
         ]
 
-        mock_get_response = Mock()
-        mock_get_response.status_code = 200
-        mock_get_response.content = json.dumps({"results": mock_records}).encode()
-        mock_get.return_value = mock_get_response
+        # Mock get_all_connections response
+        mock_connections = [
+            {
+                "connection_id": "expired-invitation-1",
+                "state": "invitation",
+                "created_at": expired_connection_time.isoformat().replace(
+                    "+00:00", "Z"
+                ),
+            },
+            {
+                "connection_id": "recent-invitation",
+                "state": "invitation",
+                "created_at": recent_connection_time.isoformat().replace("+00:00", "Z"),
+            },
+            {
+                "connection_id": "active-connection",
+                "state": "active",
+                "created_at": expired_connection_time.isoformat().replace(
+                    "+00:00", "Z"
+                ),
+            },
+        ]
+
+        # Configure mock responses based on URL
+        def mock_get_side_effect(url, **kwargs):
+            mock_response = Mock()
+            mock_response.status_code = 200
+            if "/present-proof-2.0/records" in url:
+                mock_response.content = json.dumps({"results": mock_records}).encode()
+            elif "/connections" in url:
+                # Filter connections by state parameter if provided
+                params = kwargs.get("params", {})
+                filtered_connections = mock_connections
+                if "state" in params:
+                    filtered_connections = [
+                        conn
+                        for conn in mock_connections
+                        if conn["state"] == params["state"]
+                    ]
+                mock_response.content = json.dumps(
+                    {"results": filtered_connections}
+                ).encode()
+            return mock_response
+
+        mock_get.side_effect = mock_get_side_effect
 
         # Mock delete responses - all successful
         mock_delete_response = Mock()
@@ -61,14 +108,26 @@ class TestCleanupIntegration:
         result = await cleanup_old_presentation_records()
 
         # Assert
-        assert result["total_records"] == 3
-        assert result["cleaned_records"] == 2  # Only old records cleaned
+        assert result["total_presentation_records"] == 3
+        assert result["cleaned_presentation_records"] == 2  # Only old records cleaned
+        assert (
+            result["total_connections"] == 2
+        )  # Only invitation-state connections returned by API
+        assert (
+            result["cleaned_connections"] == 1
+        )  # Only expired invitation cleaned (not active connection)
         assert result["failed_cleanups"] == 0
         assert len(result["errors"]) == 0
+        assert result["hit_presentation_limit"] == False
+        assert result["hit_connection_limit"] == False
 
         # Verify API calls
-        mock_get.assert_called_once()
-        assert mock_delete.call_count == 2  # Only old records deleted
+        assert (
+            mock_get.call_count == 2
+        )  # Called for both presentation records and connections
+        assert (
+            mock_delete.call_count == 3
+        )  # 2 old presentation records + 1 expired connection
 
     @patch("api.core.acapy.client.requests.get")
     @patch("api.core.acapy.client.requests.delete")
@@ -116,8 +175,8 @@ class TestCleanupIntegration:
         # Assert
         assert presentation_data is not None
         assert immediate_cleanup_success is True
-        assert background_result["total_records"] == 0
-        assert background_result["cleaned_records"] == 0
+        assert background_result["total_presentation_records"] == 0
+        assert background_result["cleaned_presentation_records"] == 0
 
     @patch("api.core.acapy.client.requests.get")
     @patch("api.core.acapy.client.requests.delete")
@@ -147,12 +206,22 @@ class TestCleanupIntegration:
         mock_get_all.status_code = 200
         mock_get_all.content = json.dumps({"results": [mock_record_data]}).encode()
 
-        # Setup URL-based routing for different API endpoints
-        mock_get.side_effect = lambda url, **kwargs: (
-            mock_get_individual
-            if "/records/" in url and not url.endswith("/records")
-            else mock_get_all
-        )
+        # Configure mock responses based on URL
+        def mock_get_side_effect(url, **kwargs):
+            if "/records/" in url and not url.endswith("/records"):
+                return mock_get_individual
+            elif "/present-proof-2.0/records" in url:
+                return mock_get_all
+            elif "/connections" in url:
+                # No connections to clean in this test
+                mock_response = Mock()
+                mock_response.status_code = 200
+                mock_response.content = json.dumps({"results": []}).encode()
+                return mock_response
+            else:
+                return mock_get_all
+
+        mock_get.side_effect = mock_get_side_effect
 
         # Setup delete to fail first time (immediate), succeed second time (background)
         delete_responses = [
@@ -176,9 +245,13 @@ class TestCleanupIntegration:
         # Assert
         assert presentation_data is not None
         assert immediate_cleanup_success is False  # Immediate cleanup failed
-        assert background_result["total_records"] == 1
-        assert background_result["cleaned_records"] == 1  # Background succeeded
+        assert background_result["total_presentation_records"] == 1
+        assert (
+            background_result["cleaned_presentation_records"] == 1
+        )  # Background succeeded
         assert background_result["failed_cleanups"] == 0
+        assert background_result["hit_presentation_limit"] == False
+        assert background_result["hit_connection_limit"] == False
 
     @patch("api.services.cleanup.settings")
     @patch("api.core.acapy.client.requests.get")
@@ -192,6 +265,9 @@ class TestCleanupIntegration:
         # Arrange - Different retention period
         mock_settings.CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS = 48  # 2 days
         mock_settings.CONTROLLER_PRESENTATION_CLEANUP_SCHEDULE_MINUTES = 60
+        mock_settings.CONTROLLER_PRESENTATION_EXPIRE_TIME = (
+            10  # 10 seconds for connections
+        )
 
         now = datetime.now(UTC)
         times_and_expected = [
@@ -219,10 +295,18 @@ class TestCleanupIntegration:
                 }
             )
 
-        mock_get_response = Mock()
-        mock_get_response.status_code = 200
-        mock_get_response.content = json.dumps({"results": mock_records}).encode()
-        mock_get.return_value = mock_get_response
+        # Configure mock responses based on URL
+        def mock_get_side_effect(url, **kwargs):
+            mock_response = Mock()
+            mock_response.status_code = 200
+            if "/present-proof-2.0/records" in url:
+                mock_response.content = json.dumps({"results": mock_records}).encode()
+            elif "/connections" in url:
+                # No connections to clean in this test
+                mock_response.content = json.dumps({"results": []}).encode()
+            return mock_response
+
+        mock_get.side_effect = mock_get_side_effect
 
         mock_delete_response = Mock()
         mock_delete_response.status_code = 200
@@ -235,9 +319,9 @@ class TestCleanupIntegration:
         expected_cleaned = sum(
             1 for _, should_clean in times_and_expected if should_clean
         )
-        assert result["total_records"] == 3
+        assert result["total_presentation_records"] == 3
         assert (
-            result["cleaned_records"] == expected_cleaned
+            result["cleaned_presentation_records"] == expected_cleaned
         )  # Should be 2 (records 1 and 2)
         assert result["failed_cleanups"] == 0
 
@@ -271,10 +355,18 @@ class TestCleanupIntegration:
             },
         ]
 
-        mock_get_response = Mock()
-        mock_get_response.status_code = 200
-        mock_get_response.content = json.dumps({"results": mock_records}).encode()
-        mock_get.return_value = mock_get_response
+        # Configure mock responses based on URL
+        def mock_get_side_effect(url, **kwargs):
+            mock_response = Mock()
+            mock_response.status_code = 200
+            if "/present-proof-2.0/records" in url:
+                mock_response.content = json.dumps({"results": mock_records}).encode()
+            elif "/connections" in url:
+                # No connections to clean in this test
+                mock_response.content = json.dumps({"results": []}).encode()
+            return mock_response
+
+        mock_get.side_effect = mock_get_side_effect
 
         # Mock delete responses - middle one fails
         delete_responses = [
@@ -288,11 +380,13 @@ class TestCleanupIntegration:
         result = await cleanup_old_presentation_records()
 
         # Assert
-        assert result["total_records"] == 3
-        assert result["cleaned_records"] == 2  # 2 successful deletions
+        assert result["total_presentation_records"] == 3
+        assert result["cleaned_presentation_records"] == 2  # 2 successful deletions
         assert result["failed_cleanups"] == 1  # 1 failed deletion
         assert len(result["errors"]) == 1
         assert "record-fail" in result["errors"][0]
+        assert result["hit_presentation_limit"] == False
+        assert result["hit_connection_limit"] == False
 
     @patch("api.core.acapy.client.requests.get")
     @pytest.mark.asyncio
@@ -308,8 +402,8 @@ class TestCleanupIntegration:
         # Assert - System should handle gracefully by returning empty results
         # The AcapyClient catches network errors and returns empty list,
         # so the cleanup function processes 0 records successfully
-        assert result["total_records"] == 0
-        assert result["cleaned_records"] == 0
+        assert result["total_presentation_records"] == 0
+        assert result["cleaned_presentation_records"] == 0
         assert result["failed_cleanups"] == 0
         assert (
             len(result["errors"]) == 0
@@ -335,10 +429,18 @@ class TestCleanupIntegration:
                 }
             )
 
-        mock_get_response = Mock()
-        mock_get_response.status_code = 200
-        mock_get_response.content = json.dumps({"results": mock_records}).encode()
-        mock_get.return_value = mock_get_response
+        # Configure mock responses based on URL
+        def mock_get_side_effect(url, **kwargs):
+            mock_response = Mock()
+            mock_response.status_code = 200
+            if "/present-proof-2.0/records" in url:
+                mock_response.content = json.dumps({"results": mock_records}).encode()
+            elif "/connections" in url:
+                # No connections to clean in this test
+                mock_response.content = json.dumps({"results": []}).encode()
+            return mock_response
+
+        mock_get.side_effect = mock_get_side_effect
 
         mock_delete_response = Mock()
         mock_delete_response.status_code = 200
@@ -348,7 +450,142 @@ class TestCleanupIntegration:
         result = await cleanup_old_presentation_records()
 
         # Assert
-        assert result["total_records"] == 100
-        assert result["cleaned_records"] == 100
+        assert result["total_presentation_records"] == 100
+        assert result["cleaned_presentation_records"] == 100
         assert result["failed_cleanups"] == 0
         assert mock_delete.call_count == 100
+        assert result["hit_presentation_limit"] == False
+        assert result["hit_connection_limit"] == False
+
+    @patch("api.core.acapy.client.requests.get")
+    @patch("api.core.acapy.client.requests.delete")
+    @pytest.mark.asyncio
+    async def test_connection_cleanup_only_invitations(self, mock_delete, mock_get):
+        """Test that only expired connection invitations are cleaned up, not active connections."""
+
+        # Arrange - Mock connections with different states and ages
+        expired_time = datetime.now(UTC) - timedelta(
+            seconds=30
+        )  # Expired (> 10 seconds)
+        recent_time = datetime.now(UTC) - timedelta(seconds=5)  # Recent (< 10 seconds)
+
+        mock_connections = [
+            {
+                "connection_id": "expired-invitation-1",
+                "state": "invitation",
+                "created_at": expired_time.isoformat().replace("+00:00", "Z"),
+            },
+            {
+                "connection_id": "expired-invitation-2",
+                "state": "invitation",
+                "created_at": expired_time.isoformat().replace("+00:00", "Z"),
+            },
+            {
+                "connection_id": "recent-invitation",
+                "state": "invitation",
+                "created_at": recent_time.isoformat().replace("+00:00", "Z"),
+            },
+            {
+                "connection_id": "expired-but-active",
+                "state": "active",
+                "created_at": expired_time.isoformat().replace("+00:00", "Z"),
+            },
+        ]
+
+        # Configure mock responses
+        def mock_get_side_effect(url, **kwargs):
+            mock_response = Mock()
+            mock_response.status_code = 200
+            if "/present-proof-2.0/records" in url:
+                # No presentation records to clean
+                mock_response.content = json.dumps({"results": []}).encode()
+            elif "/connections" in url:
+                # Filter connections by state parameter if provided
+                params = kwargs.get("params", {})
+                filtered_connections = mock_connections
+                if "state" in params:
+                    filtered_connections = [
+                        conn
+                        for conn in mock_connections
+                        if conn["state"] == params["state"]
+                    ]
+                mock_response.content = json.dumps(
+                    {"results": filtered_connections}
+                ).encode()
+            return mock_response
+
+        mock_get.side_effect = mock_get_side_effect
+
+        # Mock successful delete responses
+        mock_delete_response = Mock()
+        mock_delete_response.status_code = 200
+        mock_delete.return_value = mock_delete_response
+
+        # Act
+        result = await cleanup_old_presentation_records()
+
+        # Assert
+        assert result["total_presentation_records"] == 0
+        assert result["cleaned_presentation_records"] == 0
+        assert (
+            result["total_connections"] == 3
+        )  # Only invitation-state connections returned by API
+        assert result["cleaned_connections"] == 2  # Only expired invitations cleaned
+        assert result["failed_cleanups"] == 0
+        assert len(result["errors"]) == 0
+        assert result["hit_presentation_limit"] == False
+        assert result["hit_connection_limit"] == False
+
+        # Verify API calls
+        assert (
+            mock_get.call_count == 2
+        )  # Called for both presentation records and connections
+        assert mock_delete.call_count == 2  # Only expired invitations deleted
+
+    @patch("api.core.acapy.client.requests.get")
+    @patch("api.core.acapy.client.requests.delete")
+    @pytest.mark.asyncio
+    async def test_connection_cleanup_failure_handling(self, mock_delete, mock_get):
+        """Test proper error handling when connection deletion fails."""
+
+        # Arrange - Mock expired invitation
+        expired_time = datetime.now(UTC) - timedelta(seconds=30)
+
+        mock_connections = [
+            {
+                "connection_id": "failed-delete-connection",
+                "state": "invitation",
+                "created_at": expired_time.isoformat().replace("+00:00", "Z"),
+            },
+        ]
+
+        # Configure mock responses
+        def mock_get_side_effect(url, **kwargs):
+            mock_response = Mock()
+            mock_response.status_code = 200
+            if "/present-proof-2.0/records" in url:
+                mock_response.content = json.dumps({"results": []}).encode()
+            elif "/connections" in url:
+                mock_response.content = json.dumps(
+                    {"results": mock_connections}
+                ).encode()
+            return mock_response
+
+        mock_get.side_effect = mock_get_side_effect
+
+        # Mock failed delete response
+        mock_delete_response = Mock()
+        mock_delete_response.status_code = 500
+        mock_delete.return_value = mock_delete_response
+
+        # Act
+        result = await cleanup_old_presentation_records()
+
+        # Assert
+        assert result["total_connections"] == 1
+        assert result["cleaned_connections"] == 0  # Failed to clean
+        assert result["failed_cleanups"] == 1
+        assert len(result["errors"]) == 1
+        assert "Failed to delete expired connection invitation" in result["errors"][0]
+        assert result["hit_presentation_limit"] == False
+        assert result["hit_connection_limit"] == False

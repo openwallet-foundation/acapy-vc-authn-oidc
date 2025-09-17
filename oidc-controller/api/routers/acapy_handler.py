@@ -31,6 +31,67 @@ async def _send_problem_report_safely(
         logger.error(f"Failed to send problem report: {e}")
 
 
+async def _cleanup_presentation_and_connection(
+    auth_session: AuthSession, pres_ex_id: str, context: str
+) -> None:
+    """Clean up presentation record and connection (if applicable) with proper error handling."""
+    # Determine if connection should also be deleted based on verification type and multi-use flag
+    connection_id_to_delete = (
+        auth_session.connection_id
+        if (
+            settings.USE_CONNECTION_BASED_VERIFICATION
+            and auth_session.connection_id
+            and not auth_session.multi_use  # Only delete single-use connections
+        )
+        else None
+    )
+
+    try:
+        client = AcapyClient()
+        presentation_deleted, connection_deleted, errors = (
+            client.delete_presentation_record_and_connection(
+                pres_ex_id, connection_id_to_delete
+            )
+        )
+
+        # Log results for presentation cleanup
+        if presentation_deleted:
+            logger.info(
+                f"Successfully cleaned up presentation record {pres_ex_id} after {context}"
+            )
+        else:
+            logger.warning(
+                f"Failed to cleanup presentation record {pres_ex_id} after {context} - will be handled by background cleanup"
+            )
+
+        # Log results for connection cleanup (if attempted)
+        if connection_deleted:
+            logger.info(
+                f"Successfully cleaned up single-use connection {connection_id_to_delete} after {context}"
+            )
+        elif connection_id_to_delete:
+            logger.warning(
+                f"Failed to cleanup single-use connection {connection_id_to_delete} after {context}"
+            )
+        elif (
+            settings.USE_CONNECTION_BASED_VERIFICATION
+            and auth_session.connection_id
+            and auth_session.multi_use
+        ):
+            logger.info(
+                f"Preserving multi-use connection {auth_session.connection_id} after {context}"
+            )
+
+        # Log any errors from the cleanup operation
+        if errors:
+            logger.warning(f"{context.capitalize()} cleanup errors: {errors}")
+
+    except Exception as cleanup_error:
+        logger.warning(
+            f"Cleanup failed for presentation record {pres_ex_id} after {context}: {cleanup_error} - will be handled by background cleanup"
+        )
+
+
 async def _cleanup_single_use_connection(
     auth_session: AuthSession, context: str
 ) -> None:
@@ -247,61 +308,12 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                         f"Retrieved presentation data via API for {webhook_body['pres_ex_id']}"
                     )
 
-                    # Cleanup presentation record and connection (if applicable) after successful retrieval
-                    # Determine if connection should also be deleted based on verification type and multi-use flag
-                    connection_id_to_delete = (
-                        auth_session.connection_id
-                        if (
-                            settings.USE_CONNECTION_BASED_VERIFICATION
-                            and auth_session.connection_id
-                            and not auth_session.multi_use  # Only delete single-use connections
-                        )
-                        else None
+                    # Cleanup presentation record and connection after successful verification
+                    await _cleanup_presentation_and_connection(
+                        auth_session,
+                        webhook_body["pres_ex_id"],
+                        "successful verification",
                     )
-
-                    try:
-                        presentation_deleted, connection_deleted, errors = (
-                            client.delete_presentation_record_and_connection(
-                                webhook_body["pres_ex_id"], connection_id_to_delete
-                            )
-                        )
-
-                        # Log results for presentation cleanup
-                        if presentation_deleted:
-                            logger.info(
-                                f"Successfully cleaned up presentation record {webhook_body['pres_ex_id']}"
-                            )
-                        else:
-                            logger.warning(
-                                f"Failed to cleanup presentation record {webhook_body['pres_ex_id']} - will be handled by background cleanup"
-                            )
-
-                        # Log results for connection cleanup (if attempted)
-                        if connection_deleted:
-                            logger.info(
-                                f"Successfully cleaned up single-use connection {connection_id_to_delete}"
-                            )
-                        elif connection_id_to_delete:
-                            logger.warning(
-                                f"Failed to cleanup single-use connection {connection_id_to_delete}"
-                            )
-                        elif (
-                            settings.USE_CONNECTION_BASED_VERIFICATION
-                            and auth_session.connection_id
-                            and auth_session.multi_use
-                        ):
-                            logger.info(
-                                f"Preserving multi-use connection {auth_session.connection_id} for future use"
-                            )
-
-                        # Log any errors from the cleanup operation
-                        if errors:
-                            logger.warning(f"Cleanup errors: {errors}")
-
-                    except Exception as cleanup_error:
-                        logger.warning(
-                            f"Cleanup failed for presentation record {webhook_body['pres_ex_id']}: {cleanup_error} - will be handled by background cleanup"
-                        )
 
                     await _emit_status_to_socket(db, auth_session, "verified")
                 else:
@@ -345,8 +357,10 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
 
                 await _update_auth_session(db, auth_session)
 
-                # Cleanup connection after verification is abandoned (for connection-based flow)
-                await _cleanup_single_use_connection(auth_session, "abandonment")
+                # Cleanup presentation record and connection after abandonment
+                await _cleanup_presentation_and_connection(
+                    auth_session, webhook_body["pres_ex_id"], "abandonment"
+                )
 
             # Calcuate the expiration time of the proof
             now_time = datetime.now(UTC)
@@ -391,8 +405,10 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
 
                 await _update_auth_session(db, auth_session)
 
-                # Cleanup connection after verification expires (for connection-based flow)
-                await _cleanup_single_use_connection(auth_session, "expiration")
+                # Cleanup presentation record and connection after expiration
+                await _cleanup_presentation_and_connection(
+                    auth_session, auth_session.pres_exch_id, "expiration"
+                )
 
             pass
         case _:
