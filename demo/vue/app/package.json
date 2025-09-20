@@ -32,7 +32,7 @@
   },
   "dependencies": {
     "api-problem": "^9.0.2",
-    "axios": "^1.11.0",
+    "axios": "^1.12.1",
     "axios-oauth-client": "^2.2.0",
     "axios-token-interceptor": "^0.2.0",
     "compression": "^1.8.1",
