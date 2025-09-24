@@ -19,6 +19,9 @@ class TestPresentationCleanupService:
         with patch("api.services.cleanup.settings") as mock_settings:
             mock_settings.CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS = 24
             mock_settings.CONTROLLER_PRESENTATION_CLEANUP_SCHEDULE_MINUTES = 60
+            mock_settings.CONTROLLER_CLEANUP_MAX_PRESENTATION_RECORDS = 1000
+            mock_settings.CONTROLLER_CLEANUP_MAX_CONNECTIONS = 2000
+            mock_settings.CONTROLLER_PRESENTATION_EXPIRE_TIME = 10
             mock_settings.REDIS_HOST = "localhost"
             mock_settings.REDIS_PORT = 6379
             mock_settings.REDIS_PASSWORD = None
@@ -29,11 +32,19 @@ class TestPresentationCleanupService:
                 mock_scheduler.return_value = Mock()
                 self.service = PresentationCleanupService()
 
+    @patch("api.services.cleanup.settings")
     @patch("api.services.cleanup.AcapyClient")
     @pytest.mark.asyncio
-    async def test_cleanup_old_presentation_records_success(self, mock_client_class):
+    async def test_cleanup_old_presentation_records_success(
+        self, mock_client_class, mock_settings
+    ):
         """Test successful cleanup of old presentation records."""
         # Arrange
+        mock_settings.CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS = 24
+        mock_settings.CONTROLLER_CLEANUP_MAX_PRESENTATION_RECORDS = 1000
+        mock_settings.CONTROLLER_CLEANUP_MAX_CONNECTIONS = 2000
+        mock_settings.CONTROLLER_PRESENTATION_EXPIRE_TIME = 10
+
         mock_client = Mock()
         mock_client_class.return_value = mock_client
 
@@ -150,7 +161,11 @@ class TestPresentationCleanupService:
         # First delete succeeds, second fails
         mock_client.delete_presentation_record_and_connection.side_effect = [
             (True, None, []),  # First record succeeds
-            (False, None, []),  # Second record fails
+            (
+                False,
+                None,
+                ["Failed to delete presentation record record-2"],
+            ),  # Second record fails
         ]
 
         # Act
@@ -375,6 +390,10 @@ class TestPresentationCleanupService:
         """Test that cleanup service uses configuration correctly."""
         # Arrange
         mock_settings.CONTROLLER_PRESENTATION_CLEANUP_SCHEDULE_MINUTES = 30
+        mock_settings.CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS = 24
+        mock_settings.CONTROLLER_CLEANUP_MAX_PRESENTATION_RECORDS = 1000
+        mock_settings.CONTROLLER_CLEANUP_MAX_CONNECTIONS = 2000
+        mock_settings.CONTROLLER_PRESENTATION_EXPIRE_TIME = 10
         mock_settings.REDIS_HOST = "localhost"
         mock_settings.REDIS_PORT = 6379
         mock_settings.REDIS_PASSWORD = None
@@ -454,6 +473,11 @@ class TestPresentationCleanupService:
     def test_build_redis_url_with_password(self, mock_settings):
         """Test Redis URL building with password."""
         # Arrange
+        mock_settings.CONTROLLER_PRESENTATION_CLEANUP_SCHEDULE_MINUTES = 60
+        mock_settings.CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS = 24
+        mock_settings.CONTROLLER_CLEANUP_MAX_PRESENTATION_RECORDS = 1000
+        mock_settings.CONTROLLER_CLEANUP_MAX_CONNECTIONS = 2000
+        mock_settings.CONTROLLER_PRESENTATION_EXPIRE_TIME = 10
         mock_settings.REDIS_HOST = "redis-host"
         mock_settings.REDIS_PORT = 6380
         mock_settings.REDIS_PASSWORD = "secret"
@@ -475,6 +499,11 @@ class TestPresentationCleanupService:
     def test_build_redis_url_without_password(self, mock_settings):
         """Test Redis URL building without password."""
         # Arrange
+        mock_settings.CONTROLLER_PRESENTATION_CLEANUP_SCHEDULE_MINUTES = 60
+        mock_settings.CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS = 24
+        mock_settings.CONTROLLER_CLEANUP_MAX_PRESENTATION_RECORDS = 1000
+        mock_settings.CONTROLLER_CLEANUP_MAX_CONNECTIONS = 2000
+        mock_settings.CONTROLLER_PRESENTATION_EXPIRE_TIME = 10
         mock_settings.REDIS_HOST = "redis-host"
         mock_settings.REDIS_PORT = 6379
         mock_settings.REDIS_PASSWORD = None

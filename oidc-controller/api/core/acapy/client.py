@@ -8,6 +8,9 @@ from ..config import settings
 from .config import AgentConfig, MultiTenantAcapy, SingleTenantAcapy
 from .models import CreatePresentationResponse, OobCreateInvitationResponse, WalletDid
 
+# HTTP timeout for all ACA-Py API calls (seconds)
+ACAPY_HTTP_TIMEOUT = 10.0
+
 _client = None
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
 
@@ -93,6 +96,7 @@ class AcapyClient:
             resp_raw = requests.delete(
                 f"{self.acapy_host}{PRESENT_PROOF_RECORDS}/{presentation_exchange_id}",
                 headers=self.agent_config.get_headers(),
+                timeout=ACAPY_HTTP_TIMEOUT,
             )
 
             success = resp_raw.status_code == 200
@@ -118,6 +122,7 @@ class AcapyClient:
             resp_raw = requests.get(
                 f"{self.acapy_host}{PRESENT_PROOF_RECORDS}",
                 headers=self.agent_config.get_headers(),
+                timeout=ACAPY_HTTP_TIMEOUT,
             )
 
             if resp_raw.status_code != 200:
@@ -264,9 +269,7 @@ class AcapyClient:
         """
         logger.debug(">>> list_connections")
 
-        params = {}
-        if state:
-            params["state"] = state
+        params = {"state": state} if state else {}
 
         resp_raw = requests.get(
             self.acapy_host + CONNECTIONS_URI,
@@ -300,19 +303,18 @@ class AcapyClient:
             f">>> _get_connections_page: state={state}, limit={limit}, offset={offset}"
         )
 
-        params = {}
-        if state:
-            params["state"] = state
-
-        # Try pagination parameters (may not be supported by all ACA-Py versions)
-        params["limit"] = limit
-        params["offset"] = offset
+        params = {
+            "limit": limit,
+            "offset": offset,
+            **({"state": state} if state else {}),
+        }
 
         try:
             resp_raw = requests.get(
                 self.acapy_host + CONNECTIONS_URI,
                 headers=self.agent_config.get_headers(),
                 params=params,
+                timeout=ACAPY_HTTP_TIMEOUT,
             )
 
             if resp_raw.status_code != 200:
@@ -379,6 +381,7 @@ class AcapyClient:
             resp_raw = requests.get(
                 f"{self.acapy_host}{CONNECTIONS_URI}",
                 headers=self.agent_config.get_headers(),
+                timeout=ACAPY_HTTP_TIMEOUT,
             )
 
             if resp_raw.status_code != 200:
@@ -407,12 +410,13 @@ class AcapyClient:
         Returns:
             bool: True if deletion was successful
         """
-        logger.debug(">>> delete_connection")
+        logger.debug(">>> delete_connection", connection_id=connection_id)
 
         try:
             resp_raw = requests.delete(
                 self.acapy_host + CONNECTIONS_URI + "/" + connection_id,
                 headers=self.agent_config.get_headers(),
+                timeout=ACAPY_HTTP_TIMEOUT,
             )
 
             success = resp_raw.status_code == 200

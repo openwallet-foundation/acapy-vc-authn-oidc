@@ -268,6 +268,8 @@ class TestCleanupIntegration:
         mock_settings.CONTROLLER_PRESENTATION_EXPIRE_TIME = (
             10  # 10 seconds for connections
         )
+        mock_settings.CONTROLLER_CLEANUP_MAX_PRESENTATION_RECORDS = 1000
+        mock_settings.CONTROLLER_CLEANUP_MAX_CONNECTIONS = 2000
 
         now = datetime.now(UTC)
         times_and_expected = [
@@ -328,13 +330,21 @@ class TestCleanupIntegration:
         # Verify only old enough records were deleted
         assert mock_delete.call_count == expected_cleaned
 
+    @patch("api.services.cleanup.settings")
     @patch("api.core.acapy.client.requests.get")
     @patch("api.core.acapy.client.requests.delete")
     @pytest.mark.asyncio
-    async def test_error_resilience_partial_failures(self, mock_delete, mock_get):
+    async def test_error_resilience_partial_failures(
+        self, mock_delete, mock_get, mock_settings
+    ):
         """Test system resilience when some operations fail."""
 
         # Arrange - Mix of successful and failed operations
+        mock_settings.CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS = 24
+        mock_settings.CONTROLLER_CLEANUP_MAX_PRESENTATION_RECORDS = 1000
+        mock_settings.CONTROLLER_CLEANUP_MAX_CONNECTIONS = 2000
+        mock_settings.CONTROLLER_PRESENTATION_EXPIRE_TIME = 10
+
         old_time = datetime.now(UTC) - timedelta(hours=25)
 
         mock_records = [

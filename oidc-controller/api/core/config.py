@@ -185,6 +185,16 @@ class GlobalConfig(BaseSettings):
         os.environ.get("CONTROLLER_PRESENTATION_CLEANUP_SCHEDULE_MINUTES", 60)
     )
 
+    # Resource limits for cleanup operations to prevent excessive processing
+    # Maximum presentation records to process per cleanup cycle (default: 1000)
+    CONTROLLER_CLEANUP_MAX_PRESENTATION_RECORDS: int = int(
+        os.environ.get("CONTROLLER_CLEANUP_MAX_PRESENTATION_RECORDS", 1000)
+    )
+    # Maximum connections to process per cleanup cycle (default: 2000)
+    CONTROLLER_CLEANUP_MAX_CONNECTIONS: int = int(
+        os.environ.get("CONTROLLER_CLEANUP_MAX_CONNECTIONS", 2000)
+    )
+
     CONTROLLER_SESSION_TIMEOUT_CONFIG_FILE: str | None = os.environ.get(
         "CONTROLLER_SESSION_TIMEOUT_CONFIG_FILE"
     )
