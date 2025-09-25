@@ -1,12 +1,9 @@
-"""Background cleanup service for presentation records."""
+"""Cleanup functions for presentation records and connections."""
 
 from datetime import datetime, timedelta, UTC
 from typing import TYPE_CHECKING, TypedDict
 
 import structlog
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from apscheduler.jobstores.redis import RedisJobStore
-from apscheduler.triggers.interval import IntervalTrigger
 
 from ..core.config import settings
 
@@ -34,13 +31,6 @@ class CleanupStats(TypedDict):
 def validate_cleanup_configuration():
     """Validate cleanup configuration settings at startup."""
     errors = []
-
-    # Validate schedule (should be reasonable range)
-    schedule_minutes = settings.CONTROLLER_PRESENTATION_CLEANUP_SCHEDULE_MINUTES
-    if not (1 <= schedule_minutes <= 1440):  # 1 minute to 24 hours
-        errors.append(
-            f"CONTROLLER_PRESENTATION_CLEANUP_SCHEDULE_MINUTES must be between 1 and 1440, got {schedule_minutes}"
-        )
 
     # Validate retention hours (should be positive)
     retention_hours = settings.CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS
@@ -76,7 +66,6 @@ def validate_cleanup_configuration():
 
     logger.info(
         "Cleanup configuration validated successfully",
-        schedule_minutes=schedule_minutes,
         retention_hours=retention_hours,
         max_presentation_records=max_records,
         max_connections=max_connections,
@@ -342,12 +331,24 @@ def _cleanup_connections(
     )
 
 
-async def cleanup_old_presentation_records() -> CleanupStats:
-    """Clean up presentation records and expired connection invitations."""
+async def perform_cleanup(
+    dry_run: bool = False,
+    max_presentation_records: int | None = None,
+    max_connections: int | None = None,
+) -> CleanupStats:
+    """
+    Perform comprehensive cleanup of expired presentation data and connections.
+
+    Args:
+        dry_run: If True, only report what would be deleted without actual deletion
+        max_presentation_records: Override default max presentation records limit
+        max_connections: Override default max connections limit
+
+    Returns:
+        CleanupStats with detailed information about cleanup operations
+    """
     start_time = datetime.now(UTC)
-    logger.info(
-        "Starting background cleanup of old presentation records and expired connections"
-    )
+    logger.info("Starting cleanup of old presentation records and expired connections")
 
     # Initialize stats tracking
     cleanup_stats: CleanupStats = {
@@ -371,9 +372,9 @@ async def cleanup_old_presentation_records() -> CleanupStats:
         _cleanup_connections(client, cleanup_stats, presentation_phase_start)
 
     except Exception as e:
-        error_msg = f"Background cleanup failed: {e}"
+        error_msg = f"Cleanup operation failed: {e}"
         cleanup_stats["errors"].append(error_msg)
-        logger.error("Background cleanup operation failed", error=str(e))
+        logger.error("Cleanup operation failed", error=str(e))
 
     # Generate summary
     limit_info = ""
@@ -387,7 +388,7 @@ async def cleanup_old_presentation_records() -> CleanupStats:
 
     total_duration = datetime.now(UTC) - start_time
     logger.info(
-        f"Background cleanup completed{limit_info}",
+        f"Cleanup completed{limit_info}",
         operation="cleanup_completed",
         total_duration_ms=int(total_duration.total_seconds() * 1000),
         cleaned_presentation_records=cleanup_stats["cleaned_presentation_records"],
@@ -400,78 +401,3 @@ async def cleanup_old_presentation_records() -> CleanupStats:
         error_count=len(cleanup_stats["errors"]),
     )
     return cleanup_stats
-
-
-class PresentationCleanupService:
-    """Service for cleaning up old presentation records."""
-
-    def __init__(self):
-        # Validate configuration at startup
-        validate_cleanup_configuration()
-
-        self.schedule_minutes = (
-            settings.CONTROLLER_PRESENTATION_CLEANUP_SCHEDULE_MINUTES
-        )
-
-        # Initialize APScheduler with Redis job store
-        self.scheduler = self._create_scheduler()
-
-    def _create_scheduler(self) -> AsyncIOScheduler:
-        """Create APScheduler with Redis job store for distributed coordination."""
-        # Configure Redis job store
-        redis_url = self._build_redis_url()
-        jobstore = RedisJobStore(
-            host=settings.REDIS_HOST,
-            port=settings.REDIS_PORT,
-            password=settings.REDIS_PASSWORD if settings.REDIS_PASSWORD else None,
-            db=settings.REDIS_DB + 1,  # Use different DB than Socket.IO for job store
-        )
-
-        jobstores = {"/default": jobstore}
-
-        scheduler = AsyncIOScheduler(jobstores=jobstores)
-        logger.info(f"APScheduler initialized with Redis job store at {redis_url}")
-        return scheduler
-
-    def _build_redis_url(self) -> str:
-        """Build Redis URL for logging purposes."""
-        if settings.REDIS_PASSWORD:
-            return f"redis://***@{settings.REDIS_HOST}:{settings.REDIS_PORT}/{settings.REDIS_DB + 1}"
-        return f"redis://{settings.REDIS_HOST}:{settings.REDIS_PORT}/{settings.REDIS_DB + 1}"
-
-    def setup_cleanup_job(self):
-        """Register the cleanup job with APScheduler."""
-        self.scheduler.add_job(
-            func=cleanup_old_presentation_records,  # Use standalone function
-            trigger=IntervalTrigger(minutes=self.schedule_minutes),
-            id="presentation_cleanup",
-            max_instances=1,  # Prevent multiple instances running simultaneously
-            replace_existing=True,  # Replace job if it already exists
-            misfire_grace_time=300,  # 5 minutes grace time for missed jobs
-        )
-        logger.info(
-            f"Cleanup job scheduled - will run every {self.schedule_minutes} minutes"
-        )
-
-    async def start_scheduler(self):
-        """Start the APScheduler and register cleanup job."""
-        try:
-            self.setup_cleanup_job()
-            self.scheduler.start()
-            logger.info("APScheduler started successfully")
-        except Exception as e:
-            logger.error(f"Failed to start APScheduler: {e}")
-            raise
-
-    async def stop_scheduler(self):
-        """Gracefully stop the APScheduler."""
-        try:
-            if self.scheduler.running:
-                self.scheduler.shutdown(wait=True)
-                logger.info("APScheduler stopped successfully")
-        except Exception as e:
-            logger.error(f"Error stopping APScheduler: {e}")
-
-
-# Global instance for the cleanup service
-cleanup_service = PresentationCleanupService()

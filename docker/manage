@@ -187,10 +187,7 @@ configureEnvironment() {
 
   # Presentation record cleanup configuration
   # How long to retain presentation records in hours (default: 24 hours)
-  export CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS=24
-
-  # How often to run the background cleanup task in minutes (default: 60 minutes)
-  export CONTROLLER_PRESENTATION_CLEANUP_SCHEDULE_MINUTES=60
+  export CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS=1
 
   # Resource limits for cleanup operations to prevent excessive processing
   # Maximum presentation records to process per cleanup cycle (default: 1000)

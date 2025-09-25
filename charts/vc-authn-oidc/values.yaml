@@ -482,6 +482,48 @@ acapy:
     commonLabels:
       app.kubernetes.io/role: wallet
 
+## @section Cleanup Configuration
+##
+## Cleanup service configuration for scheduled maintenance tasks
+##
+cleanup:
+  ## CronJob configuration for scheduled cleanup
+  ##
+  cronjob:
+    ## @param cleanup.cronjob.enabled Enable scheduled cleanup via Kubernetes CronJob
+    ##
+    enabled: false
+    ## @param cleanup.cronjob.schedule Cron schedule for cleanup job (default: every hour)
+    ##
+    schedule: "0 * * * *"
+    ## @param cleanup.cronjob.timeoutSeconds Timeout for cleanup HTTP requests in seconds
+    ##
+    timeoutSeconds: 300
+    ## @param cleanup.cronjob.retryDelaySeconds Delay between retry attempts in seconds
+    ##
+    retryDelaySeconds: 10
+    ## @param cleanup.cronjob.successfulJobsHistoryLimit Number of successful jobs to keep in history
+    ##
+    successfulJobsHistoryLimit: 3
+    ## @param cleanup.cronjob.failedJobsHistoryLimit Number of failed jobs to keep in history
+    ##
+    failedJobsHistoryLimit: 3
+    ## Resource limits for cleanup jobs
+    ##
+    resources:
+      limits:
+        cpu: 100m
+        memory: 128Mi
+      requests:
+        cpu: 50m
+        memory: 64Mi
+    ## @param cleanup.cronjob.nodeSelector [object] Node labels for cleanup job pod assignment
+    ##
+    nodeSelector: {}
+    ## @param cleanup.cronjob.tolerations [array] Tolerations for cleanup job pod assignment
+    ##
+    tolerations: []
+
 ##  Overrides for bitnami/mongodb chart - https://github.com/bitnami/charts/tree/main/bitnami/mongodb
 mongodb:
   auth:

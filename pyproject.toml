@@ -25,7 +25,6 @@ structlog = "^25.4.0"
 uvicorn = { version = "^0.35.0", extras = ["standard"] }
 python-socketio = "^5.13.0" # required to run websockets
 redis = "^5.0.0" # required for multi-pod Socket.IO communication
-apscheduler = "^3.10.4" # distributed task scheduling for cleanup jobs
 canonicaljson = "^2.0.0" # used to provide unique consistent user identifiers"
 pydantic-settings = "^2.10.1"
 

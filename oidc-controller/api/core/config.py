@@ -180,10 +180,6 @@ class GlobalConfig(BaseSettings):
     CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS: int = int(
         os.environ.get("CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS", 24)
     )
-    # How often to run the background cleanup task in minutes (default: 60 minutes)
-    CONTROLLER_PRESENTATION_CLEANUP_SCHEDULE_MINUTES: int = int(
-        os.environ.get("CONTROLLER_PRESENTATION_CLEANUP_SCHEDULE_MINUTES", 60)
-    )
 
     # Resource limits for cleanup operations to prevent excessive processing
     # Maximum presentation records to process per cleanup cycle (default: 1000)

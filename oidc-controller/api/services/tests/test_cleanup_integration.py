@@ -7,8 +7,7 @@ from unittest.mock import Mock, patch, AsyncMock
 import pytest
 
 from api.services.cleanup import (
-    PresentationCleanupService,
-    cleanup_old_presentation_records,
+    perform_cleanup,
 )
 from api.core.acapy.client import AcapyClient
 
@@ -105,7 +104,7 @@ class TestCleanupIntegration:
         mock_delete.return_value = mock_delete_response
 
         # Act - Run background cleanup
-        result = await cleanup_old_presentation_records()
+        result = await perform_cleanup()
 
         # Assert
         assert result["total_presentation_records"] == 3
@@ -170,7 +169,7 @@ class TestCleanupIntegration:
         immediate_cleanup_success = client.delete_presentation_record("test-pres-ex-id")
 
         # Background cleanup
-        background_result = await cleanup_old_presentation_records()
+        background_result = await perform_cleanup()
 
         # Assert
         assert presentation_data is not None
@@ -240,7 +239,7 @@ class TestCleanupIntegration:
         )
 
         # Background cleanup
-        background_result = await cleanup_old_presentation_records()
+        background_result = await perform_cleanup()
 
         # Assert
         assert presentation_data is not None
@@ -264,7 +263,6 @@ class TestCleanupIntegration:
 
         # Arrange - Different retention period
         mock_settings.CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS = 48  # 2 days
-        mock_settings.CONTROLLER_PRESENTATION_CLEANUP_SCHEDULE_MINUTES = 60
         mock_settings.CONTROLLER_PRESENTATION_EXPIRE_TIME = (
             10  # 10 seconds for connections
         )
@@ -315,7 +313,7 @@ class TestCleanupIntegration:
         mock_delete.return_value = mock_delete_response
 
         # Act
-        result = await cleanup_old_presentation_records()
+        result = await perform_cleanup()
 
         # Assert
         expected_cleaned = sum(
@@ -387,7 +385,7 @@ class TestCleanupIntegration:
         mock_delete.side_effect = delete_responses
 
         # Act
-        result = await cleanup_old_presentation_records()
+        result = await perform_cleanup()
 
         # Assert
         assert result["total_presentation_records"] == 3
@@ -407,7 +405,7 @@ class TestCleanupIntegration:
         mock_get.side_effect = Exception("Network timeout")
 
         # Act
-        result = await cleanup_old_presentation_records()
+        result = await perform_cleanup()
 
         # Assert - System should handle gracefully by returning empty results
         # The AcapyClient catches network errors and returns empty list,
@@ -457,7 +455,7 @@ class TestCleanupIntegration:
         mock_delete.return_value = mock_delete_response
 
         # Act
-        result = await cleanup_old_presentation_records()
+        result = await perform_cleanup()
 
         # Assert
         assert result["total_presentation_records"] == 100
@@ -532,7 +530,7 @@ class TestCleanupIntegration:
         mock_delete.return_value = mock_delete_response
 
         # Act
-        result = await cleanup_old_presentation_records()
+        result = await perform_cleanup()
 
         # Assert
         assert result["total_presentation_records"] == 0
@@ -589,7 +587,7 @@ class TestCleanupIntegration:
         mock_delete.return_value = mock_delete_response
 
         # Act
-        result = await cleanup_old_presentation_records()
+        result = await perform_cleanup()
 
         # Assert
         assert result["total_connections"] == 1

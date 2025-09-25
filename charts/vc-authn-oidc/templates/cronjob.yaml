@@ -1,0 +1,89 @@
+{{- if .Values.cleanup.cronjob.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "global.fullname" . }}-cleanup
+  labels:
+    {{- include "vc-authn-oidc.labels" . | nindent 4 }}
+    component: cleanup
+spec:
+  schedule: {{ .Values.cleanup.cronjob.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: {{ .Values.cleanup.cronjob.successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ .Values.cleanup.cronjob.failedJobsHistoryLimit }}
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            {{- include "vc-authn-oidc.selectorLabels" . | nindent 12 }}
+            component: cleanup
+        spec:
+          restartPolicy: OnFailure
+          containers:
+          - name: cleanup
+            image: curlimages/curl:8.5.0
+            command:
+            - /bin/sh
+            - -c
+            - |
+              echo "Starting cleanup job at $(date)"
+              
+              # Make HTTP request to cleanup endpoint with retry logic
+              for i in 1 2 3; do
+                echo "Cleanup attempt $i/3"
+                
+                response=$(curl -w "%{http_code}" -o /tmp/response.json \
+                  --max-time {{ .Values.cleanup.cronjob.timeoutSeconds }} \
+                  --retry 2 \
+                  --retry-delay 5 \
+                  --retry-max-time 30 \
+                  --fail-with-body \
+                  -H "Content-Type: application/json" \
+                  -H "X-API-Key: $(CLEANUP_API_KEY)" \
+                  -X DELETE \
+                  "http://{{ include "global.fullname" . }}:{{ .Values.service.port }}/cleanup")
+                
+                http_code="${response: -3}"
+                echo "HTTP Status: $http_code"
+                
+                if [ "$http_code" = "200" ]; then
+                  echo "Cleanup completed successfully"
+                  cat /tmp/response.json | jq '.'
+                  echo "Cleanup job finished at $(date)"
+                  exit 0
+                elif [ "$http_code" = "401" ] || [ "$http_code" = "403" ]; then
+                  echo "Authentication failed - check API key configuration"
+                  cat /tmp/response.json
+                  exit 1
+                else
+                  echo "Cleanup failed with HTTP $http_code"
+                  cat /tmp/response.json
+                  
+                  if [ $i -lt 3 ]; then
+                    echo "Retrying in {{ .Values.cleanup.cronjob.retryDelaySeconds }} seconds..."
+                    sleep {{ .Values.cleanup.cronjob.retryDelaySeconds }}
+                  fi
+                fi
+              done
+              
+              echo "All cleanup attempts failed"
+              echo "Cleanup job failed at $(date)"
+              exit 1
+            env:
+            - name: CLEANUP_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "vc-authn-oidc.apiSecretName" . }}
+                  key: controllerApiKey
+            resources:
+              {{- toYaml .Values.cleanup.cronjob.resources | nindent 14 }}
+          {{- with .Values.cleanup.cronjob.nodeSelector }}
+          nodeSelector:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.cleanup.cronjob.tolerations }}
+          tolerations:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+{{- end }}
