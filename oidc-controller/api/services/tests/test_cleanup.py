@@ -11,7 +11,134 @@ from api.services.cleanup import (
 )
 
 
-class TestPerformCleanup:
+class TestConstants:
+    """Constants for cleanup tests."""
+
+    # Default settings
+    DEFAULT_RETENTION_HOURS = 24
+    DEFAULT_MAX_PRESENTATION_RECORDS = 1000
+    DEFAULT_MAX_CONNECTIONS = 2000
+    DEFAULT_EXPIRE_TIME = 600
+
+    # Time offsets for test data
+    OLD_RECORD_AGE_HOURS = 25
+    RECENT_RECORD_AGE_HOURS = 1
+    EXPIRED_CONNECTION_AGE_SECONDS = 700
+    RECENT_CONNECTION_AGE_SECONDS = 300
+
+
+class BaseCleanupTest:
+    """Base class for cleanup tests with shared fixtures and utilities."""
+
+    def configure_default_settings(self, mock_settings):
+        """Configure mock settings with default values."""
+        mock_settings.CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS = (
+            TestConstants.DEFAULT_RETENTION_HOURS
+        )
+        mock_settings.CONTROLLER_CLEANUP_MAX_PRESENTATION_RECORDS = (
+            TestConstants.DEFAULT_MAX_PRESENTATION_RECORDS
+        )
+        mock_settings.CONTROLLER_CLEANUP_MAX_CONNECTIONS = (
+            TestConstants.DEFAULT_MAX_CONNECTIONS
+        )
+        mock_settings.CONTROLLER_PRESENTATION_EXPIRE_TIME = (
+            TestConstants.DEFAULT_EXPIRE_TIME
+        )
+        return mock_settings
+
+    def configure_mock_client(self, mock_client_class):
+        """Create and configure a mock ACA-Py client."""
+        mock_client = Mock()
+        mock_client_class.return_value = mock_client
+        return mock_client
+
+    def create_test_timestamps(self):
+        """Create standard test timestamps."""
+        return {
+            "old_time": datetime.now(UTC)
+            - timedelta(hours=TestConstants.OLD_RECORD_AGE_HOURS),
+            "recent_time": datetime.now(UTC)
+            - timedelta(hours=TestConstants.RECENT_RECORD_AGE_HOURS),
+            "expired_connection_time": datetime.now(UTC)
+            - timedelta(seconds=TestConstants.EXPIRED_CONNECTION_AGE_SECONDS),
+            "recent_connection_time": datetime.now(UTC)
+            - timedelta(seconds=TestConstants.RECENT_CONNECTION_AGE_SECONDS),
+        }
+
+    def create_presentation_record(
+        self, pres_ex_id: str, created_at: datetime, state: str = "done"
+    ):
+        """Create a test presentation record."""
+        return {
+            "pres_ex_id": pres_ex_id,
+            "created_at": created_at.isoformat().replace("+00:00", "Z"),
+            "state": state,
+        }
+
+    def create_connection(
+        self,
+        connection_id: str,
+        created_at: datetime,
+        invitation_key: str = None,
+        state: str = "invitation",
+    ):
+        """Create a test connection."""
+        return {
+            "connection_id": connection_id,
+            "created_at": created_at.isoformat().replace("+00:00", "Z"),
+            "invitation_key": invitation_key or f"key-{connection_id}",
+            "state": state,
+        }
+
+    def create_cleanup_stats(self, **overrides):
+        """Create cleanup statistics with optional overrides."""
+        default_stats = {
+            "total_presentation_records": 0,
+            "cleaned_presentation_records": 0,
+            "total_connections": 0,
+            "cleaned_connections": 0,
+            "failed_cleanups": 0,
+            "errors": [],
+            "hit_presentation_limit": False,
+            "hit_connection_limit": False,
+        }
+        default_stats.update(overrides)
+        return default_stats
+
+    def assert_cleanup_stats(
+        self,
+        result,
+        expected_total_presentations=None,
+        expected_cleaned_presentations=None,
+        expected_total_connections=None,
+        expected_cleaned_connections=None,
+        expected_failed_cleanups=None,
+        expected_error_count=None,
+        expected_hit_presentation_limit=None,
+        expected_hit_connection_limit=None,
+    ):
+        """Helper to assert cleanup statistics."""
+        if expected_total_presentations is not None:
+            assert result["total_presentation_records"] == expected_total_presentations
+        if expected_cleaned_presentations is not None:
+            assert (
+                result["cleaned_presentation_records"] == expected_cleaned_presentations
+            )
+        if expected_total_connections is not None:
+            assert result["total_connections"] == expected_total_connections
+        if expected_cleaned_connections is not None:
+            assert result["cleaned_connections"] == expected_cleaned_connections
+        if expected_failed_cleanups is not None:
+            assert result["failed_cleanups"] == expected_failed_cleanups
+        if expected_error_count is not None:
+            assert len(result["errors"]) == expected_error_count
+        if expected_hit_presentation_limit is not None:
+            assert result["hit_presentation_limit"] == expected_hit_presentation_limit
+        if expected_hit_connection_limit is not None:
+            assert result["hit_connection_limit"] == expected_hit_connection_limit
+
+
+class TestPerformCleanup(BaseCleanupTest):
     """Test standalone perform_cleanup function."""
 
     @patch("api.services.cleanup.AcapyClient")
@@ -19,49 +146,35 @@ class TestPerformCleanup:
     @pytest.mark.asyncio
     async def test_perform_cleanup_success(self, mock_settings, mock_client_class):
         """Test successful cleanup of old presentation records."""
-        # Arrange
-        mock_settings.CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS = 24
-        mock_settings.CONTROLLER_CLEANUP_MAX_PRESENTATION_RECORDS = 1000
-        mock_settings.CONTROLLER_CLEANUP_MAX_CONNECTIONS = 2000
+        # Configure default settings and override expire time for this specific test
+        self.configure_default_settings(mock_settings)
         mock_settings.CONTROLLER_PRESENTATION_EXPIRE_TIME = 10
 
-        mock_client = Mock()
-        mock_client_class.return_value = mock_client
+        # Configure mock client
+        mock_client = self.configure_mock_client(mock_client_class)
 
-        # Create test records - one old, one recent
-        old_time = datetime.now(UTC) - timedelta(hours=25)
-        recent_time = datetime.now(UTC) - timedelta(hours=1)
+        # Create test timestamps and data using utilities
+        timestamps = self.create_test_timestamps()
+        # Override connection times for this specific test
         expired_connection_time = datetime.now(UTC) - timedelta(seconds=30)
         recent_connection_time = datetime.now(UTC) - timedelta(seconds=5)
 
         mock_records = [
-            {
-                "pres_ex_id": "old-record-1",
-                "created_at": old_time.isoformat().replace("+00:00", "Z"),
-                "state": "done",
-            },
-            {
-                "pres_ex_id": "recent-record",
-                "created_at": recent_time.isoformat().replace("+00:00", "Z"),
-                "state": "done",
-            },
+            self.create_presentation_record(
+                "old-record-1", timestamps["old_time"], "done"
+            ),
+            self.create_presentation_record(
+                "recent-record", timestamps["recent_time"], "done"
+            ),
         ]
 
         mock_connections = [
-            {
-                "connection_id": "expired-conn-1",
-                "created_at": expired_connection_time.isoformat().replace(
-                    "+00:00", "Z"
-                ),
-                "invitation_key": "key1",
-                "state": "invitation",
-            },
-            {
-                "connection_id": "recent-conn",
-                "created_at": recent_connection_time.isoformat().replace("+00:00", "Z"),
-                "invitation_key": "key2",
-                "state": "invitation",
-            },
+            self.create_connection(
+                "expired-conn-1", expired_connection_time, "key1", "invitation"
+            ),
+            self.create_connection(
+                "recent-conn", recent_connection_time, "key2", "invitation"
+            ),
         ]
 
         # Mock ACA-Py responses
@@ -77,13 +190,16 @@ class TestPerformCleanup:
         # Act
         result = await perform_cleanup()
 
-        # Assert
-        assert result["total_presentation_records"] == 2
-        assert result["cleaned_presentation_records"] == 1  # Only old record
-        assert result["total_connections"] == 2
-        assert result["cleaned_connections"] == 1  # Only expired connection
-        assert result["failed_cleanups"] == 0
-        assert len(result["errors"]) == 0
+        # Assert using utility
+        self.assert_cleanup_stats(
+            result,
+            expected_total_presentations=2,
+            expected_cleaned_presentations=1,
+            expected_total_connections=2,
+            expected_cleaned_connections=1,
+            expected_failed_cleanups=0,
+            expected_error_count=0,
+        )
 
         # Verify the old record was deleted, recent record was not
         mock_client.delete_presentation_record_and_connection.assert_called_once_with(
@@ -96,27 +212,29 @@ class TestPerformCleanup:
     @pytest.mark.asyncio
     async def test_perform_cleanup_no_records(self, mock_settings, mock_client_class):
         """Test cleanup when no records exist."""
-        # Arrange
-        mock_settings.CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS = 24
-        mock_settings.CONTROLLER_CLEANUP_MAX_PRESENTATION_RECORDS = 1000
-        mock_settings.CONTROLLER_CLEANUP_MAX_CONNECTIONS = 2000
+        # Configure default settings and override expire time for this specific test
+        self.configure_default_settings(mock_settings)
         mock_settings.CONTROLLER_PRESENTATION_EXPIRE_TIME = 10
 
-        mock_client = Mock()
-        mock_client_class.return_value = mock_client
+        # Configure mock client
+        mock_client = self.configure_mock_client(mock_client_class)
+
         mock_client.get_all_presentation_records.return_value = []
         mock_client.get_connections_batched.return_value = []
 
         # Act
         result = await perform_cleanup()
 
-        # Assert
-        assert result["total_presentation_records"] == 0
-        assert result["cleaned_presentation_records"] == 0
-        assert result["total_connections"] == 0
-        assert result["cleaned_connections"] == 0
-        assert result["failed_cleanups"] == 0
-        assert len(result["errors"]) == 0
+        # Assert using utility
+        self.assert_cleanup_stats(
+            result,
+            expected_total_presentations=0,
+            expected_cleaned_presentations=0,
+            expected_total_connections=0,
+            expected_cleaned_connections=0,
+            expected_failed_cleanups=0,
+            expected_error_count=0,
+        )
 
     @patch("api.services.cleanup.AcapyClient")
     @patch("api.services.cleanup.settings")
@@ -125,22 +243,19 @@ class TestPerformCleanup:
         self, mock_settings, mock_client_class
     ):
         """Test handling of deletion failures."""
-        # Arrange
-        mock_settings.CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS = 24
-        mock_settings.CONTROLLER_CLEANUP_MAX_PRESENTATION_RECORDS = 1000
-        mock_settings.CONTROLLER_CLEANUP_MAX_CONNECTIONS = 2000
+        # Configure default settings and override expire time for this specific test
+        self.configure_default_settings(mock_settings)
         mock_settings.CONTROLLER_PRESENTATION_EXPIRE_TIME = 10
 
-        mock_client = Mock()
-        mock_client_class.return_value = mock_client
+        # Configure mock client
+        mock_client = self.configure_mock_client(mock_client_class)
 
-        old_time = datetime.now(UTC) - timedelta(hours=25)
+        # Create test data using utilities
+        timestamps = self.create_test_timestamps()
         mock_records = [
-            {
-                "pres_ex_id": "old-record-1",
-                "created_at": old_time.isoformat().replace("+00:00", "Z"),
-                "state": "done",
-            }
+            self.create_presentation_record(
+                "old-record-1", timestamps["old_time"], "done"
+            )
         ]
 
         mock_client.get_all_presentation_records.return_value = mock_records
@@ -154,11 +269,14 @@ class TestPerformCleanup:
         # Act
         result = await perform_cleanup()
 
-        # Assert
-        assert result["total_presentation_records"] == 1
-        assert result["cleaned_presentation_records"] == 0  # Failed to clean
-        assert result["failed_cleanups"] == 1
-        assert len(result["errors"]) == 1
+        # Assert using utility
+        self.assert_cleanup_stats(
+            result,
+            expected_total_presentations=1,
+            expected_cleaned_presentations=0,
+            expected_failed_cleanups=1,
+            expected_error_count=1,
+        )
         assert "Deletion failed" in result["errors"][0]
 
     @patch("api.services.cleanup.AcapyClient")
