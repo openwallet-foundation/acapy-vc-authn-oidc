@@ -92,42 +92,6 @@ async def _cleanup_presentation_and_connection(
         )
 
 
-async def _cleanup_single_use_connection(
-    auth_session: AuthSession, context: str
-) -> None:
-    """Clean up a single-use connection with proper error handling."""
-    if not (
-        settings.USE_CONNECTION_BASED_VERIFICATION
-        and auth_session.connection_id
-        and not auth_session.multi_use
-    ):
-        return
-
-    try:
-        client = AcapyClient()
-        _, connection_deleted, errors = (
-            client.delete_presentation_record_and_connection(
-                None, auth_session.connection_id
-            )
-        )
-
-        if connection_deleted:
-            logger.info(
-                f"Cleaned up single-use connection {auth_session.connection_id} after {context}"
-            )
-        else:
-            logger.warning(
-                f"Failed to cleanup single-use connection {auth_session.connection_id}"
-            )
-            if errors:
-                logger.warning(f"Connection cleanup errors: {errors}")
-
-    except Exception as e:
-        logger.error(
-            f"Error cleaning up single-use connection {auth_session.connection_id}: {e}"
-        )
-
-
 async def _update_auth_session(db: Database, auth_session: AuthSession) -> None:
     """Update auth session in database with error handling."""
     await AuthSessionCRUD(db).patch(
