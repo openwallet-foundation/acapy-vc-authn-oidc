@@ -10,7 +10,9 @@ from api.routers.socketio import (
     initialize,
     disconnect,
     get_db_for_socketio,
-    RedisCriticalError,
+    RedisConnectionError,
+    RedisConfigurationError,
+    RedisOperationError,
 )
 from api.authSessions.models import AuthSession, AuthSessionState
 
@@ -574,7 +576,7 @@ class TestCreateSocketManager:
         mock_settings.REDIS_PORT = 6379
         mock_settings.REDIS_PASSWORD = "secret"
         mock_settings.REDIS_DB = 0
-        mock_validate_redis.return_value = None
+        mock_validate_redis.return_value = True
 
         mock_instance = Mock()
         mock_redis_manager.return_value = mock_instance
@@ -605,7 +607,7 @@ class TestCreateSocketManager:
         mock_settings.REDIS_PORT = 6379
         mock_settings.REDIS_PASSWORD = None
         mock_settings.REDIS_DB = 0
-        mock_validate_redis.return_value = None
+        mock_validate_redis.return_value = True
 
         mock_instance = Mock()
         mock_redis_manager.return_value = mock_instance
@@ -635,15 +637,11 @@ class TestCreateSocketManager:
         mock_settings.REDIS_PORT = 6379
         mock_settings.REDIS_PASSWORD = ""
         mock_settings.REDIS_DB = 0
-        mock_validate_redis.side_effect = RedisCriticalError(
-            "Redis validation failed before manager creation: Connection refused"
-        )
+        mock_validate_redis.return_value = False  # Validation fails
 
-        # Execute and verify crash
-        with pytest.raises(
-            RedisCriticalError, match="Redis validation failed before manager creation"
-        ):
-            result = create_socket_manager()
+        # Execute and verify graceful fallback
+        result = create_socket_manager()
+        assert result is None  # Should return None on failure instead of crashing
 
         # Verify
         mock_should_use.assert_called_once()

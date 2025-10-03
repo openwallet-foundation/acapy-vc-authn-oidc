@@ -19,7 +19,7 @@ from .db.session import get_db, init_db
 from .routers import acapy_handler, oidc, presentation_request, well_known_oid_config
 from .verificationConfigs.router import router as ver_configs_router
 from .clientConfigurations.router import router as client_config_router
-from .routers.socketio import sio_app, validate_redis_connection, RedisCriticalError
+from .routers.socketio import sio_app, validate_redis_connection
 from api.core.oidc.provider import init_provider
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
@@ -97,9 +97,6 @@ async def logging_middleware(request: Request, call_next) -> Response:
     try:
         response: Response = await call_next(request)
         return response
-    except RedisCriticalError:
-        # Don't catch Redis critical errors - let them crash the app
-        raise
     except Exception as e:
         process_time = time.time() - start_time
         logger.info(
@@ -135,7 +132,13 @@ async def on_tenant_startup():
     await init_provider(await get_db())
 
     # Validate Redis connection if USE_REDIS_ADAPTER is enabled
-    await validate_redis_connection()
+    redis_available = await validate_redis_connection()
+    if not redis_available and settings.USE_REDIS_ADAPTER:
+        logger.warning(
+            "Redis validation failed but USE_REDIS_ADAPTER=true - continuing with degraded Socket.IO functionality"
+        )
+    elif redis_available:
+        logger.info("Redis connection validated successfully")
 
     logger.info(">>> Starting up app new ...")
 

@@ -13,10 +13,12 @@ from api.routers.socketio import (
     create_socket_manager,
     _should_use_redis_adapter,
     _validate_redis_before_manager_creation,
-    _patch_redis_manager_for_crash_on_failure,
+    _patch_redis_manager_for_graceful_failure,
     validate_redis_connection,
     sio,
-    RedisCriticalError,
+    RedisConnectionError,
+    RedisConfigurationError,
+    RedisOperationError,
 )
 
 
@@ -53,15 +55,19 @@ class TestSafeEmit:
 
     @pytest.mark.asyncio
     @patch("api.routers.socketio.settings")
-    async def test_safe_emit_crash_on_adapter_enabled_failure(self, mock_settings):
-        """Test safe_emit crashes when Redis fails and USE_REDIS_ADAPTER=true."""
+    async def test_safe_emit_graceful_failure_adapter_enabled(self, mock_settings):
+        """Test safe_emit continues gracefully when Redis fails and USE_REDIS_ADAPTER=true."""
         mock_settings.USE_REDIS_ADAPTER = True
 
         with patch.object(sio, "emit", new_callable=AsyncMock) as mock_emit:
             mock_emit.side_effect = Exception("Redis connection failed")
 
-            with pytest.raises(RedisCriticalError, match="Redis Socket.IO emit failed"):
-                await safe_emit("test_event", {"data": "test"}, to="test_room")
+            # Should not raise exception - should handle gracefully
+            await safe_emit("test_event", {"data": "test"}, to="test_room")
+
+            mock_emit.assert_called_once_with(
+                "test_event", {"data": "test"}, to="test_room"
+            )
 
     @pytest.mark.asyncio
     @patch("api.routers.socketio.settings")
@@ -124,8 +130,8 @@ class TestRedisValidation:
 
     @pytest.mark.asyncio
     @patch("api.routers.socketio.settings")
-    async def test_validate_redis_failure_crashes(self, mock_settings):
-        """Test validation crashes when Redis adapter is enabled but Redis is unavailable."""
+    async def test_validate_redis_failure_returns_false(self, mock_settings):
+        """Test validation returns False when Redis adapter is enabled but Redis is unavailable."""
         mock_settings.USE_REDIS_ADAPTER = True
         mock_settings.REDIS_PASSWORD = ""
         mock_settings.REDIS_HOST = "nonexistent-redis"
@@ -135,10 +141,8 @@ class TestRedisValidation:
         with patch("api.routers.socketio.async_redis.from_url") as mock_redis:
             mock_redis.side_effect = Exception("Connection failed")
 
-            with pytest.raises(
-                RedisCriticalError, match="Redis connection validation failed"
-            ):
-                await validate_redis_connection()
+            result = await validate_redis_connection()
+            assert result is False
 
 
 class TestRedisConfiguration:
@@ -194,7 +198,7 @@ class TestRedisConfiguration:
         mock_settings.REDIS_DB = 0
 
         # Mock successful validation
-        mock_validate_redis.return_value = None
+        mock_validate_redis.return_value = True
 
         mock_instance = Mock()
         mock_redis_manager.return_value = mock_instance
@@ -207,10 +211,10 @@ class TestRedisConfiguration:
 
     @patch("api.routers.socketio.settings")
     @patch("api.routers.socketio._validate_redis_before_manager_creation")
-    def test_create_socket_manager_redis_failure_crash(
+    def test_create_socket_manager_redis_failure_fallback(
         self, mock_validate_redis, mock_settings
     ):
-        """Test socket manager crashes when Redis validation fails before manager creation."""
+        """Test socket manager returns None when Redis validation fails before manager creation."""
         mock_settings.USE_REDIS_ADAPTER = True
         mock_settings.REDIS_HOST = "redis"
         mock_settings.REDIS_PORT = 6379
@@ -218,14 +222,10 @@ class TestRedisConfiguration:
         mock_settings.REDIS_DB = 0
 
         # Simulate Redis validation failure
-        mock_validate_redis.side_effect = RedisCriticalError(
-            "Redis validation failed before manager creation: Connection refused"
-        )
+        mock_validate_redis.return_value = False
 
-        with pytest.raises(
-            RedisCriticalError, match="Redis validation failed before manager creation"
-        ):
-            manager = create_socket_manager()
+        manager = create_socket_manager()
+        assert manager is None
 
     @patch("api.routers.socketio.settings")
     @patch("api.routers.socketio._should_use_redis_adapter")
@@ -243,14 +243,12 @@ class TestRedisConfiguration:
 
         # Setup
         mock_should_use.return_value = True
-        mock_validate.return_value = None  # Validation passes
+        mock_validate.return_value = True  # Validation passes
         mock_manager.side_effect = RuntimeError("Unexpected socket.io error")
 
-        # Execute and verify
-        with pytest.raises(
-            RedisCriticalError, match="Redis adapter initialization failed"
-        ):
-            create_socket_manager()
+        # Execute and verify - should return None on error
+        manager = create_socket_manager()
+        assert manager is None
 
 
 class TestInternalRedisFunctions:
@@ -278,37 +276,20 @@ class TestInternalRedisFunctions:
         # Setup
         mock_redis.side_effect = Exception("Connection refused")
 
-        # Execute and verify - the function calls sys.exit when _handle_redis_error raises
-        with pytest.raises(SystemExit):
-            _validate_redis_before_manager_creation("redis://localhost:6379/0")
+        # Execute and verify - should return False on failure
+        result = _validate_redis_before_manager_creation("redis://localhost:6379/0")
+        assert result is False
 
-    @patch("api.routers.socketio._handle_redis_error")
-    @patch("api.routers.socketio.redis.from_url")
-    @patch("sys.exit")
-    def test_validate_redis_before_manager_creation_handle_error_failure(
-        self, mock_exit, mock_redis, mock_handle_error
-    ):
-        """Test sys.exit fallback when error handling itself fails."""
-        # Setup
-        mock_redis.side_effect = Exception("Connection refused")
-        mock_handle_error.side_effect = Exception("Error handler failed")
-
-        # Execute
-        _validate_redis_before_manager_creation("redis://localhost:6379/0")
-
-        # Verify fallback to sys.exit
-        mock_exit.assert_called_once_with(1)
-
-    def test_patch_redis_manager_for_crash_on_failure_none_manager(self):
+    def test_patch_redis_manager_for_graceful_failure_none_manager(self):
         """Test patching function with None manager."""
         # Execute - should not raise exception
-        result = _patch_redis_manager_for_crash_on_failure(None)
+        result = _patch_redis_manager_for_graceful_failure(None)
 
         # Verify
         assert result is None
 
     @patch("api.routers.socketio.logger")
-    def test_patch_redis_manager_for_crash_on_failure_with_manager(self, mock_logger):
+    def test_patch_redis_manager_for_graceful_failure_with_manager(self, mock_logger):
         """Test patching function with actual manager."""
         # Setup
         mock_manager = Mock()
@@ -316,32 +297,47 @@ class TestInternalRedisFunctions:
         mock_manager._thread = original_thread
 
         # Execute
-        _patch_redis_manager_for_crash_on_failure(mock_manager)
+        _patch_redis_manager_for_graceful_failure(mock_manager)
 
         # Verify the manager's _thread method was replaced
         assert mock_manager._thread != original_thread
 
     @patch("api.routers.socketio.logger")
-    @patch("sys.exit")
+    @patch("api.routers.socketio.settings")
+    @patch("api.routers.socketio.asyncio.sleep", new_callable=AsyncMock)
     @pytest.mark.asyncio
-    async def test_patched_manager_background_thread_failure(
-        self, mock_exit, mock_logger
+    async def test_patched_manager_background_thread_failure_with_retries(
+        self, mock_sleep, mock_settings, mock_logger
     ):
-        """Test that patched manager background thread crashes on failure."""
-        # Setup
+        """Test that patched manager background thread handles failures with retry logic."""
+        # Setup settings
+        mock_settings.REDIS_THREAD_MAX_RETRIES = 3
+        mock_settings.REDIS_RETRY_BASE_DELAY = 1
+        mock_settings.REDIS_RETRY_MAX_DELAY = 60
+
+        # Setup mock manager
         mock_manager = Mock()
         original_thread = AsyncMock()
         original_thread.side_effect = Exception("Background thread failed")
         mock_manager._thread = original_thread
 
         # Execute patching
-        _patch_redis_manager_for_crash_on_failure(mock_manager)
+        _patch_redis_manager_for_graceful_failure(mock_manager)
 
-        # Execute the patched thread function
+        # Execute the patched thread function - should not raise
         await mock_manager._thread()
 
-        # Verify sys.exit was called
-        mock_exit.assert_called_once_with(1)
+        # Verify retry logic
+        assert original_thread.call_count == 3  # Should retry 3 times
+        assert (
+            mock_sleep.call_count == 2
+        )  # Should sleep 2 times (after first 2 failures)
+        assert (
+            mock_logger.warning.call_count >= 2
+        )  # Should log warnings for retries (includes _handle_redis_failure warnings)
+        assert (
+            mock_logger.error.call_count >= 1
+        )  # Should log final error (includes _handle_redis_failure errors)
 
 
 class TestIntegrationScenarios:
@@ -396,14 +392,14 @@ class TestIntegrationScenarios:
 
     @pytest.mark.asyncio
     @patch("api.routers.socketio.settings")
-    async def test_strict_mode_scenario_adapter_enabled(self, mock_settings):
-        """Test strict mode crashes immediately on Redis failure when adapter is enabled."""
+    async def test_graceful_degradation_scenario_adapter_enabled(self, mock_settings):
+        """Test graceful degradation continues on Redis failure when adapter is enabled."""
         mock_settings.USE_REDIS_ADAPTER = True
 
         with patch.object(sio, "emit", new_callable=AsyncMock) as mock_emit:
             mock_emit.side_effect = Exception("Critical Redis failure")
 
-            with pytest.raises(RedisCriticalError, match="Redis Socket.IO emit failed"):
-                await safe_emit("status", {"status": "verified"})
-            # Only one call should be made before crashing
+            # Should not raise exception - should handle gracefully
+            await safe_emit("status", {"status": "verified"})
+            # Call should be attempted
             assert mock_emit.call_count == 1
