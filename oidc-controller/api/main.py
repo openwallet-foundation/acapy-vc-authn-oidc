@@ -1,3 +1,4 @@
+import asyncio
 import traceback
 import structlog
 import os
@@ -16,7 +17,13 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .db.session import get_db, init_db
-from .routers import acapy_handler, oidc, presentation_request, well_known_oid_config
+from .routers import (
+    acapy_handler,
+    cleanup,
+    oidc,
+    presentation_request,
+    well_known_oid_config,
+)
 from .verificationConfigs.router import router as ver_configs_router
 from .clientConfigurations.router import router as client_config_router
 from .routers.socketio import sio_app
@@ -62,6 +69,7 @@ app.include_router(
 )
 app.include_router(acapy_handler.router, prefix="/webhooks", include_in_schema=False)
 app.include_router(presentation_request.router, include_in_schema=False)
+app.include_router(cleanup.router, tags=["cleanup"])
 
 # DEPRECATED PATHS - For backwards compatibility with vc-authn-oidc 1.0
 app.include_router(
@@ -132,13 +140,14 @@ async def on_tenant_startup():
     """Register any events we need to respond to."""
     await init_db()
     await init_provider(await get_db())
+
     logger.info(">>> Starting up app new ...")
 
 
 @app.on_event("shutdown")
-def on_tenant_shutdown():
-    """TODO no-op for now."""
-    logger.warning(">>> Shutting down app ...")
+async def on_tenant_shutdown():
+    """Gracefully shutdown services."""
+    logger.info(">>> Shutting down app ...")
 
 
 @app.get("/", tags=["liveness", "readiness"])

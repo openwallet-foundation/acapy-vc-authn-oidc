@@ -185,6 +185,16 @@ configureEnvironment() {
   # CONTROLLER_SESSION_TIMEOUT_CONFIG_FILE are stored for in seconds
   export CONTROLLER_PRESENTATION_CLEANUP_TIME=86400
 
+  # Presentation record cleanup configuration
+  # How long to retain presentation records in hours (default: 24 hours)
+  export CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS=1
+
+  # Resource limits for cleanup operations to prevent excessive processing
+  # Maximum presentation records to process per cleanup cycle (default: 1000)
+  export CONTROLLER_CLEANUP_MAX_PRESENTATION_RECORDS=1000
+  # Maximum connections to process per cleanup cycle (default: 2000)
+  export CONTROLLER_CLEANUP_MAX_CONNECTIONS=2000
+
   # The path to the auth_session timeouts config file
   export CONTROLLER_SESSION_TIMEOUT_CONFIG_FILE="/app/controller-config/sessiontimeout.json"
 

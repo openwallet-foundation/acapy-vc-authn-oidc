@@ -537,8 +537,19 @@ class TestConnectionBasedVerificationIntegration:
         )
         mock_auth_session_crud.return_value.patch = AsyncMock()
 
+        # Set up auth session for single-use connection cleanup
+        mock_auth_session.multi_use = False
+
         mock_client_instance = MagicMock()
-        mock_client_instance.delete_connection.return_value = True
+        # Setup the new wrapper function to return tuples
+        mock_client_instance.get_presentation_request.return_value = {
+            "by_format": {"test": "presentation"}
+        }
+        mock_client_instance.delete_presentation_record_and_connection.return_value = (
+            True,  # presentation_deleted: True
+            True,  # connection_deleted: True
+            [],  # errors: empty list
+        )
         mock_acapy_client.return_value = mock_client_instance
 
         mock_get_socket_id.return_value = "test-socket-id"
@@ -549,8 +560,9 @@ class TestConnectionBasedVerificationIntegration:
 
         # Verify
         assert result == {}
-        mock_client_instance.delete_connection.assert_called_once_with(
-            "test-connection-id"
+        # Verify the wrapper function was called once for both presentation and connection cleanup
+        mock_client_instance.delete_presentation_record_and_connection.assert_called_once_with(
+            "test-pres-ex-id", "test-connection-id"
         )
         mock_sio.emit.assert_called_once_with(
             "status", {"status": "verified"}, to="test-socket-id"
@@ -835,4 +847,212 @@ class TestConnectionBasedVerificationIntegration:
         mock_auth_session_crud.return_value.patch.assert_called()
         mock_sio.emit.assert_called_once_with(
             "status", {"status": "failed"}, to="test-socket-id"
+        )
+
+
+class TestAcapyHandlerCleanupFunctions:
+    """Test cleanup functions and error handling in acapy_handler."""
+
+    @pytest.mark.asyncio
+    @patch("api.routers.acapy_handler.settings.USE_CONNECTION_BASED_VERIFICATION", True)
+    @patch("api.routers.acapy_handler.AuthSessionCRUD")
+    @patch("api.routers.acapy_handler.AcapyClient")
+    @patch("api.routers.acapy_handler.sio")
+    @patch("api.routers.acapy_handler.get_socket_id_for_pid")
+    async def test_present_proof_webhook_logs_cleanup_errors(
+        self,
+        mock_get_socket_id,
+        mock_sio,
+        mock_acapy_client,
+        mock_auth_session_crud,
+        mock_request,
+        mock_db,
+        mock_auth_session,
+    ):
+        """Test that cleanup errors are properly logged during presentation processing."""
+        # Setup mocks
+        webhook_body = {
+            "pres_ex_id": "test-pres-ex-id",
+            "state": "done",
+            "verified": "true",
+            "by_format": {"test": "presentation"},
+        }
+
+        mock_request.body.return_value = json.dumps(webhook_body).encode("ascii")
+
+        mock_auth_session_crud.return_value.get_by_pres_exch_id = AsyncMock(
+            return_value=mock_auth_session
+        )
+        mock_auth_session_crud.return_value.patch = AsyncMock()
+
+        # Set up auth session for single-use connection cleanup
+        mock_auth_session.multi_use = False
+
+        mock_client_instance = MagicMock()
+        mock_client_instance.get_presentation_request.return_value = {
+            "by_format": {"test": "presentation"}
+        }
+        # Setup cleanup with errors to test error logging
+        mock_client_instance.delete_presentation_record_and_connection.return_value = (
+            True,  # presentation_deleted: True
+            False,  # connection_deleted: False (to trigger error logging)
+            ["Connection deletion failed", "Network timeout"],  # errors
+        )
+        mock_acapy_client.return_value = mock_client_instance
+
+        mock_get_socket_id.return_value = "test-socket-id"
+        mock_sio.emit = AsyncMock()
+
+        # Execute
+        result = await post_topic(mock_request, "present_proof_v2_0", mock_db)
+
+        # Verify
+        assert result == {}
+        # Verify the wrapper function was called
+        mock_client_instance.delete_presentation_record_and_connection.assert_called_once_with(
+            "test-pres-ex-id", "test-connection-id"
+        )
+        mock_sio.emit.assert_called_once_with(
+            "status", {"status": "verified"}, to="test-socket-id"
+        )
+
+    @pytest.mark.asyncio
+    @patch("api.routers.acapy_handler.settings.USE_CONNECTION_BASED_VERIFICATION", True)
+    @patch("api.routers.acapy_handler.AuthSessionCRUD")
+    @patch("api.routers.acapy_handler.AcapyClient")
+    @patch("api.routers.acapy_handler.sio")
+    @patch("api.routers.acapy_handler.get_socket_id_for_pid")
+    async def test_present_proof_webhook_handles_cleanup_exception(
+        self,
+        mock_get_socket_id,
+        mock_sio,
+        mock_acapy_client,
+        mock_auth_session_crud,
+        mock_request,
+        mock_db,
+        mock_auth_session,
+    ):
+        """Test that cleanup exceptions are handled gracefully and logged."""
+        # Setup mocks
+        webhook_body = {
+            "pres_ex_id": "test-pres-ex-id",
+            "state": "done",
+            "verified": "true",
+            "by_format": {"test": "presentation"},
+        }
+
+        mock_request.body.return_value = json.dumps(webhook_body).encode("ascii")
+
+        mock_auth_session_crud.return_value.get_by_pres_exch_id = AsyncMock(
+            return_value=mock_auth_session
+        )
+        mock_auth_session_crud.return_value.patch = AsyncMock()
+
+        # Set up auth session for single-use connection cleanup
+        mock_auth_session.multi_use = False
+
+        mock_client_instance = MagicMock()
+        mock_client_instance.get_presentation_request.return_value = {
+            "by_format": {"test": "presentation"}
+        }
+        # Setup cleanup to raise exception
+        mock_client_instance.delete_presentation_record_and_connection.side_effect = (
+            Exception("Database connection failed")
+        )
+        mock_acapy_client.return_value = mock_client_instance
+
+        mock_get_socket_id.return_value = "test-socket-id"
+        mock_sio.emit = AsyncMock()
+
+        # Execute - should not raise exception
+        result = await post_topic(mock_request, "present_proof_v2_0", mock_db)
+
+        # Verify
+        assert result == {}
+        # Verify the wrapper function was called and exception was handled
+        mock_client_instance.delete_presentation_record_and_connection.assert_called_once_with(
+            "test-pres-ex-id", "test-connection-id"
+        )
+        mock_sio.emit.assert_called_once_with(
+            "status", {"status": "verified"}, to="test-socket-id"
+        )
+
+    @pytest.mark.asyncio
+    @patch("api.routers.acapy_handler.settings.USE_CONNECTION_BASED_VERIFICATION", True)
+    @patch("api.routers.acapy_handler.AuthSessionCRUD")
+    @patch("api.routers.acapy_handler.AcapyClient")
+    @patch("api.routers.acapy_handler.sio")
+    @patch("api.routers.acapy_handler.get_socket_id_for_pid")
+    async def test_present_proof_webhook_preserves_multi_use_connection_with_logging(
+        self,
+        mock_get_socket_id,
+        mock_sio,
+        mock_acapy_client,
+        mock_auth_session_crud,
+        mock_request,
+        mock_db,
+        mock_auth_session,
+    ):
+        """Test that multi-use connections are preserved and logged properly."""
+        # Setup mocks
+        webhook_body = {
+            "pres_ex_id": "test-pres-ex-id",
+            "state": "done",
+            "verified": "true",
+            "by_format": {"test": "presentation"},
+        }
+
+        mock_request.body.return_value = json.dumps(webhook_body).encode("ascii")
+
+        # Configure auth session as multi-use
+        mock_auth_session.multi_use = True
+        mock_auth_session.connection_id = "test-connection-id"
+        mock_auth_session.model_dump = MagicMock(
+            return_value={
+                "id": "test-session-id",
+                "pres_exch_id": "test-pres-ex-id",
+                "connection_id": "test-connection-id",
+                "proof_request": {"test": "proof_request"},
+                "proof_status": AuthSessionState.NOT_STARTED,
+                "ver_config_id": "test-ver-config-id",
+                "request_parameters": {"test": "params"},
+                "pyop_auth_code": "test-auth-code",
+                "response_url": "http://test.com/callback",
+                "presentation_exchange": {},
+                "multi_use": True,
+            }
+        )
+
+        mock_auth_session_crud.return_value.get_by_pres_exch_id = AsyncMock(
+            return_value=mock_auth_session
+        )
+        mock_auth_session_crud.return_value.patch = AsyncMock()
+
+        mock_client_instance = MagicMock()
+        mock_client_instance.get_presentation_request.return_value = {
+            "by_format": {"test": "presentation"}
+        }
+        # For multi-use, only presentation record is deleted, not connection
+        mock_client_instance.delete_presentation_record_and_connection.return_value = (
+            True,  # presentation_deleted: True
+            False,  # connection_deleted: False (preserved for multi-use)
+            [],  # errors: empty list
+        )
+        mock_acapy_client.return_value = mock_client_instance
+
+        mock_get_socket_id.return_value = "test-socket-id"
+        mock_sio.emit = AsyncMock()
+
+        # Execute
+        result = await post_topic(mock_request, "present_proof_v2_0", mock_db)
+
+        # Verify
+        assert result == {}
+        # Verify the wrapper function was called for cleanup
+        # Note: For multi-use connections, the connection_id passed is None since we preserve the connection
+        mock_client_instance.delete_presentation_record_and_connection.assert_called_once_with(
+            "test-pres-ex-id", None
+        )
+        mock_sio.emit.assert_called_once_with(
+            "status", {"status": "verified"}, to="test-socket-id"
         )
