@@ -1,4 +1,3 @@
-import sys
 import asyncio
 import redis.asyncio as async_redis
 import redis
@@ -13,24 +12,6 @@ from ..db.session import get_db, client
 from ..core.config import settings
 
 logger = structlog.getLogger(__name__)
-
-
-class RedisConnectionError(Exception):
-    """Redis connection error that may be recoverable"""
-
-    pass
-
-
-class RedisConfigurationError(Exception):
-    """Redis configuration error - fallback to local manager recommended"""
-
-    pass
-
-
-class RedisOperationError(Exception):
-    """Redis operation error during runtime - continue with degraded functionality"""
-
-    pass
 
 
 class RedisErrorType:
@@ -208,7 +189,7 @@ def _patch_redis_manager_for_graceful_failure(manager):
                 async for message in manager.pubsub.listen():
                     yield message
 
-            except Exception as e:  # Catch ALL exceptions, not just RedisError
+            except Exception as e:  # Catch all exceptions for robust error handling
                 consecutive_failures += 1
                 error_type = _handle_redis_failure("Redis pubsub listen", e)
 
@@ -265,11 +246,6 @@ def create_socket_manager():
         )
         return manager
 
-    except (RedisConnectionError, RedisConfigurationError, RedisOperationError) as e:
-        # Log the classified error and fall back to default manager
-        logger.warning(f"Redis adapter initialization failed: {e}")
-        logger.info("Falling back to default Socket.IO manager")
-        return None
     except Exception as e:
         # Handle any unexpected errors gracefully
         error_type = _handle_redis_failure("adapter initialization", e)

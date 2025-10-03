@@ -16,9 +16,6 @@ from api.routers.socketio import (
     _patch_redis_manager_for_graceful_failure,
     validate_redis_connection,
     sio,
-    RedisConnectionError,
-    RedisConfigurationError,
-    RedisOperationError,
 )
 
 

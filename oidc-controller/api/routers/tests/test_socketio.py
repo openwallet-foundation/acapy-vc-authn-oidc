@@ -10,9 +10,6 @@ from api.routers.socketio import (
     initialize,
     disconnect,
     get_db_for_socketio,
-    RedisConnectionError,
-    RedisConfigurationError,
-    RedisOperationError,
 )
 from api.authSessions.models import AuthSession, AuthSessionState
 
