@@ -256,37 +256,6 @@ def create_socket_manager():
         return None
 
 
-async def should_we_use_redis():
-    """
-    Determine if we should use Redis adapter during startup.
-
-    Returns:
-        bool: True if Redis is available or not required, False if Redis should be available but failed
-    """
-    if not settings.USE_REDIS_ADAPTER:
-        logger.debug("Redis adapter disabled - skipping validation")
-        return True
-
-    try:
-        # Build Redis URL
-        redis_url = _build_redis_url()
-
-        # Test Redis connection
-        redis_client = async_redis.from_url(redis_url)
-        await redis_client.ping()
-        await redis_client.close()
-        logger.info("Redis adapter is available and ready")
-        return True
-
-    except Exception as e:
-        # Log the error but don't crash the application during startup
-        error_type = _handle_redis_failure("Redis adapter availability check", e)
-        logger.warning(
-            f"Redis adapter availability check failed (type: {error_type}) - application will continue with degraded Socket.IO functionality"
-        )
-        return False
-
-
 async def safe_emit(event, data=None, **kwargs):
     """
     Safely emit to Socket.IO with graceful Redis failure handling.

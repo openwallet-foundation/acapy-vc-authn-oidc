@@ -14,7 +14,6 @@ from api.routers.socketio import (
     _should_use_redis_adapter,
     can_we_reach_redis,
     _patch_redis_manager_for_graceful_failure,
-    should_we_use_redis,
     sio,
 )
 
@@ -90,58 +89,6 @@ class TestSafeEmit:
                 namespace="/test",
                 callback=mock_emit.call_args[1]["callback"],
             )
-
-
-class TestRedisValidation:
-    """Test Redis connection validation."""
-
-    @pytest.mark.asyncio
-    @patch("api.routers.socketio.settings")
-    async def test_should_we_use_redis_skipped_when_adapter_disabled(
-        self, mock_settings
-    ):
-        """Test Redis check is skipped when USE_REDIS_ADAPTER=false."""
-        mock_settings.USE_REDIS_ADAPTER = False
-
-        # Should complete without error
-        await should_we_use_redis()
-
-    @pytest.mark.asyncio
-    @patch("api.routers.socketio.settings")
-    async def test_should_we_use_redis_success(self, mock_settings):
-        """Test Redis check succeeds when Redis is available."""
-        mock_settings.USE_REDIS_ADAPTER = True
-        mock_settings.REDIS_PASSWORD = ""
-        mock_settings.REDIS_HOST = "redis"
-        mock_settings.REDIS_PORT = 6379
-        mock_settings.REDIS_DB = 0
-
-        with patch("api.routers.socketio.async_redis.from_url") as mock_redis:
-            mock_client = AsyncMock()
-            mock_redis.return_value = mock_client
-            mock_client.ping = AsyncMock()
-            mock_client.close = AsyncMock()
-
-            await should_we_use_redis()
-
-            mock_client.ping.assert_called_once()
-            mock_client.close.assert_called_once()
-
-    @pytest.mark.asyncio
-    @patch("api.routers.socketio.settings")
-    async def test_should_we_use_redis_failure_returns_false(self, mock_settings):
-        """Test Redis check returns False when Redis adapter is enabled but Redis is unavailable."""
-        mock_settings.USE_REDIS_ADAPTER = True
-        mock_settings.REDIS_PASSWORD = ""
-        mock_settings.REDIS_HOST = "nonexistent-redis"
-        mock_settings.REDIS_PORT = 6379
-        mock_settings.REDIS_DB = 0
-
-        with patch("api.routers.socketio.async_redis.from_url") as mock_redis:
-            mock_redis.side_effect = Exception("Connection failed")
-
-            result = await should_we_use_redis()
-            assert result is False
 
 
 class TestRedisConfiguration:

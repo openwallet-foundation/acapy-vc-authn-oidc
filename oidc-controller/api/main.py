@@ -6,6 +6,7 @@ import uuid
 from pathlib import Path
 
 import uvicorn
+import redis.asyncio as async_redis
 from api.core.config import settings
 from fastapi import FastAPI
 from starlette.requests import Request
@@ -19,7 +20,7 @@ from .db.session import get_db, init_db
 from .routers import acapy_handler, oidc, presentation_request, well_known_oid_config
 from .verificationConfigs.router import router as ver_configs_router
 from .clientConfigurations.router import router as client_config_router
-from .routers.socketio import sio_app, should_we_use_redis
+from .routers.socketio import sio_app, _build_redis_url, _handle_redis_failure
 from api.core.oidc.provider import init_provider
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
@@ -131,14 +132,22 @@ async def on_tenant_startup():
     await init_db()
     await init_provider(await get_db())
 
-    # Check if we should use Redis adapter and if it's available
-    redis_available = await should_we_use_redis()
-    if not redis_available and settings.USE_REDIS_ADAPTER:
-        logger.warning(
-            "Redis adapter enabled but unavailable - continuing with degraded Socket.IO functionality"
-        )
-    elif redis_available:
-        logger.info("Redis adapter is available and ready")
+    # Check Redis availability if adapter is enabled
+    if settings.USE_REDIS_ADAPTER:
+        try:
+            # Test Redis connectivity during startup
+            redis_url = _build_redis_url()
+            redis_client = async_redis.from_url(redis_url)
+            await redis_client.ping()
+            await redis_client.close()
+            logger.info("Redis adapter is available and ready")
+        except Exception as e:
+            error_type = _handle_redis_failure("startup Redis check", e)
+            logger.warning(
+                f"Redis adapter enabled but unavailable (type: {error_type}) - continuing with degraded Socket.IO functionality"
+            )
+    else:
+        logger.debug("Redis adapter disabled")
 
     logger.info(">>> Starting up app new ...")
 
