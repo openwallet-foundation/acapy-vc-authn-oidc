@@ -243,6 +243,14 @@ class GlobalConfig(BaseSettings):
     REDIS_DB: int = int(os.environ.get("REDIS_DB", 0))
     USE_REDIS_ADAPTER: bool = strtobool(os.environ.get("USE_REDIS_ADAPTER", False))
 
+    # Redis error handling and retry configuration
+    REDIS_THREAD_MAX_RETRIES: int = int(os.environ.get("REDIS_THREAD_MAX_RETRIES", 5))
+    REDIS_PUBSUB_MAX_FAILURES: int = int(
+        os.environ.get("REDIS_PUBSUB_MAX_FAILURES", 10)
+    )
+    REDIS_RETRY_BASE_DELAY: int = int(os.environ.get("REDIS_RETRY_BASE_DELAY", 1))
+    REDIS_RETRY_MAX_DELAY: int = int(os.environ.get("REDIS_RETRY_MAX_DELAY", 60))
+
     model_config = ConfigDict(case_sensitive=True)
 
 

@@ -1,7 +1,7 @@
 """Tests for socketio functionality."""
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 from bson import ObjectId
 
 from api.routers.socketio import (
@@ -559,9 +559,10 @@ class TestCreateSocketManager:
 
     @patch("api.routers.socketio._should_use_redis_adapter")
     @patch("api.routers.socketio.settings")
-    @patch("api.routers.socketio.socketio.AsyncRedisManager")
+    @patch("api.routers.socketio.can_we_reach_redis")
+    @patch("socketio.AsyncRedisManager")
     def test_create_socket_manager_success_with_password(
-        self, mock_redis_manager, mock_settings, mock_should_use
+        self, mock_redis_manager, mock_can_reach_redis, mock_settings, mock_should_use
     ):
         """Test successful Redis manager creation with password."""
         from api.routers.socketio import create_socket_manager
@@ -572,23 +573,27 @@ class TestCreateSocketManager:
         mock_settings.REDIS_PORT = 6379
         mock_settings.REDIS_PASSWORD = "secret"
         mock_settings.REDIS_DB = 0
-        mock_manager_instance = MagicMock()
-        mock_redis_manager.return_value = mock_manager_instance
+        mock_can_reach_redis.return_value = True
+
+        mock_instance = Mock()
+        mock_redis_manager.return_value = mock_instance
 
         # Execute
         result = create_socket_manager()
 
         # Verify
         mock_should_use.assert_called_once()
+        assert result is mock_instance
         expected_url = "redis://:secret@localhost:6379/0"
+        mock_can_reach_redis.assert_called_once_with(expected_url)
         mock_redis_manager.assert_called_once_with(expected_url)
-        assert result == mock_manager_instance
 
     @patch("api.routers.socketio._should_use_redis_adapter")
     @patch("api.routers.socketio.settings")
-    @patch("api.routers.socketio.socketio.AsyncRedisManager")
+    @patch("api.routers.socketio.can_we_reach_redis")
+    @patch("socketio.AsyncRedisManager")
     def test_create_socket_manager_success_without_password(
-        self, mock_redis_manager, mock_settings, mock_should_use
+        self, mock_redis_manager, mock_can_reach_redis, mock_settings, mock_should_use
     ):
         """Test successful Redis manager creation without password."""
         from api.routers.socketio import create_socket_manager
@@ -599,31 +604,41 @@ class TestCreateSocketManager:
         mock_settings.REDIS_PORT = 6379
         mock_settings.REDIS_PASSWORD = None
         mock_settings.REDIS_DB = 0
-        mock_manager_instance = MagicMock()
-        mock_redis_manager.return_value = mock_manager_instance
+        mock_can_reach_redis.return_value = True
+
+        mock_instance = Mock()
+        mock_redis_manager.return_value = mock_instance
 
         # Execute
         result = create_socket_manager()
 
         # Verify
         mock_should_use.assert_called_once()
+        assert result is mock_instance
         expected_url = "redis://localhost:6379/0"
+        mock_can_reach_redis.assert_called_once_with(expected_url)
         mock_redis_manager.assert_called_once_with(expected_url)
-        assert result == mock_manager_instance
 
     @patch("api.routers.socketio._should_use_redis_adapter")
-    @patch("api.routers.socketio.socketio.AsyncRedisManager")
-    def test_create_socket_manager_exception(self, mock_redis_manager, mock_should_use):
-        """Test create_socket_manager when Redis manager creation fails."""
+    @patch("api.routers.socketio.settings")
+    @patch("api.routers.socketio.can_we_reach_redis")
+    def test_create_socket_manager_exception(
+        self, mock_can_reach_redis, mock_settings, mock_should_use
+    ):
+        """Test create_socket_manager crashes when Redis validation fails."""
         from api.routers.socketio import create_socket_manager
 
         # Setup
         mock_should_use.return_value = True
-        mock_redis_manager.side_effect = Exception("Redis connection failed")
+        mock_settings.REDIS_HOST = "localhost"
+        mock_settings.REDIS_PORT = 6379
+        mock_settings.REDIS_PASSWORD = ""
+        mock_settings.REDIS_DB = 0
+        mock_can_reach_redis.return_value = False  # Validation fails
 
-        # Execute
+        # Execute and verify graceful fallback
         result = create_socket_manager()
+        assert result is None  # Should return None on failure instead of crashing
 
         # Verify
         mock_should_use.assert_called_once()
-        assert result is None

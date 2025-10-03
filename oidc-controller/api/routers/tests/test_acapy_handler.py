@@ -67,12 +67,12 @@ class TestConnectionBasedVerificationWebhooks:
     @patch("api.routers.acapy_handler.settings.USE_CONNECTION_BASED_VERIFICATION", True)
     @patch("api.routers.acapy_handler.AuthSessionCRUD")
     @patch("api.routers.acapy_handler.AcapyClient")
-    @patch("api.routers.acapy_handler.sio")
+    @patch("api.routers.acapy_handler.safe_emit")
     @patch("api.routers.acapy_handler.get_socket_id_for_pid")
     async def test_connection_webhook_sends_presentation_request_on_active_state(
         self,
         mock_get_socket_id,
-        mock_sio,
+        mock_safe_emit,
         mock_acapy_client,
         mock_auth_session_crud,
         mock_request,
@@ -121,12 +121,12 @@ class TestConnectionBasedVerificationWebhooks:
     @patch("api.routers.acapy_handler.settings.USE_CONNECTION_BASED_VERIFICATION", True)
     @patch("api.routers.acapy_handler.AuthSessionCRUD")
     @patch("api.routers.acapy_handler.AcapyClient")
-    @patch("api.routers.acapy_handler.sio")
+    @patch("api.routers.acapy_handler.safe_emit")
     @patch("api.routers.acapy_handler.get_socket_id_for_pid")
     async def test_connection_webhook_sends_problem_report_on_presentation_request_failure(
         self,
         mock_get_socket_id,
-        mock_sio,
+        mock_safe_emit,
         mock_acapy_client,
         mock_auth_session_crud,
         mock_request,
@@ -156,7 +156,6 @@ class TestConnectionBasedVerificationWebhooks:
         mock_acapy_client.return_value = mock_client_instance
 
         mock_get_socket_id.return_value = "test-socket-id"
-        mock_sio.emit = AsyncMock()
 
         # Execute
         result = await post_topic(mock_request, "connections", mock_db)
@@ -166,7 +165,7 @@ class TestConnectionBasedVerificationWebhooks:
         mock_client_instance.send_problem_report.assert_called_once_with(
             "test-pres-ex-id", "Failed to send presentation request: Connection error"
         )
-        mock_sio.emit.assert_called_once_with(
+        mock_safe_emit.assert_called_once_with(
             "status", {"status": "failed"}, to="test-socket-id"
         )
 
@@ -174,12 +173,12 @@ class TestConnectionBasedVerificationWebhooks:
     @patch("api.routers.acapy_handler.settings.USE_CONNECTION_BASED_VERIFICATION", True)
     @patch("api.routers.acapy_handler.AuthSessionCRUD")
     @patch("api.routers.acapy_handler.AcapyClient")
-    @patch("api.routers.acapy_handler.sio")
+    @patch("api.routers.acapy_handler.safe_emit")
     @patch("api.routers.acapy_handler.get_socket_id_for_pid")
     async def test_present_proof_webhook_sends_problem_report_on_verification_failure(
         self,
         mock_get_socket_id,
-        mock_sio,
+        mock_safe_emit,
         mock_acapy_client,
         mock_auth_session_crud,
         mock_request,
@@ -207,7 +206,6 @@ class TestConnectionBasedVerificationWebhooks:
         mock_acapy_client.return_value = mock_client_instance
 
         mock_get_socket_id.return_value = "test-socket-id"
-        mock_sio.emit = AsyncMock()
 
         # Execute
         result = await post_topic(mock_request, "present_proof_v2_0", mock_db)
@@ -217,7 +215,7 @@ class TestConnectionBasedVerificationWebhooks:
         mock_client_instance.send_problem_report.assert_called_once_with(
             "test-pres-ex-id", "Presentation verification failed: Verification failed"
         )
-        mock_sio.emit.assert_called_once_with(
+        mock_safe_emit.assert_called_once_with(
             "status", {"status": "failed"}, to="test-socket-id"
         )
 
@@ -225,12 +223,12 @@ class TestConnectionBasedVerificationWebhooks:
     @patch("api.routers.acapy_handler.settings.USE_CONNECTION_BASED_VERIFICATION", True)
     @patch("api.routers.acapy_handler.AuthSessionCRUD")
     @patch("api.routers.acapy_handler.AcapyClient")
-    @patch("api.routers.acapy_handler.sio")
+    @patch("api.routers.acapy_handler.safe_emit")
     @patch("api.routers.acapy_handler.get_socket_id_for_pid")
     async def test_multi_use_connection_preservation_on_verification_success(
         self,
         mock_get_socket_id,
-        mock_sio,
+        mock_safe_emit,
         mock_acapy_client,
         mock_auth_session_crud,
         mock_request,
@@ -275,7 +273,6 @@ class TestConnectionBasedVerificationWebhooks:
         mock_acapy_client.return_value = mock_client_instance
 
         mock_get_socket_id.return_value = "test-socket-id"
-        mock_sio.emit = AsyncMock()
 
         # Execute
         result = await post_topic(mock_request, "present_proof_v2_0", mock_db)
@@ -284,7 +281,7 @@ class TestConnectionBasedVerificationWebhooks:
         assert result == {}
         # Verify connection was NOT deleted
         mock_client_instance.delete_connection.assert_not_called()
-        mock_sio.emit.assert_called_once_with(
+        mock_safe_emit.assert_called_once_with(
             "status", {"status": "verified"}, to="test-socket-id"
         )
 
@@ -292,12 +289,12 @@ class TestConnectionBasedVerificationWebhooks:
     @patch("api.routers.acapy_handler.settings.USE_CONNECTION_BASED_VERIFICATION", True)
     @patch("api.routers.acapy_handler.AuthSessionCRUD")
     @patch("api.routers.acapy_handler.AcapyClient")
-    @patch("api.routers.acapy_handler.sio")
+    @patch("api.routers.acapy_handler.safe_emit")
     @patch("api.routers.acapy_handler.get_socket_id_for_pid")
     async def test_present_proof_webhook_sends_problem_report_on_abandoned_state(
         self,
         mock_get_socket_id,
-        mock_sio,
+        mock_safe_emit,
         mock_acapy_client,
         mock_auth_session_crud,
         mock_request,
@@ -324,7 +321,6 @@ class TestConnectionBasedVerificationWebhooks:
         mock_acapy_client.return_value = mock_client_instance
 
         mock_get_socket_id.return_value = "test-socket-id"
-        mock_sio.emit = AsyncMock()
 
         # Execute
         result = await post_topic(mock_request, "present_proof_v2_0", mock_db)
@@ -334,7 +330,7 @@ class TestConnectionBasedVerificationWebhooks:
         mock_client_instance.send_problem_report.assert_called_once_with(
             "test-pres-ex-id", "Presentation abandoned: Presentation abandoned by user"
         )
-        mock_sio.emit.assert_called_once_with(
+        mock_safe_emit.assert_called_once_with(
             "status", {"status": "abandoned"}, to="test-socket-id"
         )
 
@@ -348,14 +344,14 @@ class TestConnectionBasedVerificationWebhooks:
     )
     @patch("api.routers.acapy_handler.AuthSessionCRUD")
     @patch("api.routers.acapy_handler.AcapyClient")
-    @patch("api.routers.acapy_handler.sio")
+    @patch("api.routers.acapy_handler.safe_emit")
     @patch("api.routers.acapy_handler.get_socket_id_for_pid")
     @patch("api.routers.acapy_handler.datetime")
     async def test_present_proof_webhook_sends_problem_report_on_expired_state(
         self,
         mock_datetime,
         mock_get_socket_id,
-        mock_sio,
+        mock_safe_emit,
         mock_acapy_client,
         mock_auth_session_crud,
         mock_request,
@@ -394,7 +390,6 @@ class TestConnectionBasedVerificationWebhooks:
         mock_acapy_client.return_value = mock_client_instance
 
         mock_get_socket_id.return_value = "test-socket-id"
-        mock_sio.emit = AsyncMock()
 
         # Execute
         result = await post_topic(mock_request, "present_proof_v2_0", mock_db)
@@ -404,7 +399,7 @@ class TestConnectionBasedVerificationWebhooks:
         mock_client_instance.send_problem_report.assert_called_once_with(
             "test-pres-ex-id", "Presentation expired: timeout after -60 seconds"
         )
-        mock_sio.emit.assert_called_with(
+        mock_safe_emit.assert_called_with(
             "status", {"status": "expired"}, to="test-socket-id"
         )
 
@@ -509,12 +504,12 @@ class TestConnectionBasedVerificationIntegration:
     @patch("api.routers.acapy_handler.settings.USE_CONNECTION_BASED_VERIFICATION", True)
     @patch("api.routers.acapy_handler.AuthSessionCRUD")
     @patch("api.routers.acapy_handler.AcapyClient")
-    @patch("api.routers.acapy_handler.sio")
+    @patch("api.routers.acapy_handler.safe_emit")
     @patch("api.routers.acapy_handler.get_socket_id_for_pid")
     async def test_connection_cleanup_on_successful_verification(
         self,
         mock_get_socket_id,
-        mock_sio,
+        mock_safe_emit,
         mock_acapy_client,
         mock_auth_session_crud,
         mock_request,
@@ -542,7 +537,6 @@ class TestConnectionBasedVerificationIntegration:
         mock_acapy_client.return_value = mock_client_instance
 
         mock_get_socket_id.return_value = "test-socket-id"
-        mock_sio.emit = AsyncMock()
 
         # Execute
         result = await post_topic(mock_request, "present_proof_v2_0", mock_db)
@@ -552,7 +546,7 @@ class TestConnectionBasedVerificationIntegration:
         mock_client_instance.delete_connection.assert_called_once_with(
             "test-connection-id"
         )
-        mock_sio.emit.assert_called_once_with(
+        mock_safe_emit.assert_called_once_with(
             "status", {"status": "verified"}, to="test-socket-id"
         )
 
@@ -789,12 +783,12 @@ class TestConnectionBasedVerificationIntegration:
     @patch("api.routers.acapy_handler.settings.USE_CONNECTION_BASED_VERIFICATION", True)
     @patch("api.routers.acapy_handler.AuthSessionCRUD")
     @patch("api.routers.acapy_handler.AcapyClient")
-    @patch("api.routers.acapy_handler.sio")
+    @patch("api.routers.acapy_handler.safe_emit")
     @patch("api.routers.acapy_handler.get_socket_id_for_pid")
     async def test_presentation_request_failure_sets_auth_session_to_failed(
         self,
         mock_get_socket_id,
-        mock_sio,
+        mock_safe_emit,
         mock_acapy_client,
         mock_auth_session_crud,
         mock_request,
@@ -824,7 +818,6 @@ class TestConnectionBasedVerificationIntegration:
         mock_acapy_client.return_value = mock_client_instance
 
         mock_get_socket_id.return_value = "test-socket-id"
-        mock_sio.emit = AsyncMock()
 
         # Execute
         result = await post_topic(mock_request, "connections", mock_db)
@@ -833,6 +826,6 @@ class TestConnectionBasedVerificationIntegration:
         assert result == {}
         assert mock_auth_session.proof_status == AuthSessionState.FAILED
         mock_auth_session_crud.return_value.patch.assert_called()
-        mock_sio.emit.assert_called_once_with(
+        mock_safe_emit.assert_called_once_with(
             "status", {"status": "failed"}, to="test-socket-id"
         )
