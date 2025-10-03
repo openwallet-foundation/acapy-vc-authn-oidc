@@ -12,9 +12,9 @@ from api.routers.socketio import (
     safe_emit,
     create_socket_manager,
     _should_use_redis_adapter,
-    _validate_redis_before_manager_creation,
+    can_we_reach_redis,
     _patch_redis_manager_for_graceful_failure,
-    validate_redis_connection,
+    should_we_use_redis,
     sio,
 )
 
@@ -97,17 +97,19 @@ class TestRedisValidation:
 
     @pytest.mark.asyncio
     @patch("api.routers.socketio.settings")
-    async def test_validate_redis_skipped_when_adapter_disabled(self, mock_settings):
-        """Test validation is skipped when USE_REDIS_ADAPTER=false."""
+    async def test_should_we_use_redis_skipped_when_adapter_disabled(
+        self, mock_settings
+    ):
+        """Test Redis check is skipped when USE_REDIS_ADAPTER=false."""
         mock_settings.USE_REDIS_ADAPTER = False
 
         # Should complete without error
-        await validate_redis_connection()
+        await should_we_use_redis()
 
     @pytest.mark.asyncio
     @patch("api.routers.socketio.settings")
-    async def test_validate_redis_success(self, mock_settings):
-        """Test validation succeeds when Redis is available."""
+    async def test_should_we_use_redis_success(self, mock_settings):
+        """Test Redis check succeeds when Redis is available."""
         mock_settings.USE_REDIS_ADAPTER = True
         mock_settings.REDIS_PASSWORD = ""
         mock_settings.REDIS_HOST = "redis"
@@ -120,15 +122,15 @@ class TestRedisValidation:
             mock_client.ping = AsyncMock()
             mock_client.close = AsyncMock()
 
-            await validate_redis_connection()
+            await should_we_use_redis()
 
             mock_client.ping.assert_called_once()
             mock_client.close.assert_called_once()
 
     @pytest.mark.asyncio
     @patch("api.routers.socketio.settings")
-    async def test_validate_redis_failure_returns_false(self, mock_settings):
-        """Test validation returns False when Redis adapter is enabled but Redis is unavailable."""
+    async def test_should_we_use_redis_failure_returns_false(self, mock_settings):
+        """Test Redis check returns False when Redis adapter is enabled but Redis is unavailable."""
         mock_settings.USE_REDIS_ADAPTER = True
         mock_settings.REDIS_PASSWORD = ""
         mock_settings.REDIS_HOST = "nonexistent-redis"
@@ -138,7 +140,7 @@ class TestRedisValidation:
         with patch("api.routers.socketio.async_redis.from_url") as mock_redis:
             mock_redis.side_effect = Exception("Connection failed")
 
-            result = await validate_redis_connection()
+            result = await should_we_use_redis()
             assert result is False
 
 
@@ -182,10 +184,10 @@ class TestRedisConfiguration:
         assert manager is None
 
     @patch("api.routers.socketio.settings")
-    @patch("api.routers.socketio._validate_redis_before_manager_creation")
+    @patch("api.routers.socketio.can_we_reach_redis")
     @patch("socketio.AsyncRedisManager")
     def test_create_socket_manager_redis_enabled(
-        self, mock_redis_manager, mock_validate_redis, mock_settings
+        self, mock_redis_manager, mock_can_reach_redis, mock_settings
     ):
         """Test socket manager creates Redis manager when enabled."""
         mock_settings.USE_REDIS_ADAPTER = True
@@ -195,7 +197,7 @@ class TestRedisConfiguration:
         mock_settings.REDIS_DB = 0
 
         # Mock successful validation
-        mock_validate_redis.return_value = True
+        mock_can_reach_redis.return_value = True
 
         mock_instance = Mock()
         mock_redis_manager.return_value = mock_instance
@@ -203,13 +205,13 @@ class TestRedisConfiguration:
         manager = create_socket_manager()
 
         assert manager is mock_instance
-        mock_validate_redis.assert_called_once_with("redis://redis:6379/0")
+        mock_can_reach_redis.assert_called_once_with("redis://redis:6379/0")
         mock_redis_manager.assert_called_once_with("redis://redis:6379/0")
 
     @patch("api.routers.socketio.settings")
-    @patch("api.routers.socketio._validate_redis_before_manager_creation")
+    @patch("api.routers.socketio.can_we_reach_redis")
     def test_create_socket_manager_redis_failure_fallback(
-        self, mock_validate_redis, mock_settings
+        self, mock_can_reach_redis, mock_settings
     ):
         """Test socket manager returns None when Redis validation fails before manager creation."""
         mock_settings.USE_REDIS_ADAPTER = True
@@ -219,17 +221,17 @@ class TestRedisConfiguration:
         mock_settings.REDIS_DB = 0
 
         # Simulate Redis validation failure
-        mock_validate_redis.return_value = False
+        mock_can_reach_redis.return_value = False
 
         manager = create_socket_manager()
         assert manager is None
 
     @patch("api.routers.socketio.settings")
     @patch("api.routers.socketio._should_use_redis_adapter")
-    @patch("api.routers.socketio._validate_redis_before_manager_creation")
+    @patch("api.routers.socketio.can_we_reach_redis")
     @patch("api.routers.socketio.socketio.AsyncRedisManager")
     def test_create_socket_manager_unexpected_exception(
-        self, mock_manager, mock_validate, mock_should_use, mock_settings
+        self, mock_manager, mock_can_reach_redis, mock_should_use, mock_settings
     ):
         """Test socket manager handles unexpected exceptions during creation."""
         mock_settings.USE_REDIS_ADAPTER = True
@@ -240,7 +242,7 @@ class TestRedisConfiguration:
 
         # Setup
         mock_should_use.return_value = True
-        mock_validate.return_value = True  # Validation passes
+        mock_can_reach_redis.return_value = True  # Validation passes
         mock_manager.side_effect = RuntimeError("Unexpected socket.io error")
 
         # Execute and verify - should return None on error
@@ -252,15 +254,15 @@ class TestInternalRedisFunctions:
     """Test internal Redis validation and patching functions."""
 
     @patch("api.routers.socketio.redis.from_url")
-    def test_validate_redis_before_manager_creation_success(self, mock_redis):
-        """Test successful Redis validation before manager creation."""
+    def test_can_we_reach_redis_success(self, mock_redis):
+        """Test successful Redis connectivity check before manager creation."""
         # Setup
         mock_client = Mock()
         mock_redis.return_value = mock_client
         mock_client.ping.return_value = True
 
         # Execute - should not raise exception
-        _validate_redis_before_manager_creation("redis://localhost:6379/0")
+        can_we_reach_redis("redis://localhost:6379/0")
 
         # Verify
         mock_redis.assert_called_once_with("redis://localhost:6379/0")
@@ -268,13 +270,13 @@ class TestInternalRedisFunctions:
         mock_client.close.assert_called_once()
 
     @patch("api.routers.socketio.redis.from_url")
-    def test_validate_redis_before_manager_creation_failure(self, mock_redis):
-        """Test Redis validation failure before manager creation."""
+    def test_can_we_reach_redis_failure(self, mock_redis):
+        """Test Redis connectivity check failure before manager creation."""
         # Setup
         mock_redis.side_effect = Exception("Connection refused")
 
         # Execute and verify - should return False on failure
-        result = _validate_redis_before_manager_creation("redis://localhost:6379/0")
+        result = can_we_reach_redis("redis://localhost:6379/0")
         assert result is False
 
     def test_patch_redis_manager_for_graceful_failure_none_manager(self):

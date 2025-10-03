@@ -105,9 +105,9 @@ def _build_redis_url():
         )
 
 
-def _validate_redis_before_manager_creation(redis_url):
+def can_we_reach_redis(redis_url):
     """
-    Synchronously validate Redis connection before creating AsyncRedisManager.
+    Test if we can reach Redis right now before creating manager.
 
     Returns:
         bool: True if Redis is available, False if should fall back to local manager
@@ -121,7 +121,7 @@ def _validate_redis_before_manager_creation(redis_url):
 
     except Exception as e:
         # Log the error and return False to indicate fallback should be used
-        _handle_redis_failure("validation before manager creation", e)
+        _handle_redis_failure("connectivity test before manager creation", e)
         return False
 
 
@@ -224,17 +224,17 @@ def create_socket_manager():
         # Build Redis URL
         redis_url = _build_redis_url()
 
-        # Part 1: Validate Redis connectivity BEFORE creating manager
+        # Part 1: Test Redis connectivity BEFORE creating manager
         # This prevents background threads from starting with bad Redis config
-        redis_available = _validate_redis_before_manager_creation(redis_url)
+        redis_available = can_we_reach_redis(redis_url)
 
         if not redis_available:
             logger.warning(
-                "Redis validation failed - falling back to default Socket.IO manager"
+                "Redis connectivity test failed - falling back to default Socket.IO manager"
             )
             return None
 
-        # Create manager only if Redis validation passed
+        # Create manager only if Redis connectivity test passed
         manager = socketio.AsyncRedisManager(redis_url)
 
         # Part 2: Patch manager for graceful error handling
@@ -256,9 +256,9 @@ def create_socket_manager():
         return None
 
 
-async def validate_redis_connection():
+async def should_we_use_redis():
     """
-    Validate Redis connection when Redis adapter is enabled.
+    Determine if we should use Redis adapter during startup.
 
     Returns:
         bool: True if Redis is available or not required, False if Redis should be available but failed
@@ -275,14 +275,14 @@ async def validate_redis_connection():
         redis_client = async_redis.from_url(redis_url)
         await redis_client.ping()
         await redis_client.close()
-        logger.info("Redis connection validated successfully")
+        logger.info("Redis adapter is available and ready")
         return True
 
     except Exception as e:
         # Log the error but don't crash the application during startup
-        error_type = _handle_redis_failure("connection validation", e)
+        error_type = _handle_redis_failure("Redis adapter availability check", e)
         logger.warning(
-            f"Redis connection validation failed (type: {error_type}) - application will continue with degraded Socket.IO functionality"
+            f"Redis adapter availability check failed (type: {error_type}) - application will continue with degraded Socket.IO functionality"
         )
         return False
 
