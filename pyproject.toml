@@ -22,7 +22,7 @@ pyop = "^3.4.1"
 python-multipart = "^0.0.20" # required by fastapi to serve/upload files
 qrcode = { version = "^8.2", extras = ["pil"]}
 structlog = "^25.4.0"
-uvicorn = { version = "^0.35.0", extras = ["standard"] }
+uvicorn = { version = "^0.37.0", extras = ["standard"] }
 python-socketio = "^5.13.0" # required to run websockets
 redis = "^5.0.0" # required for multi-pod Socket.IO communication
 canonicaljson = "^2.0.0" # used to provide unique consistent user identifiers"
