@@ -82,36 +82,6 @@ async def poll_pres_exch_complete(pid: str, db: Database = Depends(get_db)):
         if sid:
             await safe_emit("status", {"status": "expired"}, to=sid)
 
-        # Cleanup connection after verification expires (for connection-based flow)
-        if (
-            settings.USE_CONNECTION_BASED_VERIFICATION
-            and auth_session.connection_id
-            and not auth_session.multi_use  # Only delete single-use connections
-        ):
-            try:
-                client = AcapyClient()
-                success = client.delete_connection(auth_session.connection_id)
-                if success:
-                    logger.info(
-                        f"Cleaned up single-use connection {auth_session.connection_id} after expiration"
-                    )
-                else:
-                    logger.warning(
-                        f"Failed to cleanup single-use connection {auth_session.connection_id}"
-                    )
-            except Exception as e:
-                logger.error(
-                    f"Error cleaning up single-use connection {auth_session.connection_id}: {e}"
-                )
-        elif (
-            settings.USE_CONNECTION_BASED_VERIFICATION
-            and auth_session.connection_id
-            and auth_session.multi_use
-        ):
-            logger.info(
-                f"Preserving multi-use connection {auth_session.connection_id} after expiration"
-            )
-
     return {"proof_status": auth_session.proof_status}
 
 

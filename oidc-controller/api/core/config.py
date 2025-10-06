@@ -175,6 +175,22 @@ class GlobalConfig(BaseSettings):
         "CONTROLLER_PRESENTATION_CLEANUP_TIME", 86400
     )
 
+    # Presentation record cleanup configuration
+    # How long to retain presentation records in hours (default: 24 hours)
+    CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS: int = int(
+        os.environ.get("CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS", 24)
+    )
+
+    # Resource limits for cleanup operations to prevent excessive processing
+    # Maximum presentation records to process per cleanup cycle (default: 1000)
+    CONTROLLER_CLEANUP_MAX_PRESENTATION_RECORDS: int = int(
+        os.environ.get("CONTROLLER_CLEANUP_MAX_PRESENTATION_RECORDS", 1000)
+    )
+    # Maximum connections to process per cleanup cycle (default: 2000)
+    CONTROLLER_CLEANUP_MAX_CONNECTIONS: int = int(
+        os.environ.get("CONTROLLER_CLEANUP_MAX_CONNECTIONS", 2000)
+    )
+
     CONTROLLER_SESSION_TIMEOUT_CONFIG_FILE: str | None = os.environ.get(
         "CONTROLLER_SESSION_TIMEOUT_CONFIG_FILE"
     )
@@ -239,7 +255,7 @@ class GlobalConfig(BaseSettings):
     # Redis Configuration for multi-pod Socket.IO
     REDIS_HOST: str = os.environ.get("REDIS_HOST", "redis")
     REDIS_PORT: int = int(os.environ.get("REDIS_PORT", 6379))
-    REDIS_PASSWORD: str = os.environ.get("REDIS_PASSWORD", "")
+    REDIS_PASSWORD: str | None = os.environ.get("REDIS_PASSWORD")
     REDIS_DB: int = int(os.environ.get("REDIS_DB", 0))
     USE_REDIS_ADAPTER: bool = strtobool(os.environ.get("USE_REDIS_ADAPTER", False))
 
