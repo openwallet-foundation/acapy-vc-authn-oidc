@@ -850,12 +850,12 @@ class TestAcapyHandlerCleanupFunctions:
     @patch("api.routers.acapy_handler.settings.USE_CONNECTION_BASED_VERIFICATION", True)
     @patch("api.routers.acapy_handler.AuthSessionCRUD")
     @patch("api.routers.acapy_handler.AcapyClient")
-    @patch("api.routers.acapy_handler.sio")
+    @patch("api.routers.acapy_handler.safe_emit")
     @patch("api.routers.acapy_handler.get_socket_id_for_pid")
     async def test_present_proof_webhook_logs_cleanup_errors(
         self,
         mock_get_socket_id,
-        mock_sio,
+        mock_safe_emit,
         mock_acapy_client,
         mock_auth_session_crud,
         mock_request,
@@ -894,7 +894,6 @@ class TestAcapyHandlerCleanupFunctions:
         mock_acapy_client.return_value = mock_client_instance
 
         mock_get_socket_id.return_value = "test-socket-id"
-        mock_sio.emit = AsyncMock()
 
         # Execute
         result = await post_topic(mock_request, "present_proof_v2_0", mock_db)
@@ -905,7 +904,7 @@ class TestAcapyHandlerCleanupFunctions:
         mock_client_instance.delete_presentation_record_and_connection.assert_called_once_with(
             "test-pres-ex-id", "test-connection-id"
         )
-        mock_sio.emit.assert_called_once_with(
+        mock_safe_emit.assert_called_once_with(
             "status", {"status": "verified"}, to="test-socket-id"
         )
 
@@ -913,12 +912,12 @@ class TestAcapyHandlerCleanupFunctions:
     @patch("api.routers.acapy_handler.settings.USE_CONNECTION_BASED_VERIFICATION", True)
     @patch("api.routers.acapy_handler.AuthSessionCRUD")
     @patch("api.routers.acapy_handler.AcapyClient")
-    @patch("api.routers.acapy_handler.sio")
+    @patch("api.routers.acapy_handler.safe_emit")
     @patch("api.routers.acapy_handler.get_socket_id_for_pid")
     async def test_present_proof_webhook_handles_cleanup_exception(
         self,
         mock_get_socket_id,
-        mock_sio,
+        mock_safe_emit,
         mock_acapy_client,
         mock_auth_session_crud,
         mock_request,
@@ -955,7 +954,6 @@ class TestAcapyHandlerCleanupFunctions:
         mock_acapy_client.return_value = mock_client_instance
 
         mock_get_socket_id.return_value = "test-socket-id"
-        mock_sio.emit = AsyncMock()
 
         # Execute - should not raise exception
         result = await post_topic(mock_request, "present_proof_v2_0", mock_db)
@@ -966,7 +964,7 @@ class TestAcapyHandlerCleanupFunctions:
         mock_client_instance.delete_presentation_record_and_connection.assert_called_once_with(
             "test-pres-ex-id", "test-connection-id"
         )
-        mock_sio.emit.assert_called_once_with(
+        mock_safe_emit.assert_called_once_with(
             "status", {"status": "verified"}, to="test-socket-id"
         )
 
@@ -974,12 +972,12 @@ class TestAcapyHandlerCleanupFunctions:
     @patch("api.routers.acapy_handler.settings.USE_CONNECTION_BASED_VERIFICATION", True)
     @patch("api.routers.acapy_handler.AuthSessionCRUD")
     @patch("api.routers.acapy_handler.AcapyClient")
-    @patch("api.routers.acapy_handler.sio")
+    @patch("api.routers.acapy_handler.safe_emit")
     @patch("api.routers.acapy_handler.get_socket_id_for_pid")
     async def test_present_proof_webhook_preserves_multi_use_connection_with_logging(
         self,
         mock_get_socket_id,
-        mock_sio,
+        mock_safe_emit,
         mock_acapy_client,
         mock_auth_session_crud,
         mock_request,
@@ -1034,7 +1032,6 @@ class TestAcapyHandlerCleanupFunctions:
         mock_acapy_client.return_value = mock_client_instance
 
         mock_get_socket_id.return_value = "test-socket-id"
-        mock_sio.emit = AsyncMock()
 
         # Execute
         result = await post_topic(mock_request, "present_proof_v2_0", mock_db)
@@ -1046,6 +1043,6 @@ class TestAcapyHandlerCleanupFunctions:
         mock_client_instance.delete_presentation_record_and_connection.assert_called_once_with(
             "test-pres-ex-id", None
         )
-        mock_sio.emit.assert_called_once_with(
+        mock_safe_emit.assert_called_once_with(
             "status", {"status": "verified"}, to="test-socket-id"
         )
