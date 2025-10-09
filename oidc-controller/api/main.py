@@ -7,6 +7,7 @@ import uuid
 from pathlib import Path
 
 import uvicorn
+import redis.asyncio as async_redis
 from api.core.config import settings
 from fastapi import FastAPI
 from starlette.requests import Request
@@ -26,7 +27,7 @@ from .routers import (
 )
 from .verificationConfigs.router import router as ver_configs_router
 from .clientConfigurations.router import router as client_config_router
-from .routers.socketio import sio_app
+from .routers.socketio import sio_app, _build_redis_url, _handle_redis_failure
 from api.core.oidc.provider import init_provider
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
@@ -105,34 +106,32 @@ async def logging_middleware(request: Request, call_next) -> Response:
     try:
         response: Response = await call_next(request)
         return response
-    finally:
+    except Exception as e:
         process_time = time.time() - start_time
-        # If we have a response object, log the details
-        if "response" in locals():
-            logger.info(
-                "processed a request",
-                status_code=response.status_code,
-                process_time=process_time,
-            )
-        # Otherwise, extract the exception from traceback, log and return a 500 response
-        else:
-            logger.info(
-                "failed to process a request",
-                status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
-                process_time=process_time,
-            )
+        logger.info(
+            "failed to process a request",
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            process_time=process_time,
+        )
 
-            # Need to explicitly log the traceback
-            logger.error(traceback.format_exc())
+        # Need to explicitly log the traceback
+        logger.error(traceback.format_exc())
 
-            return JSONResponse(
-                status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
-                content={
-                    "status": "error",
-                    "message": "Internal Server Error",
-                    "process_time": process_time,
-                },
-            )
+        return JSONResponse(
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={
+                "status": "error",
+                "message": "Internal Server Error",
+                "process_time": process_time,
+            },
+        )
+    else:
+        process_time = time.time() - start_time
+        logger.info(
+            "processed a request",
+            status_code=response.status_code,
+            process_time=process_time,
+        )
 
 
 @app.on_event("startup")
@@ -140,6 +139,23 @@ async def on_tenant_startup():
     """Register any events we need to respond to."""
     await init_db()
     await init_provider(await get_db())
+
+    # Check Redis availability if adapter is enabled
+    if settings.USE_REDIS_ADAPTER:
+        try:
+            # Test Redis connectivity during startup
+            redis_url = _build_redis_url()
+            redis_client = async_redis.from_url(redis_url)
+            await redis_client.ping()
+            await redis_client.close()
+            logger.info("Redis adapter is available and ready")
+        except Exception as e:
+            error_type = _handle_redis_failure("startup Redis check", e)
+            logger.warning(
+                f"Redis adapter enabled but unavailable (type: {error_type}) - continuing with degraded Socket.IO functionality"
+            )
+    else:
+        logger.debug("Redis adapter disabled")
 
     logger.info(">>> Starting up app new ...")
 

@@ -13,7 +13,7 @@ from ..core.acapy.client import AcapyClient
 from ..verificationConfigs.crud import VerificationConfigCRUD
 
 from ..core.config import settings
-from ..routers.socketio import sio, get_socket_id_for_pid
+from ..routers.socketio import sio, get_socket_id_for_pid, safe_emit
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
 
@@ -106,7 +106,7 @@ async def _emit_status_to_socket(
     pid = str(auth_session.id)
     sid = await get_socket_id_for_pid(pid, db)
     if sid:
-        await sio.emit("status", {"status": status}, to=sid)
+        await safe_emit("status", {"status": status}, to=sid)
 
 
 async def _parse_webhook_body(request: Request) -> dict[Any, Any]:
