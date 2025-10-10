@@ -1,9 +1,12 @@
 import os
 import secrets
+import json
 from urllib.parse import urlparse
+from datetime import datetime, timedelta
 
 import structlog
 import structlog.typing
+import redis
 from api.clientConfigurations.models import TOKENENDPOINTAUTHMETHODS
 from api.core.config import settings
 from api.core.models import VCUserinfo
@@ -14,7 +17,7 @@ from jwkest.jwk import KEYS, RSAKey, rsa_load
 from pymongo.database import Database
 from pyop.authz_state import AuthorizationState
 from pyop.provider import Provider
-from pyop.storage import StatelessWrapper
+from pyop.storage import RedisWrapper
 from pyop.subject_identifier import HashBasedSubjectIdentifierFactory
 
 logger: structlog.typing.FilteringBoundLogger = structlog.get_logger()
@@ -39,6 +42,59 @@ def save_pem_file(filename, content):
 def pem_file_exists(filepath) -> bool:
     """Check if pem file exists."""
     return os.path.isfile(filepath)
+
+
+def _build_redis_url():
+    """Build Redis connection URL from settings"""
+    if settings.REDIS_PASSWORD:
+        return f"redis://:{settings.REDIS_PASSWORD}@{settings.REDIS_HOST}:{settings.REDIS_PORT}/{settings.REDIS_DB}"
+    else:
+        return (
+            f"redis://{settings.REDIS_HOST}:{settings.REDIS_PORT}/{settings.REDIS_DB}"
+        )
+
+
+class RedisWrapperWithPack(RedisWrapper):
+    """
+    Wrapper around PyOP's RedisWrapper that implements pack() and unpack() methods.
+
+    PyOP's RedisWrapper doesn't implement these methods (raises NotImplementedError),
+    but the application code calls .pack() to regenerate authorization codes.
+    This wrapper adds StatelessWrapper-compatible pack/unpack behavior.
+    """
+
+    cipher = _AESCipher(secrets.token_urlsafe())
+
+    def pack(self, value):
+        """
+        Generate a random key, store the value, and return the key.
+        Compatible with StatelessWrapper's pack() interface.
+        """
+        key = None
+        if value:
+            if isinstance(value, dict):
+                value = json.dumps(value)
+            key = self.cipher.encrypt(value.encode("UTF-8")).decode("UTF-8")
+        return key
+
+    def unpack(self, key):
+        """
+        Retrieve and return the value for the given key.
+        Compatible with StatelessWrapper's unpack() interface.
+        """
+        unpacked_val = None
+        try:
+            if value:
+                unpacked_val = self.cipher.decrypt(value.encode("UTF-8")).decode(
+                    "UTF-8"
+                )
+                unpacked_val = json.loads(unpacked_val)
+        except ValueError:
+            if unpacked_val:
+                logger.debug("Value '%s' is not a dict", value)
+            else:
+                logger.warning("Value '%s' is invalid for %s", value, self.collection)
+        return unpacked_val
 
 
 if settings.TESTING:
@@ -116,7 +172,33 @@ configuration_information = {
 }
 
 subject_id_factory = HashBasedSubjectIdentifierFactory(settings.SUBJECT_ID_HASH_SALT)
-stateless_storage = StatelessWrapper("vc-authn", secrets.token_urlsafe())
+
+# Create Redis storage for PyOP tokens to enable multi-pod sharing
+redis_url = _build_redis_url()
+
+authorization_code_storage = RedisWrapperWithPack(
+    db_uri=redis_url,
+    collection="pyop_authorization_codes",
+    ttl=600,  # 10 minutes
+)
+
+access_token_storage = RedisWrapperWithPack(
+    db_uri=redis_url,
+    collection="pyop_access_tokens",
+    ttl=3600,  # 1 hour
+)
+
+refresh_token_storage = RedisWrapperWithPack(
+    db_uri=redis_url,
+    collection="pyop_refresh_tokens",
+    ttl=2592000,  # 30 days
+)
+
+subject_identifier_storage = RedisWrapperWithPack(
+    db_uri=redis_url,
+    collection="pyop_subject_identifiers",
+    ttl=None,  # No expiration
+)
 
 # placeholder that gets set on app_start and write operations to ClientConfigurationCRUD
 provider = None
@@ -134,9 +216,10 @@ async def init_provider(db: Database):
         configuration_information,
         AuthorizationState(
             subject_id_factory,
-            authorization_code_db=stateless_storage,
-            access_token_db=stateless_storage,
-            refresh_token_db=stateless_storage,
+            authorization_code_db=authorization_code_storage,
+            access_token_db=access_token_storage,
+            refresh_token_db=refresh_token_storage,
+            subject_identifier_db=subject_identifier_storage,
         ),
         client_db,
         VCUserinfo({}),
