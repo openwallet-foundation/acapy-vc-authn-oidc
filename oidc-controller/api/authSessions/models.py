@@ -25,6 +25,9 @@ class AuthSessionBase(BaseModel):
     ver_config_id: str
     request_parameters: dict
     pyop_auth_code: str
+    pyop_user_id: str | None = (
+        None  # Store the original PyOP user_id for authorization code regeneration
+    )
     response_url: str
     presentation_request_msg: dict | None = None
     socket_id: str | None = None
