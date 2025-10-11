@@ -60,41 +60,53 @@ class RedisWrapperWithPack(RedisWrapper):
 
     PyOP's RedisWrapper doesn't implement these methods (raises NotImplementedError),
     but the application code calls .pack() to regenerate authorization codes.
-    This wrapper adds StatelessWrapper-compatible pack/unpack behavior.
-    """
 
-    cipher = _AESCipher(secrets.token_urlsafe())
+    This wrapper stores values in Redis (shared across pods) and returns a random key.
+    Unlike StatelessWrapper which encrypts data into the token, this approach uses
+    Redis as a shared data store accessible by all pods.
+    """
 
     def pack(self, value):
         """
-        Generate a random key, store the value, and return the key.
-        Compatible with StatelessWrapper's pack() interface.
+        Generate a random key, store the value in Redis, and return the key.
+
+        This enables multi-pod deployments - the value is stored in Redis
+        where all pods can access it.
         """
-        key = None
-        if value:
-            if isinstance(value, dict):
-                value = json.dumps(value)
-            key = self.cipher.encrypt(value.encode("UTF-8")).decode("UTF-8")
+        key = secrets.token_urlsafe(32)
+        self[key] = value
+        logger.debug(
+            "Stored value in Redis",
+            operation="pack",
+            collection=self.collection,
+            key_prefix=key[:8],
+            ttl=self.ttl,
+        )
         return key
 
     def unpack(self, key):
         """
-        Retrieve and return the value for the given key.
-        Compatible with StatelessWrapper's unpack() interface.
+        Retrieve and return the value for the given key from Redis.
+
+        Raises KeyError if the key doesn't exist in Redis.
         """
-        unpacked_val = None
         try:
-            if value:
-                unpacked_val = self.cipher.decrypt(value.encode("UTF-8")).decode(
-                    "UTF-8"
-                )
-                unpacked_val = json.loads(unpacked_val)
-        except ValueError:
-            if unpacked_val:
-                logger.debug("Value '%s' is not a dict", value)
-            else:
-                logger.warning("Value '%s' is invalid for %s", value, self.collection)
-        return unpacked_val
+            value = self[key]
+            logger.debug(
+                "Retrieved value from Redis",
+                operation="unpack",
+                collection=self.collection,
+                key_prefix=key[:8],
+            )
+            return value
+        except KeyError:
+            logger.warning(
+                "Key not found in Redis",
+                operation="unpack",
+                collection=self.collection,
+                key_prefix=key[:8],
+            )
+            raise
 
 
 if settings.TESTING:
@@ -143,6 +155,103 @@ signing_key = RSAKey(
     key=rsa_load(SIGNING_KEY_FILEPATH), use="sig", alg=settings.SIGNING_KEY_ALGORITHM
 )
 signing_keys = KEYS().append(signing_key)
+
+
+class DynamicClientDatabase(dict):
+    """
+    Dynamic client database that loads clients from MongoDB on-demand.
+
+    This ensures all controller pods see the same client configurations
+    without requiring provider reloads when clients are added/updated.
+    """
+
+    def __init__(self, db_getter):
+        """
+        Initialize with a callable that returns a MongoDB Database.
+
+        Args:
+            db_getter: Callable that returns pymongo.database.Database
+        """
+        super().__init__()
+        self._db_getter = db_getter
+        self._cache = {}
+        self._cache_time = {}
+        self._cache_ttl = 60  # Cache clients for 60 seconds
+
+    def _get_client_from_db(self, client_id: str):
+        """Load client from MongoDB."""
+        from api.db.session import COLLECTION_NAMES
+        import time
+
+        # Check cache first
+        if client_id in self._cache:
+            if time.time() - self._cache_time[client_id] < self._cache_ttl:
+                logger.debug(
+                    "Client loaded from cache",
+                    client_id=client_id,
+                    source="cache",
+                    cache_age=time.time() - self._cache_time[client_id],
+                )
+                return self._cache[client_id]
+
+        # Load from database
+        logger.debug(
+            "Loading client from MongoDB", client_id=client_id, source="mongodb"
+        )
+        db = self._db_getter()
+        col = db.get_collection(COLLECTION_NAMES.CLIENT_CONFIGURATIONS)
+        client_doc = col.find_one({"client_id": client_id})
+
+        if client_doc:
+            # Remove MongoDB _id field
+            client_doc.pop("_id", None)
+            # Cache the result
+            self._cache[client_id] = client_doc
+            self._cache_time[client_id] = time.time()
+            logger.debug(
+                "Client loaded from MongoDB and cached",
+                client_id=client_id,
+                source="mongodb",
+                cached=True,
+            )
+            return client_doc
+
+        logger.warning(
+            "Client not found in MongoDB", client_id=client_id, source="mongodb"
+        )
+        return None
+
+    def __getitem__(self, key):
+        client = self._get_client_from_db(key)
+        if client is None:
+            raise KeyError(f"client_id '{key}' unknown")
+        return client
+
+    def __contains__(self, key):
+        return self._get_client_from_db(key) is not None
+
+    def get(self, key, default=None):
+        client = self._get_client_from_db(key)
+        return client if client is not None else default
+
+    def keys(self):
+        """Return all client IDs from database."""
+        from api.db.session import COLLECTION_NAMES
+
+        db = self._db_getter()
+        col = db.get_collection(COLLECTION_NAMES.CLIENT_CONFIGURATIONS)
+        return [doc["client_id"] for doc in col.find({}, {"client_id": 1})]
+
+    def values(self):
+        """Return all clients from database."""
+        for client_id in self.keys():
+            yield self[client_id]
+
+    def items(self):
+        """Return all (client_id, client) pairs from database."""
+        for client_id in self.keys():
+            yield client_id, self[client_id]
+
 
 # Define constants so that they can be imported for route definition in routers/oidc.py
 AuthorizeUriEndpoint = "authorize"
@@ -205,11 +314,21 @@ provider = None
 
 
 async def init_provider(db: Database):
-    global provider
-    from api.clientConfigurations.crud import ClientConfigurationCRUD
+    """
+    Initialize the PyOP provider instance.
 
-    all_client_configs = await ClientConfigurationCRUD(db).get_all()
-    client_db = {d.client_name: d.model_dump() for d in all_client_configs}
+    Uses DynamicClientDatabase to ensure all pods see the same client configurations
+    without requiring provider reloads when clients are added/updated.
+    """
+    global provider
+    from api.db.session import client as mongo_client
+
+    # Create a callable that returns the database
+    def get_db():
+        return mongo_client[settings.DB_NAME]
+
+    # Use dynamic client database that loads from MongoDB on-demand
+    client_db = DynamicClientDatabase(get_db)
 
     provider = Provider(
         signing_key,

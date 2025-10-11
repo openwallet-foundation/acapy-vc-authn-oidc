@@ -173,6 +173,7 @@ async def get_authorize(request: Request, db: Database = Depends(get_db)):
     new_auth_session = AuthSessionCreate(
         response_url=authn_response.request(auth_req["redirect_uri"]),
         pyop_auth_code=authn_response["code"],
+        pyop_user_id=new_user_id,  # Store original user_id for regeneration
         request_parameters=model.to_dict(),
         ver_config_id=ver_config_id,
         pres_exch_id=pres_ex_id,
@@ -243,25 +244,66 @@ async def get_authorize_callback(pid: str, db: Database = Depends(get_db)):
     return RedirectResponse(url)
 
 
-async def generate_auth_code(claims, user_id, auth_session, form_dict, db):
+async def generate_auth_code(claims, auth_session, form_dict, db):
+    """Regenerate authorization code using the original PyOP user_id.
+
+    This is necessary when the authorization code is not found in Redis storage,
+    which can happen in multi-pod deployments when a different pod handled the
+    initial authorization request.
+    """
+    old_code_prefix = (
+        form_dict["code"][:8] if len(form_dict["code"]) >= 8 else form_dict["code"]
+    )
     logger.debug(
-        f"Authorization code {form_dict['code']}*** invalid in PyOP storage, regenerating"
+        "Authorization code invalid in PyOP storage, regenerating",
+        operation="regenerate_auth_code",
+        auth_session_id=str(auth_session.id),
+        old_code_prefix=old_code_prefix,
+        reason="code_not_found_in_redis",
     )
     try:
         auth_req_model = AuthorizationRequest().from_dict(
             auth_session.request_parameters
         )
+
+        # Handle legacy sessions without pyop_user_id (from before migration)
+        user_id = auth_session.pyop_user_id
+        is_legacy_session = user_id is None
+        if is_legacy_session:
+            user_id = str(uuid.uuid4())
+            logger.warning(
+                "Legacy AuthSession missing pyop_user_id, generated new UUID",
+                operation="regenerate_auth_code",
+                auth_session_id=str(auth_session.id),
+                generated_user_id=user_id,
+                legacy_session=True,
+            )
+
+        # Use the user_id to ensure subject identifier consistency in PyOP's storage
         new_auth_response = provider.provider.authorize(auth_req_model, user_id)
         new_code = new_auth_response["code"]
+        new_code_prefix = new_code[:8] if len(new_code) >= 8 else new_code
 
         # Update database with new authorization code for consistency
         await AuthSessionCRUD(db).update_pyop_auth_code(str(auth_session.id), new_code)
         form_dict["code"] = new_code
         logger.info(
-            f"Successfully regenerated authorization code for auth_session {auth_session.id}"
+            "Successfully regenerated authorization code",
+            operation="regenerate_auth_code",
+            auth_session_id=str(auth_session.id),
+            user_id=user_id,
+            old_code_prefix=old_code_prefix,
+            new_code_prefix=new_code_prefix,
+            legacy_session=is_legacy_session,
         )
     except Exception as regenerate_error:
-        logger.error(f"Failed to regenerate authorization code: {regenerate_error}")
+        logger.error(
+            "Failed to regenerate authorization code",
+            operation="regenerate_auth_code",
+            auth_session_id=str(auth_session.id),
+            error=str(regenerate_error),
+            error_type=type(regenerate_error).__name__,
+        )
         # Continue without subject replacement - this maintains functionality
         # while logging the issue for monitoring
         pass
@@ -281,23 +323,93 @@ async def post_token(request: Request, db: Database = Depends(get_db)):
         claims = Token.get_claims(auth_session, ver_config)
 
         # Replace auto-generated sub with one coming from proof, if available
-        # The stateless storage uses a cypher, so a new item can be added and
+        # The Redis storage uses a shared data store, so a new item can be added and
         # the reference in the form needs to be updated with the new key value
         if claims.get("sub"):
             authz_info = provider.provider.authz_state.authorization_codes[
                 form_dict["code"]
             ]
             if authz_info is None:
-                # Authorization code invalid in PyOP storage - regenerate with correct subject
-                await generate_auth_code(
-                    claims, claims.pop("sub"), auth_session, form_dict, db
+                # Authorization code invalid in PyOP storage - regenerate using stored user_id
+                await generate_auth_code(claims, auth_session, form_dict, db)
+                # After regenerating, retrieve the new authz_info and update it with the presentation subject
+                authz_info = provider.provider.authz_state.authorization_codes[
+                    form_dict["code"]
+                ]
+
+            # Update the subject with the one from the presentation
+            presentation_sub = claims.pop("sub")
+            authz_info["sub"] = presentation_sub
+
+            # Create subject identifier mapping: subject -> user_id
+            # This is needed because PyOP will look up the user_id for this subject
+            # Handle legacy sessions without pyop_user_id (from before migration)
+            user_id = auth_session.pyop_user_id
+            is_legacy_session = user_id is None
+            if is_legacy_session:
+                user_id = str(uuid.uuid4())
+                logger.warning(
+                    "Legacy AuthSession missing pyop_user_id, generated new UUID for subject mapping",
+                    operation="create_subject_mapping",
+                    auth_session_id=str(auth_session.id),
+                    generated_user_id=user_id,
+                    presentation_sub=presentation_sub,
+                    legacy_session=True,
+                )
+
+            # Preserve existing subject identifiers (e.g., pairwise) when adding public
+            existing_identifiers = (
+                user_id in provider.provider.authz_state.subject_identifiers
+            )
+            if not existing_identifiers:
+                provider.provider.authz_state.subject_identifiers[user_id] = {}
+                logger.debug(
+                    "Created new subject identifier mapping",
+                    operation="create_subject_mapping",
+                    user_id=user_id,
+                    presentation_sub=presentation_sub,
+                    subject_type="public",
+                    existing_identifiers=False,
                 )
             else:
-                authz_info["sub"] = claims.pop("sub")
-                new_code = provider.provider.authz_state.authorization_codes.pack(
-                    authz_info
+                logger.debug(
+                    "Updating existing subject identifier mapping",
+                    operation="create_subject_mapping",
+                    user_id=user_id,
+                    presentation_sub=presentation_sub,
+                    subject_type="public",
+                    existing_identifiers=True,
+                    preserved_types=list(
+                        provider.provider.authz_state.subject_identifiers[
+                            user_id
+                        ].keys()
+                    ),
                 )
-                form_dict["code"] = new_code
+
+            provider.provider.authz_state.subject_identifiers[user_id][
+                "public"
+            ] = presentation_sub
+
+            new_code = provider.provider.authz_state.authorization_codes.pack(
+                authz_info
+            )
+            old_code_prefix = (
+                form_dict["code"][:8]
+                if len(form_dict["code"]) >= 8
+                else form_dict["code"]
+            )
+            new_code_prefix = new_code[:8] if len(new_code) >= 8 else new_code
+            form_dict["code"] = new_code
+            logger.info(
+                "Replaced authorization code with presentation subject",
+                operation="update_auth_code_subject",
+                auth_session_id=str(auth_session.id),
+                user_id=user_id,
+                presentation_sub=presentation_sub,
+                old_code_prefix=old_code_prefix,
+                new_code_prefix=new_code_prefix,
+                legacy_session=is_legacy_session,
+            )
 
         # convert form data to what library expects, Flask.app.request.get_data()
         data = urlencode(form_dict)
