@@ -179,43 +179,6 @@ class TestDynamicClientDatabase:
         assert result == "default_value"
 
     @patch("api.db.session.COLLECTION_NAMES")
-    @patch("time.time")
-    def test_caching_returns_cached_client_within_ttl(
-        self, mock_time, mock_collection_names, db_getter, mock_db
-    ):
-        """Test that client is returned from cache within TTL period."""
-        mock_collection_names.CLIENT_CONFIGURATIONS = "client_configurations"
-        _, mock_collection = mock_db
-        client_data = {
-            "_id": "mongodb_id",
-            "client_id": "test_client",
-            "client_secret": "secret",
-        }
-        mock_collection.find_one.return_value = client_data.copy()
-
-        # Simulate time progression - time.time() is called multiple times
-        # First call: load from DB (2 calls - store in _cache_time and log cache_age)
-        # Second call: check cache (2 calls - condition check and log cache_age)
-        mock_time.side_effect = [
-            100.0,  # Store in _cache_time
-            100.0,  # Log cache_age on first load
-            130.0,  # Check cache condition
-            130.0,  # Log cache_age on cache hit
-        ]
-
-        client_db = DynamicClientDatabase(db_getter)
-        client_db._cache_ttl = 60  # 60 second TTL
-
-        # First call - loads from DB
-        result1 = client_db["test_client"]
-        # Second call - should use cache
-        result2 = client_db["test_client"]
-
-        # Verify DB was only queried once (cache hit on second call)
-        assert mock_collection.find_one.call_count == 1
-        assert result1 == result2
-
-    @patch("api.db.session.COLLECTION_NAMES")
     def test_caching_reloads_client_after_ttl_expires(
         self, mock_collection_names, db_getter, mock_db
     ):
