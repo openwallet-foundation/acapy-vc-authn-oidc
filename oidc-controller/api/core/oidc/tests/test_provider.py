@@ -193,14 +193,15 @@ class TestDynamicClientDatabase:
         }
         mock_collection.find_one.return_value = client_data.copy()
 
-        # Simulate time progression - time.time() is called twice per DB load (cache time and cache age check)
-        # First call: load from DB (2 calls to time.time())
-        # Second call: check cache (1 call to time.time() for age check)
+        # Simulate time progression - time.time() is called multiple times
+        # First call: load from DB (2 calls - store in _cache_time and log cache_age)
+        # Second call: check cache (2 calls - condition check and log cache_age)
         mock_time.side_effect = [
-            100.0,
-            100.0,
-            130.0,
-        ]  # 30 seconds later for cache check
+            100.0,  # Store in _cache_time
+            100.0,  # Log cache_age on first load
+            130.0,  # Check cache condition
+            130.0,  # Log cache_age on cache hit
+        ]
 
         client_db = DynamicClientDatabase(db_getter)
         client_db._cache_ttl = 60  # 60 second TTL
