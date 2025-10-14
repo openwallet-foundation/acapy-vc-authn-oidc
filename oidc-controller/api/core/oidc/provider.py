@@ -17,7 +17,7 @@ from jwkest.jwk import KEYS, RSAKey, rsa_load
 from pymongo.database import Database
 from pyop.authz_state import AuthorizationState
 from pyop.provider import Provider
-from pyop.storage import RedisWrapper
+from pyop.storage import RedisWrapper, StatelessWrapper
 from pyop.subject_identifier import HashBasedSubjectIdentifierFactory
 
 logger: structlog.typing.FilteringBoundLogger = structlog.get_logger()
@@ -282,32 +282,57 @@ configuration_information = {
 
 subject_id_factory = HashBasedSubjectIdentifierFactory(settings.SUBJECT_ID_HASH_SALT)
 
-# Create Redis storage for PyOP tokens to enable multi-pod sharing
-redis_url = _build_redis_url()
+# Conditionally create storage backends based on USE_REDIS_ADAPTER setting
+if settings.USE_REDIS_ADAPTER:
+    # Redis storage for multi-pod deployments - shared state across all pods
+    redis_url = _build_redis_url()
 
-authorization_code_storage = RedisWrapperWithPack(
-    db_uri=redis_url,
-    collection="pyop_authorization_codes",
-    ttl=600,  # 10 minutes
-)
+    authorization_code_storage = RedisWrapperWithPack(
+        db_uri=redis_url,
+        collection="pyop_authorization_codes",
+        ttl=600,  # 10 minutes
+    )
 
-access_token_storage = RedisWrapperWithPack(
-    db_uri=redis_url,
-    collection="pyop_access_tokens",
-    ttl=3600,  # 1 hour
-)
+    access_token_storage = RedisWrapperWithPack(
+        db_uri=redis_url,
+        collection="pyop_access_tokens",
+        ttl=3600,  # 1 hour
+    )
 
-refresh_token_storage = RedisWrapperWithPack(
-    db_uri=redis_url,
-    collection="pyop_refresh_tokens",
-    ttl=2592000,  # 30 days
-)
+    refresh_token_storage = RedisWrapperWithPack(
+        db_uri=redis_url,
+        collection="pyop_refresh_tokens",
+        ttl=2592000,  # 30 days
+    )
 
-subject_identifier_storage = RedisWrapperWithPack(
-    db_uri=redis_url,
-    collection="pyop_subject_identifiers",
-    ttl=None,  # No expiration
-)
+    subject_identifier_storage = RedisWrapperWithPack(
+        db_uri=redis_url,
+        collection="pyop_subject_identifiers",
+        ttl=None,  # No expiration
+    )
+
+    logger.info(
+        "Initialized Redis storage for PyOP tokens",
+        storage_backend="redis",
+        redis_host=settings.REDIS_HOST,
+        redis_port=settings.REDIS_PORT,
+        multi_pod_enabled=True,
+    )
+else:
+    # StatelessWrapper for single-pod deployments - tokens are self-contained
+    stateless_storage = StatelessWrapper("vc-authn", secrets.token_urlsafe())
+
+    authorization_code_storage = stateless_storage
+    access_token_storage = stateless_storage
+    refresh_token_storage = stateless_storage
+    subject_identifier_storage = stateless_storage
+
+    logger.info(
+        "Initialized StatelessWrapper storage for PyOP tokens",
+        storage_backend="stateless",
+        multi_pod_enabled=False,
+        warning="Multi-pod deployments will NOT work with StatelessWrapper",
+    )
 
 # placeholder that gets set on app_start and write operations to ClientConfigurationCRUD
 provider = None
