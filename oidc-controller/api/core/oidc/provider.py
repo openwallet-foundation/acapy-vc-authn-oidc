@@ -78,7 +78,7 @@ class RedisWrapperWithPack(RedisWrapper):
         logger.debug(
             "Stored value in Redis",
             operation="pack",
-            collection=self.collection,
+            collection=self._collection,
             key_prefix=key[:8],
             ttl=self.ttl,
         )

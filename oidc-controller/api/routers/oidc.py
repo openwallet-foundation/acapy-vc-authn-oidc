@@ -358,11 +358,15 @@ async def post_token(request: Request, db: Database = Depends(get_db)):
                 )
 
             # Preserve existing subject identifiers (e.g., pairwise) when adding public
-            existing_identifiers = (
-                user_id in provider.provider.authz_state.subject_identifiers
-            )
+            # Get existing subject identifiers for this user (or empty dict)
+            if user_id in provider.provider.authz_state.subject_identifiers:
+                subject_ids = provider.provider.authz_state.subject_identifiers[user_id]
+                existing_identifiers = True
+            else:
+                subject_ids = {}
+                existing_identifiers = False
+
             if not existing_identifiers:
-                provider.provider.authz_state.subject_identifiers[user_id] = {}
                 logger.debug(
                     "Created new subject identifier mapping",
                     operation="create_subject_mapping",
@@ -379,16 +383,14 @@ async def post_token(request: Request, db: Database = Depends(get_db)):
                     presentation_sub=presentation_sub,
                     subject_type="public",
                     existing_identifiers=True,
-                    preserved_types=list(
-                        provider.provider.authz_state.subject_identifiers[
-                            user_id
-                        ].keys()
-                    ),
+                    preserved_types=list(subject_ids.keys()),
                 )
 
-            provider.provider.authz_state.subject_identifiers[user_id][
-                "public"
-            ] = presentation_sub
+            # Update the dict with the new public subject identifier
+            subject_ids["public"] = presentation_sub
+
+            # Store the updated dict back to Redis (critical for Redis storage)
+            provider.provider.authz_state.subject_identifiers[user_id] = subject_ids
 
             new_code = provider.provider.authz_state.authorization_codes.pack(
                 authz_info
