@@ -244,6 +244,54 @@ async def get_authorize_callback(pid: str, db: Database = Depends(get_db)):
     return RedirectResponse(url)
 
 
+def store_subject_identifier(user_id: str, subject_type: str, identifier: str) -> bool:
+    """
+    Store subject identifier with Redis-aware persistence.
+
+    This function properly handles storage to Redis by explicitly reading,
+    modifying, and writing back the subject identifier mapping. This is
+    necessary because RedisWrapper doesn't auto-persist dict modifications.
+
+    Args:
+        user_id: The PyOP internal user ID
+        subject_type: Type of subject identifier (e.g., "public", "pairwise")
+        identifier: The actual subject identifier value
+
+    Returns:
+        bool: True if this created a new user mapping, False if updating existing
+
+    Note:
+        This function preserves existing subject identifier types when adding
+        new ones (e.g., adding "public" won't overwrite existing "pairwise").
+    """
+    # Get existing subject identifiers for this user (or empty dict)
+    if user_id in provider.provider.authz_state.subject_identifiers:
+        subject_ids = provider.provider.authz_state.subject_identifiers[user_id]
+        is_new_user = False
+    else:
+        subject_ids = {}
+        is_new_user = True
+
+    # Update the dict with the new subject identifier
+    subject_ids[subject_type] = identifier
+
+    # Store the updated dict back to Redis (critical for Redis storage)
+    # Note: With StatelessWrapper, this is a no-op as tokens are self-contained
+    provider.provider.authz_state.subject_identifiers[user_id] = subject_ids
+
+    logger.debug(
+        "Stored subject identifier",
+        operation="store_subject_identifier",
+        user_id=user_id,
+        subject_type=subject_type,
+        identifier_prefix=identifier[:8] if len(identifier) >= 8 else identifier,
+        is_new_user=is_new_user,
+        preserved_types=list(subject_ids.keys()),
+    )
+
+    return is_new_user
+
+
 async def generate_auth_code(claims, auth_session, form_dict, db):
     """Regenerate authorization code using the original PyOP user_id.
 
@@ -357,40 +405,8 @@ async def post_token(request: Request, db: Database = Depends(get_db)):
                     legacy_session=True,
                 )
 
-            # Preserve existing subject identifiers (e.g., pairwise) when adding public
-            # Get existing subject identifiers for this user (or empty dict)
-            if user_id in provider.provider.authz_state.subject_identifiers:
-                subject_ids = provider.provider.authz_state.subject_identifiers[user_id]
-                existing_identifiers = True
-            else:
-                subject_ids = {}
-                existing_identifiers = False
-
-            if not existing_identifiers:
-                logger.debug(
-                    "Created new subject identifier mapping",
-                    operation="create_subject_mapping",
-                    user_id=user_id,
-                    presentation_sub=presentation_sub,
-                    subject_type="public",
-                    existing_identifiers=False,
-                )
-            else:
-                logger.debug(
-                    "Updating existing subject identifier mapping",
-                    operation="create_subject_mapping",
-                    user_id=user_id,
-                    presentation_sub=presentation_sub,
-                    subject_type="public",
-                    existing_identifiers=True,
-                    preserved_types=list(subject_ids.keys()),
-                )
-
-            # Update the dict with the new public subject identifier
-            subject_ids["public"] = presentation_sub
-
-            # Store the updated dict back to Redis (critical for Redis storage)
-            provider.provider.authz_state.subject_identifiers[user_id] = subject_ids
+            # Store the public subject identifier with Redis-aware persistence
+            store_subject_identifier(user_id, "public", presentation_sub)
 
             new_code = provider.provider.authz_state.authorization_codes.pack(
                 authz_info
