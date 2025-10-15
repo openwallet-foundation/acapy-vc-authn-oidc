@@ -178,6 +178,91 @@ class TestDynamicClientDatabase:
 
         assert result == "default_value"
 
+    def test_mongodb_id_field_removed(self, db_getter, mock_db):
+        """Test that MongoDB _id field is removed from returned client."""
+        _, mock_collection = mock_db
+        client_data = {
+            "_id": "mongodb_object_id_12345",
+            "client_id": "test_client",
+            "client_secret": "secret",
+        }
+        mock_collection.find_one.return_value = client_data.copy()
+
+        client_db = DynamicClientDatabase(db_getter)
+        result = client_db["test_client"]
+
+        # Verify _id was removed
+        assert "_id" not in result
+        assert result["client_id"] == "test_client"
+        assert result["client_secret"] == "secret"
+
+    def test_cache_hit_reduces_db_calls(self, db_getter, mock_db):
+        """Test that cache reduces database calls without relying on time mocking."""
+        _, mock_collection = mock_db
+        client_data = {
+            "_id": "mongodb_id",
+            "client_id": "test_client",
+            "client_secret": "secret",
+        }
+        mock_collection.find_one.return_value = client_data.copy()
+
+        client_db = DynamicClientDatabase(db_getter)
+        # Set a very long TTL so cache never expires during test
+        client_db._cache_ttl = 999999
+
+        # First call - loads from DB
+        result1 = client_db["test_client"]
+        # Second call - should use cache
+        result2 = client_db["test_client"]
+        # Third call - should still use cache
+        result3 = client_db["test_client"]
+
+        # Verify DB was only queried once (cache hits on subsequent calls)
+        assert mock_collection.find_one.call_count == 1
+        assert result1 == result2 == result3
+
+    def test_different_clients_cached_independently(self, db_getter, mock_db):
+        """Test that different clients are cached independently."""
+        _, mock_collection = mock_db
+        client1_data = {
+            "_id": "id1",
+            "client_id": "client1",
+            "client_secret": "secret1",
+        }
+        client2_data = {
+            "_id": "id2",
+            "client_id": "client2",
+            "client_secret": "secret2",
+        }
+
+        # Return different data based on query
+        def find_one_side_effect(query):
+            if query["client_id"] == "client1":
+                return client1_data.copy()
+            elif query["client_id"] == "client2":
+                return client2_data.copy()
+            return None
+
+        mock_collection.find_one.side_effect = find_one_side_effect
+
+        client_db = DynamicClientDatabase(db_getter)
+        client_db._cache_ttl = 999999
+
+        # Load both clients
+        result1 = client_db["client1"]
+        result2 = client_db["client2"]
+
+        # Load them again - should use cache
+        result1_cached = client_db["client1"]
+        result2_cached = client_db["client2"]
+
+        # Verify each was loaded from DB exactly once
+        assert mock_collection.find_one.call_count == 2
+        assert result1["client_id"] == "client1"
+        assert result2["client_id"] == "client2"
+        assert result1 == result1_cached
+        assert result2 == result2_cached
+
     @patch("api.db.session.COLLECTION_NAMES")
     def test_caching_reloads_client_after_ttl_expires(
         self, mock_collection_names, db_getter, mock_db
@@ -314,3 +399,124 @@ class TestStorageBackendSelection:
 
         # Verify the conditional would select StatelessWrapper path
         assert mock_settings.USE_REDIS_ADAPTER is False
+
+
+class TestHelperFunctions:
+    """Test helper functions in provider module."""
+
+    def test_build_redis_url_without_password(self):
+        """Test Redis URL building without password."""
+        from api.core.oidc.provider import _build_redis_url
+        from api.core.config import settings
+
+        # Save original values
+        original_host = settings.REDIS_HOST
+        original_port = settings.REDIS_PORT
+        original_password = settings.REDIS_PASSWORD
+        original_db = settings.REDIS_DB
+
+        try:
+            # Set test values
+            settings.REDIS_HOST = "testhost"
+            settings.REDIS_PORT = 6380
+            settings.REDIS_PASSWORD = None
+            settings.REDIS_DB = 1
+
+            url = _build_redis_url()
+            assert url == "redis://testhost:6380/1"
+        finally:
+            # Restore original values
+            settings.REDIS_HOST = original_host
+            settings.REDIS_PORT = original_port
+            settings.REDIS_PASSWORD = original_password
+            settings.REDIS_DB = original_db
+
+    def test_build_redis_url_with_password(self):
+        """Test Redis URL building with password."""
+        from api.core.oidc.provider import _build_redis_url
+        from api.core.config import settings
+
+        # Save original values
+        original_host = settings.REDIS_HOST
+        original_port = settings.REDIS_PORT
+        original_password = settings.REDIS_PASSWORD
+        original_db = settings.REDIS_DB
+
+        try:
+            # Set test values
+            settings.REDIS_HOST = "securehost"
+            settings.REDIS_PORT = 6379
+            settings.REDIS_PASSWORD = "secret123"
+            settings.REDIS_DB = 0
+
+            url = _build_redis_url()
+            assert url == "redis://:secret123@securehost:6379/0"
+        finally:
+            # Restore original values
+            settings.REDIS_HOST = original_host
+            settings.REDIS_PORT = original_port
+            settings.REDIS_PASSWORD = original_password
+            settings.REDIS_DB = original_db
+
+    def test_get_signing_key_dir_path(self):
+        """Test signing key directory path generation."""
+        from api.core.oidc.provider import get_signing_key_dir_path
+        import os
+
+        result = get_signing_key_dir_path("/api/core/oidc", "/test", "key.pem")
+        assert result.endswith(os.path.join("/test", "key.pem"))
+
+    @patch("api.core.oidc.provider.os.path.isfile")
+    def test_pem_file_exists_true(self, mock_isfile):
+        """Test pem file existence check when file exists."""
+        from api.core.oidc.provider import pem_file_exists
+
+        mock_isfile.return_value = True
+        assert pem_file_exists("/path/to/key.pem") is True
+        mock_isfile.assert_called_once_with("/path/to/key.pem")
+
+    @patch("api.core.oidc.provider.os.path.isfile")
+    def test_pem_file_exists_false(self, mock_isfile):
+        """Test pem file existence check when file does not exist."""
+        from api.core.oidc.provider import pem_file_exists
+
+        mock_isfile.return_value = False
+        assert pem_file_exists("/path/to/key.pem") is False
+        mock_isfile.assert_called_once_with("/path/to/key.pem")
+
+    @patch("builtins.open", create=True)
+    def test_save_pem_file(self, mock_open):
+        """Test saving PEM file."""
+        from api.core.oidc.provider import save_pem_file
+
+        mock_file = MagicMock()
+        mock_open.return_value = mock_file
+
+        content = b"test pem content"
+        save_pem_file("/path/to/key.pem", content)
+
+        mock_open.assert_called_once_with("/path/to/key.pem", "wb")
+        mock_file.write.assert_called_once_with(content)
+        mock_file.close.assert_called_once()
+
+
+class TestInitProvider:
+    """Test init_provider function."""
+
+    @pytest.mark.asyncio
+    async def test_init_provider_creates_provider(self):
+        """Test that init_provider creates a provider instance."""
+        from api.core.oidc import provider as provider_module
+
+        # Create a mock database
+        mock_db = Mock()
+        mock_collection = Mock()
+        mock_db.get_collection.return_value = mock_collection
+
+        # Call init_provider
+        await provider_module.init_provider(mock_db)
+
+        # Verify provider was created
+        assert provider_module.provider is not None
+        assert hasattr(provider_module.provider, "authz_state")
+        assert hasattr(provider_module.provider, "clients")

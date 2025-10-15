@@ -293,3 +293,74 @@ async def test_valid_pres_non_matching_subj_id_gen_consistent_id_true_has_sub():
     ver_config.generate_consistent_identifier = True
     claims_duplicate = Token.get_claims(auth_session, ver_config)
     assert claims["sub"] == claims_duplicate["sub"]
+
+
+def test_idtoken_dict_creates_proper_structure():
+    """Test that idtoken_dict() creates properly formatted ID token dictionary."""
+    # Create a Token instance with test claims including vc_presented_attributes
+    # Note: 'sub' is required by OpenIDSchema
+    test_claims = {
+        "pres_req_conf_id": "test_config",
+        "acr": "vc_authn",
+        "vc_presented_attributes": '{"email": "test@example.com", "name": "Test User", "sub": "user123"}',
+    }
+
+    token = Token(
+        issuer="https://test-issuer.com",
+        audiences=["test-client-id"],
+        lifetime=3600,
+        claims=test_claims,
+    )
+
+    # Call idtoken_dict with a nonce
+    nonce = "test-nonce-12345"
+    result = token.idtoken_dict(nonce)
+
+    # Verify required ID token fields
+    assert "exp" in result
+    assert "aud" in result
+    assert "nonce" in result
+    assert result["aud"] == ["test-client-id"]
+    assert result["nonce"] == nonce
+
+    # Verify claims are included
+    assert result["pres_req_conf_id"] == "test_config"
+    assert result["acr"] == "vc_authn"
+
+    # Verify standard claims are extracted to top level
+    assert "email" in result
+    assert result["email"] == "test@example.com"
+    assert "sub" in result
+    assert result["sub"] == "user123"
+
+
+def test_idtoken_dict_includes_standard_openid_claims():
+    """Test that idtoken_dict extracts OpenID standard claims to top level."""
+    # Create claims with various OpenID standard claims in vc_presented_attributes
+    test_claims = {
+        "pres_req_conf_id": "test_config",
+        "vc_presented_attributes": '{"email": "user@example.com", "given_name": "John", "family_name": "Doe", "sub": "johndoe123", "custom_claim": "should_not_be_extracted"}',
+    }
+
+    token = Token(
+        issuer="https://test-issuer.com",
+        audiences=["client1", "client2"],
+        lifetime=7200,
+        claims=test_claims,
+    )
+
+    result = token.idtoken_dict("nonce-value")
+
+    # Verify standard OpenID claims are at top level
+    assert "email" in result
+    assert result["email"] == "user@example.com"
+    assert "given_name" in result
+    assert result["given_name"] == "John"
+    assert "family_name" in result
+    assert result["family_name"] == "Doe"
+    assert "sub" in result
+    assert result["sub"] == "johndoe123"
+
+    # Verify custom claims are NOT extracted to top level (only in vc_presented_attributes)
+    # OpenIDSchema only validates known OpenID Connect standard claims
+    assert "custom_claim" not in result or result.get("custom_claim") is None
