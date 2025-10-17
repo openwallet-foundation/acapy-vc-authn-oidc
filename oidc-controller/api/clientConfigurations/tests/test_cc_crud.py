@@ -100,3 +100,40 @@ async def test_client_config_patch(db_client: Callable[[], MongoClient], log_out
         COLLECTION_NAMES.CLIENT_CONFIGURATIONS
     ).find_one({"client_id": test_client_config.client_id})
     assert document["client_secret"] == "patched_client_secret"
+
+
+@pytest.mark.asyncio
+async def test_client_config_get_all(db_client: Callable[[], MongoClient]):
+    """Test that get_all() returns all client configurations."""
+    client = db_client()
+    crud = ClientConfigurationCRUD(client.db)
+
+    # Insert multiple client configurations
+    client1 = ClientConfiguration(
+        client_id="client1",
+        client_name="Client 1",
+        client_secret="secret1",
+        redirect_uris=["http://redirect1.com"],
+    )
+    client2 = ClientConfiguration(
+        client_id="client2",
+        client_name="Client 2",
+        client_secret="secret2",
+        redirect_uris=["http://redirect2.com"],
+    )
+
+    client.db.get_collection(COLLECTION_NAMES.CLIENT_CONFIGURATIONS).insert_one(
+        client1.model_dump()
+    )
+    client.db.get_collection(COLLECTION_NAMES.CLIENT_CONFIGURATIONS).insert_one(
+        client2.model_dump()
+    )
+
+    # Get all client configurations
+    result = await crud.get_all()
+
+    # Verify all clients are returned
+    assert len(result) == 2
+    client_ids = [c.client_id for c in result]
+    assert "client1" in client_ids
+    assert "client2" in client_ids
