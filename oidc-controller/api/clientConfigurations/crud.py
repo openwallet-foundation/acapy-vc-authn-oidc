@@ -8,7 +8,6 @@ from ..core.http_exception_util import (
     raise_appropriate_http_exception,
     check_and_raise_not_found_http_exception,
 )
-from ..core.oidc.provider import init_provider
 from ..db.session import COLLECTION_NAMES
 
 from .models import (
@@ -34,8 +33,7 @@ class ClientConfigurationCRUD:
                 err, exists_msg="Client configuration already exists"
             )
 
-        # remake provider instance to refresh provider client
-        await init_provider(self._db)
+        # No need to reload provider - DynamicClientDatabase loads from MongoDB on-demand
         return ClientConfiguration(
             **col.find_one({"client_id": client_config.client_id})
         )
@@ -62,8 +60,7 @@ class ClientConfigurationCRUD:
         )
         check_and_raise_not_found_http_exception(obj, NOT_FOUND_MSG)
 
-        # remake provider instance to refresh provider client
-        await init_provider(self._db)
+        # No need to reload provider - DynamicClientDatabase loads from MongoDB on-demand
         return obj
 
     async def delete(self, client_id: str) -> bool:
@@ -71,6 +68,5 @@ class ClientConfigurationCRUD:
         obj = col.find_one_and_delete({"client_id": client_id})
         check_and_raise_not_found_http_exception(obj, NOT_FOUND_MSG)
 
-        # remake provider instance to refresh provider client
-        await init_provider(self._db)
+        # No need to reload provider - DynamicClientDatabase loads from MongoDB on-demand
         return bool(obj)
