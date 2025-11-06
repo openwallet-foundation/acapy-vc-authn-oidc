@@ -12,6 +12,9 @@ classifiers = [
 ]
 repository = "https://github.com/openwallet-foundation/acapy-vc-authn-oidc"
 
+[tool.poetry]
+package-mode = false
+
 [tool.poetry.dependencies]
 python = ">=3.12,<4.0"
 fastapi = "^0.116.1"
