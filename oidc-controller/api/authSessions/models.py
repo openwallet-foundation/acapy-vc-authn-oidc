@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, UTC
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum, auto
 
 from api.core.models import UUIDModel
@@ -44,7 +44,9 @@ class AuthSession(AuthSessionBase, UUIDModel):
 
 
 class AuthSessionCreate(AuthSessionBase):
-    pass
+    proof_status: AuthSessionState = Field(
+        default=AuthSessionState.NOT_STARTED
+    )
 
 
 class AuthSessionPatch(AuthSessionBase):
