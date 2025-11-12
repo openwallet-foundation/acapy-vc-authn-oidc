@@ -44,9 +44,7 @@ class AuthSession(AuthSessionBase, UUIDModel):
 
 
 class AuthSessionCreate(AuthSessionBase):
-    proof_status: AuthSessionState = Field(
-        default=AuthSessionState.NOT_STARTED
-    )
+    proof_status: AuthSessionState = Field(default=AuthSessionState.NOT_STARTED)
 
 
 class AuthSessionPatch(AuthSessionBase):

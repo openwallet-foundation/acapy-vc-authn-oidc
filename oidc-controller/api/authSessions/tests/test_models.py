@@ -2,8 +2,12 @@
 
 from datetime import UTC, datetime
 
-from api.authSessions.models import (AuthSession, AuthSessionCreate,
-                                     AuthSessionPatch, AuthSessionState)
+from api.authSessions.models import (
+    AuthSession,
+    AuthSessionCreate,
+    AuthSessionPatch,
+    AuthSessionState,
+)
 from api.core.models import PyObjectId
 
 

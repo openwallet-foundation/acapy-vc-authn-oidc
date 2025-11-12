@@ -4,8 +4,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from api.authSessions.crud import AuthSessionCRUD
-from api.authSessions.models import (AuthSession, AuthSessionCreate,
-                                     AuthSessionPatch, AuthSessionState)
+from api.authSessions.models import (
+    AuthSession,
+    AuthSessionCreate,
+    AuthSessionPatch,
+    AuthSessionState,
+)
 from api.core.models import PyObjectId
 from api.db.session import COLLECTION_NAMES
 from bson import ObjectId
@@ -118,15 +122,15 @@ class TestAuthSessionCRUD:
         mock_database.get_collection.assert_called_once_with(
             COLLECTION_NAMES.AUTH_SESSION
         )
-        
+
         # Verify that insert_one was called with data including proof_status
         insert_call_args = mock_collection.insert_one.call_args
         inserted_doc = insert_call_args[0][0]
-        assert "proof_status" in inserted_doc, (
-            "proof_status must be in document for TTL index to work"
-        )
+        assert (
+            "proof_status" in inserted_doc
+        ), "proof_status must be in document for TTL index to work"
         assert inserted_doc["proof_status"] == AuthSessionState.NOT_STARTED
-        
+
         mock_collection.find_one.assert_called_once_with(
             {"_id": sample_auth_session_data["_id"]}
         )
