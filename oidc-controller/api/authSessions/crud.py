@@ -1,19 +1,13 @@
 import structlog
-
+from api.db.session import COLLECTION_NAMES
+from fastapi import HTTPException
+from fastapi import status as http_status
 from pymongo import ReturnDocument
 from pymongo.database import Database
 from pymongo.errors import DuplicateKeyError
-from fastapi import HTTPException
-from fastapi import status as http_status
 
 from ..core.models import PyObjectId
-from .models import (
-    AuthSession,
-    AuthSessionCreate,
-    AuthSessionPatch,
-)
-from api.db.session import COLLECTION_NAMES
-
+from .models import AuthSession, AuthSessionCreate, AuthSessionPatch
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
 
