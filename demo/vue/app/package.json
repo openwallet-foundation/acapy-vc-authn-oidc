@@ -42,7 +42,7 @@
     "express-winston": "^4.2.0",
     "form-data": "^4.0.4",
     "fs-extra": "^11.3.2",
-    "js-yaml": "^4.1.0",
+    "js-yaml": "^4.1.1",
     "jsonwebtoken": "^9.0.2",
     "keycloak-connect": "^26.1.1",
     "winston": "^3.18.3",
