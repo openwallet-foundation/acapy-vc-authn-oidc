@@ -52,24 +52,23 @@ class Token(BaseModel):
 
         presentation_claims: dict[str, Claim] = {}
 
-        # Handle in-flight sessions during configuration changes (e.g., switching 'indy' to 'anoncreds').
-        # If the current config setting doesn't match the stored record,
-        # fallback to the format actually found in the database.
+        # Make fallback logic more robust by checking both pres_request and pres.
+        # This handles in-flight sessions during configuration changes and guards against malformed data.
         pres_request = auth_session.presentation_exchange.get("pres_request", {})
+        pres = auth_session.presentation_exchange.get("pres", {})
         proof_format = settings.ACAPY_PROOF_FORMAT
 
-        if proof_format not in pres_request:
-            if "indy" in pres_request:
+        if proof_format not in pres_request or proof_format not in pres:
+            if "indy" in pres_request and "indy" in pres:
                 logger.debug(
                     f"Configured proof format '{proof_format}' not found in record, falling back to 'indy'"
                 )
                 proof_format = "indy"
-            elif "anoncreds" in pres_request:
+            elif "anoncreds" in pres_request and "anoncreds" in pres:
                 logger.debug(
                     f"Configured proof format '{proof_format}' not found in record, falling back to 'anoncreds'"
                 )
                 proof_format = "anoncreds"
-            # If neither found, we stick with settings.ACAPY_PROOF_FORMAT and let it likely fail below
 
         logger.info(
             "Extracted requested attributes from presentation request",
