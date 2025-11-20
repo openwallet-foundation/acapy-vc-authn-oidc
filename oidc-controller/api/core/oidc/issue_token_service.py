@@ -72,12 +72,10 @@ class Token(BaseModel):
             # If neither found, we stick with settings.ACAPY_PROOF_FORMAT and let it likely fail below
 
         logger.info(
-            "pres_request_token"
-            + str(
-                auth_session.presentation_exchange["pres_request"][proof_format][
-                    "requested_attributes"
-                ]
-            )
+            "Extracted requested attributes from presentation request",
+            requested_attributes=auth_session.presentation_exchange["pres_request"][
+                proof_format
+            ]["requested_attributes"],
         )
 
         referent: str
