@@ -588,6 +588,7 @@ async def test_send_problem_report_sends_correct_payload(requests_mock):
     assert requests_mock.last_request.json() == {"description": description}
     assert requests_mock.call_count == 1
 
+
 @pytest.mark.asyncio
 async def test_create_presentation_request_uses_configured_proof_format(requests_mock):
     # Verify payload key respects ACAPY_PROOF_FORMAT
@@ -601,20 +602,27 @@ async def test_create_presentation_request_uses_configured_proof_format(requests
     # Patch the setting to 'anoncreds'
     with mock.patch.object(settings, "ACAPY_PROOF_FORMAT", "anoncreds"):
         with mock.patch.object(
-            CreatePresentationResponse, "model_validate", return_value={"result": "success"}
+            CreatePresentationResponse,
+            "model_validate",
+            return_value={"result": "success"},
         ):
             client = AcapyClient()
-            client.agent_config.get_headers = mock.MagicMock(return_value={"x-api-key": ""})
-            
+            client.agent_config.get_headers = mock.MagicMock(
+                return_value={"x-api-key": ""}
+            )
+
             client.create_presentation_request(presentation_request_configuration)
-            
+
             # Inspect the actual JSON body sent to ACA-Py
             request_json = requests_mock.last_request.json()
             assert "anoncreds" in request_json["presentation_request"]
             assert "indy" not in request_json["presentation_request"]
 
+
 @pytest.mark.asyncio
-async def test_send_presentation_request_by_connection_uses_configured_proof_format(requests_mock):
+async def test_send_presentation_request_by_connection_uses_configured_proof_format(
+    requests_mock,
+):
     # Verify connection-based request also respects ACAPY_PROOF_FORMAT
     requests_mock.post(
         settings.ACAPY_ADMIN_URL + SEND_PRESENTATION_REQUEST_URL,
@@ -625,13 +633,19 @@ async def test_send_presentation_request_by_connection_uses_configured_proof_for
 
     with mock.patch.object(settings, "ACAPY_PROOF_FORMAT", "anoncreds"):
         with mock.patch.object(
-            CreatePresentationResponse, "model_validate", return_value={"result": "success"}
+            CreatePresentationResponse,
+            "model_validate",
+            return_value={"result": "success"},
         ):
             client = AcapyClient()
-            client.agent_config.get_headers = mock.MagicMock(return_value={"x-api-key": ""})
-            
-            client.send_presentation_request_by_connection("conn_id", presentation_request_configuration)
-            
+            client.agent_config.get_headers = mock.MagicMock(
+                return_value={"x-api-key": ""}
+            )
+
+            client.send_presentation_request_by_connection(
+                "conn_id", presentation_request_configuration
+            )
+
             request_json = requests_mock.last_request.json()
             assert "anoncreds" in request_json["presentation_request"]
             assert "indy" not in request_json["presentation_request"]

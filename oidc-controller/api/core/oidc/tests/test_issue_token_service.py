@@ -371,13 +371,12 @@ def test_idtoken_dict_includes_standard_openid_claims():
     # OpenIDSchema only validates known OpenID Connect standard claims
     assert "custom_claim" not in result or result.get("custom_claim") is None
 
+
 # Helper to construct mock data with specific structure keys using local test data
 def create_mock_presentation_exchange(format_key="indy"):
     return {
         "pres_request": {
-            format_key: {
-                "requested_attributes": basic_valid_requested_attributes
-            }
+            format_key: {"requested_attributes": basic_valid_requested_attributes}
         },
         "pres": {
             format_key: {
@@ -385,22 +384,24 @@ def create_mock_presentation_exchange(format_key="indy"):
                     "revealed_attr_groups": basic_valid_revealed_attr_groups
                 }
             }
-        }
+        },
     }
+
 
 @pytest.mark.asyncio
 async def test_get_claims_happy_path_anoncreds():
     """Test extracting claims when config is anoncreds and data matches."""
     # Arrange: Data has 'anoncreds' key
     auth_session.presentation_exchange = create_mock_presentation_exchange("anoncreds")
-    
+
     # Act: Config is 'anoncreds'
     with patch.object(settings, "ACAPY_PROOF_FORMAT", "anoncreds"):
         claims = Token.get_claims(auth_session, ver_config)
-        
+
     # Assert
     attributes = json.loads(claims["vc_presented_attributes"])
     assert attributes["email"] == "test@email.com"
+
 
 @pytest.mark.asyncio
 async def test_get_claims_fallback_migration_logic():
@@ -410,12 +411,12 @@ async def test_get_claims_fallback_migration_logic():
     """
     # Arrange: Data only has 'indy' key (simulating old record in DB)
     auth_session.presentation_exchange = create_mock_presentation_exchange("indy")
-    
+
     # Act: Config is set to 'anoncreds' (simulating new deployment)
     with patch.object(settings, "ACAPY_PROOF_FORMAT", "anoncreds"):
         # This would raise KeyError if fallback logic didn't exist
         claims = Token.get_claims(auth_session, ver_config)
-        
+
     # Assert: Should still find the data under 'indy' key
     attributes = json.loads(claims["vc_presented_attributes"])
     assert attributes["email"] == "test@email.com"
