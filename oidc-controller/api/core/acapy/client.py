@@ -50,7 +50,7 @@ class AcapyClient:
         self, presentation_request_configuration: dict
     ) -> CreatePresentationResponse:
         logger.debug(">>> create_presentation_request")
-        
+
         format_key = settings.ACAPY_PROOF_FORMAT
         present_proof_payload = {
             "presentation_request": {format_key: presentation_request_configuration}
