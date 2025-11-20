@@ -1,6 +1,12 @@
 import pytest
+import json
+
 from api.core.oidc.issue_token_service import Token
 from api.core.oidc.tests.__mocks__ import auth_session, presentation, ver_config
+
+from copy import deepcopy
+from api.core.config import settings
+from unittest.mock import patch
 
 basic_valid_requested_attributes = {
     "req_attr_0": {
@@ -64,21 +70,32 @@ multiple_valid_revealed_attr_groups = {
 }
 
 
+# Create a fixture to provide an isolated copy of the auth_session mock for each test
+@pytest.fixture
+def auth_session_fixture():
+    """Provides a deep copy of the global auth_session mock to prevent test pollution."""
+    return deepcopy(auth_session)
+
+
 @pytest.mark.asyncio
-async def test_valid_proof_presentation_with_one_attribute_returns_claims():
+async def test_valid_proof_presentation_with_one_attribute_returns_claims(
+    auth_session_fixture,
+):
     presentation["by_format"]["pres_request"]["indy"][
         "requested_attributes"
     ] = basic_valid_requested_attributes
     presentation["by_format"]["pres"]["indy"]["requested_proof"][
         "revealed_attr_groups"
     ] = basic_valid_revealed_attr_groups
-    auth_session.presentation_exchange = presentation["by_format"]
-    claims = Token.get_claims(auth_session, ver_config)
+    auth_session_fixture.presentation_exchange = presentation["by_format"]
+    claims = Token.get_claims(auth_session_fixture, ver_config)
     assert claims is not None
 
 
 @pytest.mark.asyncio
-async def test_valid_proof_presentation_with_multiple_attributes_returns_claims():
+async def test_valid_proof_presentation_with_multiple_attributes_returns_claims(
+    auth_session_fixture,
+):
     presentation["by_format"]["pres_request"]["indy"]["requested_attributes"] = {
         "req_attr_0": {
             "names": ["email"],
@@ -127,22 +144,24 @@ async def test_valid_proof_presentation_with_multiple_attributes_returns_claims(
             },
         },
     }
-    auth_session.presentation_exchange = presentation["by_format"]
-    claims = Token.get_claims(auth_session, ver_config)
+    auth_session_fixture.presentation_exchange = presentation["by_format"]
+    claims = Token.get_claims(auth_session_fixture, ver_config)
     assert claims is not None
 
 
 @pytest.mark.asyncio
-async def test_include_v1_attributes_false_does_not_add_the_named_attributes():
+async def test_include_v1_attributes_false_does_not_add_the_named_attributes(
+    auth_session_fixture,
+):
     presentation["by_format"]["pres_request"]["indy"][
         "requested_attributes"
     ] = multiple_valid_requested_attributes
     presentation["by_format"]["pres"]["indy"]["requested_proof"][
         "revealed_attr_groups"
     ] = multiple_valid_revealed_attr_groups
-    auth_session.presentation_exchange = presentation["by_format"]
+    auth_session_fixture.presentation_exchange = presentation["by_format"]
     ver_config.include_v1_attributes = False
-    claims = Token.get_claims(auth_session, ver_config)
+    claims = Token.get_claims(auth_session_fixture, ver_config)
     vc_presented_attributes_obj = eval(claims["vc_presented_attributes"])
     assert claims is not None
     assert vc_presented_attributes_obj["email_1"] == "test@email.com"
@@ -152,16 +171,18 @@ async def test_include_v1_attributes_false_does_not_add_the_named_attributes():
 
 
 @pytest.mark.asyncio
-async def test_include_v1_attributes_true_adds_the_named_attributes():
+async def test_include_v1_attributes_true_adds_the_named_attributes(
+    auth_session_fixture,
+):
     presentation["by_format"]["pres_request"]["indy"][
         "requested_attributes"
     ] = multiple_valid_requested_attributes
     presentation["by_format"]["pres"]["indy"]["requested_proof"][
         "revealed_attr_groups"
     ] = multiple_valid_revealed_attr_groups
-    auth_session.presentation_exchange = presentation["by_format"]
+    auth_session_fixture.presentation_exchange = presentation["by_format"]
     ver_config.include_v1_attributes = True
-    claims = Token.get_claims(auth_session, ver_config)
+    claims = Token.get_claims(auth_session_fixture, ver_config)
     vc_presented_attributes_obj = eval(claims["vc_presented_attributes"])
     assert claims is not None
     assert vc_presented_attributes_obj["email_1"] == "test@email.com"
@@ -171,17 +192,19 @@ async def test_include_v1_attributes_true_adds_the_named_attributes():
 
 
 @pytest.mark.asyncio
-async def test_include_v1_attributes_none_does_not_add_the_named_attributes():
+async def test_include_v1_attributes_none_does_not_add_the_named_attributes(
+    auth_session_fixture,
+):
     presentation["by_format"]["pres_request"]["indy"][
         "requested_attributes"
     ] = multiple_valid_requested_attributes
     presentation["by_format"]["pres"]["indy"]["requested_proof"][
         "revealed_attr_groups"
     ] = multiple_valid_revealed_attr_groups
-    auth_session.presentation_exchange = presentation["by_format"]
+    auth_session_fixture.presentation_exchange = presentation["by_format"]
     ver_config.include_v1_attributes = None
     print(ver_config.include_v1_attributes)
-    claims = Token.get_claims(auth_session, ver_config)
+    claims = Token.get_claims(auth_session_fixture, ver_config)
     vc_presented_attributes_obj = eval(claims["vc_presented_attributes"])
     assert claims is not None
     assert vc_presented_attributes_obj["email_1"] == "test@email.com"
@@ -191,7 +214,9 @@ async def test_include_v1_attributes_none_does_not_add_the_named_attributes():
 
 
 @pytest.mark.asyncio
-async def test_revealed_attrs_dont_match_requested_attributes_throws_exception():
+async def test_revealed_attrs_dont_match_requested_attributes_throws_exception(
+    auth_session_fixture,
+):
     presentation["by_format"]["pres_request"]["indy"]["requested_attributes"] = {
         "req_attr_0": {
             "names": ["email"],
@@ -219,79 +244,87 @@ async def test_revealed_attrs_dont_match_requested_attributes_throws_exception()
             },
         }
     }
-    auth_session.presentation_exchange = presentation["by_format"]
+    auth_session_fixture.presentation_exchange = presentation["by_format"]
     with pytest.raises(Exception):
-        Token.get_claims(auth_session, ver_config)
+        Token.get_claims(auth_session_fixture, ver_config)
 
 
 @pytest.mark.asyncio
-async def test_valid_presentation_with_matching_subject_identifier_in_claims_sub():
+async def test_valid_presentation_with_matching_subject_identifier_in_claims_sub(
+    auth_session_fixture,
+):
     presentation["by_format"]["pres_request"]["indy"][
         "requested_attributes"
     ] = basic_valid_requested_attributes
     presentation["by_format"]["pres"]["indy"]["requested_proof"][
         "revealed_attr_groups"
     ] = basic_valid_revealed_attr_groups
-    auth_session.presentation_exchange = presentation["by_format"]
-    claims = Token.get_claims(auth_session, ver_config)
+    auth_session_fixture.presentation_exchange = presentation["by_format"]
+    claims = Token.get_claims(auth_session_fixture, ver_config)
     print(claims)
     assert claims["sub"] == "test@email.com@verified-email"
 
 
 @pytest.mark.asyncio
-async def test_valid_pres_with_non_matching_subj_id_gen_consistent_id_missing_no_sub():
+async def test_valid_pres_with_non_matching_subj_id_gen_consistent_id_missing_no_sub(
+    auth_session_fixture,
+):
     presentation["by_format"]["pres_request"]["indy"][
         "requested_attributes"
     ] = basic_valid_requested_attributes
     presentation["by_format"]["pres"]["indy"]["requested_proof"][
         "revealed_attr_groups"
     ] = basic_valid_revealed_attr_groups
-    auth_session.presentation_exchange = presentation["by_format"]
+    auth_session_fixture.presentation_exchange = presentation["by_format"]
     ver_config.subject_identifier = "not-email"
-    claims = Token.get_claims(auth_session, ver_config)
+    claims = Token.get_claims(auth_session_fixture, ver_config)
     assert not ver_config.generate_consistent_identifier
     assert "sub" not in claims
 
 
 @pytest.mark.asyncio
-async def test_valid_pres_non_matching_subj_id_gen_consistent_id_false_has_no_sub():
+async def test_valid_pres_non_matching_subj_id_gen_consistent_id_false_has_no_sub(
+    auth_session_fixture,
+):
     presentation["by_format"]["pres_request"]["indy"][
         "requested_attributes"
     ] = basic_valid_requested_attributes
     presentation["by_format"]["pres"]["indy"]["requested_proof"][
         "revealed_attr_groups"
     ] = basic_valid_revealed_attr_groups
-    auth_session.presentation_exchange = presentation["by_format"]
+    auth_session_fixture.presentation_exchange = presentation["by_format"]
     ver_config.subject_identifier = "not-email"
     ver_config.generate_consistent_identifier = False
-    claims = Token.get_claims(auth_session, ver_config)
+    claims = Token.get_claims(auth_session_fixture, ver_config)
     assert "sub" not in claims
 
 
 @pytest.mark.asyncio
-async def test_valid_pres_non_matching_subj_id_gen_consistent_id_true_has_sub():
+async def test_valid_pres_non_matching_subj_id_gen_consistent_id_true_has_sub(
+    auth_session_fixture,
+):
     presentation["by_format"]["pres_request"]["indy"][
         "requested_attributes"
     ] = basic_valid_requested_attributes
     presentation["by_format"]["pres"]["indy"]["requested_proof"][
         "revealed_attr_groups"
     ] = basic_valid_revealed_attr_groups
-    auth_session.presentation_exchange = presentation["by_format"]
+    auth_session_fixture.presentation_exchange = presentation["by_format"]
     ver_config.subject_identifier = "not-email"
     ver_config.generate_consistent_identifier = True
-    claims = Token.get_claims(auth_session, ver_config)
+    claims = Token.get_claims(auth_session_fixture, ver_config)
     assert "sub" in claims
 
     # Ensure that this sub is not using the ver_config.subject_identifier
     ver_config.subject_identifier = "email"
     ver_config.generate_consistent_identifier = False
-    claims_subject_identifier = Token.get_claims(auth_session, ver_config)
+    claims_subject_identifier = Token.get_claims(auth_session_fixture, ver_config)
     assert claims["sub"] != claims_subject_identifier["sub"]
 
     # Ensure that sub is consistent
     ver_config.subject_identifier = "not-email"
     ver_config.generate_consistent_identifier = True
-    claims_duplicate = Token.get_claims(auth_session, ver_config)
+    claims_duplicate = Token.get_claims(auth_session_fixture, ver_config)
     assert claims["sub"] == claims_duplicate["sub"]
 
 
@@ -364,3 +397,57 @@ def test_idtoken_dict_includes_standard_openid_claims():
     # Verify custom claims are NOT extracted to top level (only in vc_presented_attributes)
     # OpenIDSchema only validates known OpenID Connect standard claims
     assert "custom_claim" not in result or result.get("custom_claim") is None
+
+
+# Helper to construct mock data with specific structure keys using local test data
+def create_mock_presentation_exchange(format_key="indy"):
+    return {
+        "pres_request": {
+            format_key: {"requested_attributes": basic_valid_requested_attributes}
+        },
+        "pres": {
+            format_key: {
+                "requested_proof": {
+                    "revealed_attr_groups": basic_valid_revealed_attr_groups
+                }
+            }
+        },
+    }
+
+
+@pytest.mark.asyncio
+async def test_get_claims_happy_path_anoncreds(auth_session_fixture):
+    """Test extracting claims when config is anoncreds and data matches."""
+    # Arrange: Data has 'anoncreds' key
+    auth_session_fixture.presentation_exchange = create_mock_presentation_exchange(
+        "anoncreds"
+    )
+
+    # Act: Config is 'anoncreds'
+    with patch.object(settings, "ACAPY_PROOF_FORMAT", "anoncreds"):
+        claims = Token.get_claims(auth_session_fixture, ver_config)
+
+    # Assert
+    attributes = json.loads(claims["vc_presented_attributes"])
+    assert attributes["email"] == "test@email.com"
+
+
+@pytest.mark.asyncio
+async def test_get_claims_fallback_migration_logic(auth_session_fixture):
+    """
+    Critical Test: Verify migration fallback.
+    Config is set to 'anoncreds' (new), but DB record has 'indy' (old).
+    """
+    # Arrange: Data only has 'indy' key (simulating old record in DB)
+    auth_session_fixture.presentation_exchange = create_mock_presentation_exchange(
+        "indy"
+    )
+
+    # Act: Config is set to 'anoncreds' (simulating new deployment)
+    with patch.object(settings, "ACAPY_PROOF_FORMAT", "anoncreds"):
+        # This would raise KeyError if fallback logic didn't exist
+        claims = Token.get_claims(auth_session_fixture, ver_config)
+
+    # Assert: Should still find the data under 'indy' key
+    attributes = json.loads(claims["vc_presented_attributes"])
+    assert attributes["email"] == "test@email.com"
