@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from ...authSessions.models import AuthSession
 from ...verificationConfigs.models import ReqAttr, VerificationConfig
 from ...core.models import RevealedAttribute
+from ..config import settings
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
 
@@ -50,10 +51,30 @@ class Token(BaseModel):
         )
 
         presentation_claims: dict[str, Claim] = {}
+
+        # Handle in-flight sessions during configuration changes (e.g., switching 'indy' to 'anoncreds').
+        # If the current config setting doesn't match the stored record,
+        # fallback to the format actually found in the database.
+        pres_request = auth_session.presentation_exchange.get("pres_request", {})
+        proof_format = settings.ACAPY_PROOF_FORMAT
+
+        if proof_format not in pres_request:
+            if "indy" in pres_request:
+                logger.debug(
+                    f"Configured proof format '{proof_format}' not found in record, falling back to 'indy'"
+                )
+                proof_format = "indy"
+            elif "anoncreds" in pres_request:
+                logger.debug(
+                    f"Configured proof format '{proof_format}' not found in record, falling back to 'anoncreds'"
+                )
+                proof_format = "anoncreds"
+            # If neither found, we stick with settings.ACAPY_PROOF_FORMAT and let it likely fail below
+
         logger.info(
             "pres_request_token"
             + str(
-                auth_session.presentation_exchange["pres_request"]["indy"][
+                auth_session.presentation_exchange["pres_request"][proof_format][
                     "requested_attributes"
                 ]
             )
@@ -64,13 +85,13 @@ class Token(BaseModel):
         try:
             for referent, requested_attrdict in auth_session.presentation_exchange[
                 "pres_request"
-            ]["indy"]["requested_attributes"].items():
+            ][proof_format]["requested_attributes"].items():
                 requested_attr = ReqAttr(**requested_attrdict)
                 logger.debug(
                     f"Processing referent: {referent}, requested_attr: {requested_attr}"
                 )
                 revealed_attrs: dict[str, RevealedAttribute] = (
-                    auth_session.presentation_exchange["pres"]["indy"][
+                    auth_session.presentation_exchange["pres"][proof_format][
                         "requested_proof"
                     ]["revealed_attr_groups"]
                 )

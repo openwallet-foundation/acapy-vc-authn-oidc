@@ -50,8 +50,10 @@ class AcapyClient:
         self, presentation_request_configuration: dict
     ) -> CreatePresentationResponse:
         logger.debug(">>> create_presentation_request")
+        
+        format_key = settings.ACAPY_PROOF_FORMAT
         present_proof_payload = {
-            "presentation_request": {"indy": presentation_request_configuration}
+            "presentation_request": {format_key: presentation_request_configuration}
         }
 
         resp_raw = requests.post(
@@ -215,9 +217,10 @@ class AcapyClient:
         """
         logger.debug(">>> send_presentation_request_by_connection")
 
+        format_key = settings.ACAPY_PROOF_FORMAT
         present_proof_payload = {
             "connection_id": connection_id,
-            "presentation_request": {"indy": presentation_request_configuration},
+            "presentation_request": {format_key: presentation_request_configuration},
         }
 
         resp_raw = requests.post(

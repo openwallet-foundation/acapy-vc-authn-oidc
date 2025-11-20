@@ -204,6 +204,8 @@ class GlobalConfig(BaseSettings):
 
     ACAPY_ADMIN_URL: str = os.environ.get("ACAPY_ADMIN_URL", "http://localhost:8031")
 
+    ACAPY_PROOF_FORMAT: str = os.environ.get("ACAPY_PROOF_FORMAT", "indy")
+
     MT_ACAPY_WALLET_ID: str | None = os.environ.get("MT_ACAPY_WALLET_ID")
     MT_ACAPY_WALLET_KEY: str = os.environ.get("MT_ACAPY_WALLET_KEY", "random-key")
 

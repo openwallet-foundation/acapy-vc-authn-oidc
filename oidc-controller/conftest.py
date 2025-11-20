@@ -23,3 +23,5 @@ def db(db_client):
 
 settings.CONTROLLER_URL = "https://controller"
 settings.TESTING = True
+
+settings.ACAPY_PROOF_FORMAT = "indy"
