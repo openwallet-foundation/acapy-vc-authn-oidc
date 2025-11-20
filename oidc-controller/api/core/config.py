@@ -303,3 +303,9 @@ def get_configuration() -> GlobalConfig:
 
 
 settings = get_configuration()
+
+# Add startup validation for ACAPY_PROOF_FORMAT
+if settings.ACAPY_PROOF_FORMAT not in ["indy", "anoncreds"]:
+    raise ValueError(
+        f"ACAPY_PROOF_FORMAT must be 'indy' or 'anoncreds', got '{settings.ACAPY_PROOF_FORMAT}'"
+    )
