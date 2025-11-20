@@ -46,9 +46,11 @@ class Token(BaseModel):
         ]
         # subject claim
 
-        oidc_claims.append(
-            Claim(type="nonce", value=auth_session.request_parameters["nonce"])
-        )
+        # Conditionally append nonce as it is optional in Auth Code flow
+        if "nonce" in auth_session.request_parameters:
+            oidc_claims.append(
+                Claim(type="nonce", value=auth_session.request_parameters["nonce"])
+            )
 
         presentation_claims: dict[str, Claim] = {}
 

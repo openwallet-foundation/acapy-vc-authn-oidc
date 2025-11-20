@@ -471,3 +471,55 @@ async def test_get_claims_fallback_reverse_migration_logic(auth_session_fixture)
     # Assert: Should correctly find the data under 'anoncreds' key
     attributes = json.loads(claims["vc_presented_attributes"])
     assert attributes["email"] == "test@email.com"
+
+
+@pytest.mark.asyncio
+async def test_get_claims_no_nonce_success(auth_session_fixture):
+    """Test that get_claims succeeds when nonce is missing from request parameters (Auth Code flow)."""
+    # Arrange
+    # Remove nonce if it exists in the fixture
+    if "nonce" in auth_session_fixture.request_parameters:
+        del auth_session_fixture.request_parameters["nonce"]
+
+    # Setup valid presentation data so the rest of the function succeeds
+    presentation["by_format"]["pres_request"]["indy"][
+        "requested_attributes"
+    ] = basic_valid_requested_attributes
+    presentation["by_format"]["pres"]["indy"]["requested_proof"][
+        "revealed_attr_groups"
+    ] = basic_valid_revealed_attr_groups
+    auth_session_fixture.presentation_exchange = presentation["by_format"]
+
+    # Act
+    claims = Token.get_claims(auth_session_fixture, ver_config)
+
+    # Assert
+    assert claims is not None
+    # Verify nonce is NOT in the returned claims
+    assert "nonce" not in claims
+    # Verify other standard claims are still present
+    assert "pres_req_conf_id" in claims
+
+
+@pytest.mark.asyncio
+async def test_get_claims_with_nonce_success(auth_session_fixture):
+    """Test that get_claims includes nonce when present (Standard/Implicit flow)."""
+    # Arrange
+    expected_nonce = "test-nonce-123"
+    auth_session_fixture.request_parameters["nonce"] = expected_nonce
+
+    # Setup valid presentation data
+    presentation["by_format"]["pres_request"]["indy"][
+        "requested_attributes"
+    ] = basic_valid_requested_attributes
+    presentation["by_format"]["pres"]["indy"]["requested_proof"][
+        "revealed_attr_groups"
+    ] = basic_valid_revealed_attr_groups
+    auth_session_fixture.presentation_exchange = presentation["by_format"]
+
+    # Act
+    claims = Token.get_claims(auth_session_fixture, ver_config)
+
+    # Assert
+    assert claims is not None
+    assert claims.get("nonce") == expected_nonce
