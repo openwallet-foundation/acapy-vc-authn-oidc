@@ -166,8 +166,6 @@ class TestDynamicClientDatabase:
         with pytest.raises(KeyError):
             _ = client_db[target_client_name]
 
-    
-
     def test_getitem_raises_keyerror_for_missing_client(self, db_getter, mock_db):
         """Test that __getitem__ raises KeyError for non-existent client."""
         _, mock_collection = mock_db
