@@ -88,6 +88,18 @@ usage() {
 
               $0 scale 5
 
+      test -  Builds a test-specific Docker image and runs the test suite
+              inside the container. You can pass pytest arguments.
+
+              $0 test
+              $0 test -v
+              $0 test oidc-controller/api/core/tests/
+
+      format - Runs 'black' code formatter on the source code.
+               Automatically fixes formatting issues.
+
+               $0 format
+
       logs - Display the logs from the docker compose run (ctrl-c to exit).
 
       stop - Stops the services.  This is a non-destructive process.  The volumes and containers
@@ -129,7 +141,7 @@ configureEnvironment() {
   if [ -f .env ]; then
     while read line; do
       if [[ ! "$line" =~ ^\# ]] && [[ "$line" =~ .*= ]]; then
-        export ${line//[$'\r\n']}
+        export "${line//[$'\r\n']}"
       fi
     done <.env
   fi
@@ -455,6 +467,42 @@ scale)
   export CONTROLLER_REPLICAS=${REPLICAS}
   echo "Scaling controller to ${REPLICAS} replicas..."
   docker-compose up -d --force-recreate controller
+  ;;
+test)
+  # 1. Build the test image
+  # We use the same context ('..') as the production build so we can see pyproject.toml
+  echoInfo "Building test environment image..."
+  docker build \
+    -t 'acapy-vc-authn-oidc-tests' \
+    -f './oidc-controller/Dockerfile.test' '..'
+
+  # 2. Run the container
+  # We pass $@ (all remaining arguments) to the entrypoint (pytest)
+  # This allows running specific tests: ./manage test -v -k "test_config"
+  echoInfo "Running tests in isolated container..."
+  docker run --rm 'acapy-vc-authn-oidc-tests' "$@"
+  ;;
+format)
+  # 1. Ensure image exists (re-use the test build logic)
+  echoInfo "Building tool environment image..."
+  docker build \
+    -t 'acapy-vc-authn-oidc-tests' \
+    -f './oidc-controller/Dockerfile.test' '..'
+
+  # 2. Run black
+  # We calculate the absolute path to oidc-controller relative to the script location
+  # to ensure the mount works regardless of where you run ./manage from
+  PROJECT_ROOT=$(cd "${SCRIPT_HOME}/../" && pwd)
+  
+  echoInfo "Formatting code with Black..."
+  docker run --rm \
+    --user $(id -u):$(id -g) \
+    -v "${PROJECT_ROOT}/oidc-controller":/app/src/oidc-controller \
+    --entrypoint black \
+    'acapy-vc-authn-oidc-tests' \
+    /app/src/oidc-controller
+
+  echoSuccess "Formatting complete."
   ;;
 single-pod)
   if [[ ! -f ".env" ]]; then

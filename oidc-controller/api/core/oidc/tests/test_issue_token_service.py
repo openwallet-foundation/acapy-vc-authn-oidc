@@ -451,3 +451,23 @@ async def test_get_claims_fallback_migration_logic(auth_session_fixture):
     # Assert: Should still find the data under 'indy' key
     attributes = json.loads(claims["vc_presented_attributes"])
     assert attributes["email"] == "test@email.com"
+
+
+@pytest.mark.asyncio
+async def test_get_claims_fallback_reverse_migration_logic(auth_session_fixture):
+    """
+    Verify fallback when config is 'indy' but data is 'anoncreds'.
+    This covers the 'elif "anoncreds" in pres_request' branch.
+    """
+    # Arrange: Data has 'anoncreds' key
+    auth_session_fixture.presentation_exchange = create_mock_presentation_exchange(
+        "anoncreds"
+    )
+
+    # Act: Config is set to 'indy' (simulating default/legacy config)
+    with patch.object(settings, "ACAPY_PROOF_FORMAT", "indy"):
+        claims = Token.get_claims(auth_session_fixture, ver_config)
+
+    # Assert: Should correctly find the data under 'anoncreds' key
+    attributes = json.loads(claims["vc_presented_attributes"])
+    assert attributes["email"] == "test@email.com"
