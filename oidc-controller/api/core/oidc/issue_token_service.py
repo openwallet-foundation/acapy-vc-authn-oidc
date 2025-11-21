@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from ...authSessions.models import AuthSession
 from ...verificationConfigs.models import ReqAttr, VerificationConfig
 from ...core.models import RevealedAttribute
+from ..config import settings
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
 
@@ -50,13 +51,30 @@ class Token(BaseModel):
         )
 
         presentation_claims: dict[str, Claim] = {}
+
+        # Make fallback logic more robust by checking both pres_request and pres.
+        # This handles in-flight sessions during configuration changes and guards against malformed data.
+        pres_request = auth_session.presentation_exchange.get("pres_request", {})
+        pres = auth_session.presentation_exchange.get("pres", {})
+        proof_format = settings.ACAPY_PROOF_FORMAT
+
+        if proof_format not in pres_request or proof_format not in pres:
+            if "indy" in pres_request and "indy" in pres:
+                logger.debug(
+                    f"Configured proof format '{proof_format}' not found in record, falling back to 'indy'"
+                )
+                proof_format = "indy"
+            elif "anoncreds" in pres_request and "anoncreds" in pres:
+                logger.debug(
+                    f"Configured proof format '{proof_format}' not found in record, falling back to 'anoncreds'"
+                )
+                proof_format = "anoncreds"
+
         logger.info(
-            "pres_request_token"
-            + str(
-                auth_session.presentation_exchange["pres_request"]["indy"][
-                    "requested_attributes"
-                ]
-            )
+            "Extracted requested attributes from presentation request",
+            requested_attributes=auth_session.presentation_exchange["pres_request"][
+                proof_format
+            ]["requested_attributes"],
         )
 
         referent: str
@@ -64,13 +82,13 @@ class Token(BaseModel):
         try:
             for referent, requested_attrdict in auth_session.presentation_exchange[
                 "pres_request"
-            ]["indy"]["requested_attributes"].items():
+            ][proof_format]["requested_attributes"].items():
                 requested_attr = ReqAttr(**requested_attrdict)
                 logger.debug(
                     f"Processing referent: {referent}, requested_attr: {requested_attr}"
                 )
                 revealed_attrs: dict[str, RevealedAttribute] = (
-                    auth_session.presentation_exchange["pres"]["indy"][
+                    auth_session.presentation_exchange["pres"][proof_format][
                         "requested_proof"
                     ]["revealed_attr_groups"]
                 )

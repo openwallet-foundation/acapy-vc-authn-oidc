@@ -204,6 +204,8 @@ class GlobalConfig(BaseSettings):
 
     ACAPY_ADMIN_URL: str = os.environ.get("ACAPY_ADMIN_URL", "http://localhost:8031")
 
+    ACAPY_PROOF_FORMAT: str = os.environ.get("ACAPY_PROOF_FORMAT", "indy")
+
     MT_ACAPY_WALLET_ID: str | None = os.environ.get("MT_ACAPY_WALLET_ID")
     MT_ACAPY_WALLET_KEY: str = os.environ.get("MT_ACAPY_WALLET_KEY", "random-key")
 
@@ -301,3 +303,9 @@ def get_configuration() -> GlobalConfig:
 
 
 settings = get_configuration()
+
+# Add startup validation for ACAPY_PROOF_FORMAT
+if settings.ACAPY_PROOF_FORMAT not in ["indy", "anoncreds"]:
+    raise ValueError(
+        f"ACAPY_PROOF_FORMAT must be 'indy' or 'anoncreds', got '{settings.ACAPY_PROOF_FORMAT}'"
+    )

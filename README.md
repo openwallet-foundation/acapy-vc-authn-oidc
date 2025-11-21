@@ -54,6 +54,8 @@ In order to use the VC OIDC authentication, a couple of extra steps are required
   so, the following command can be used to post a configuration requesting a BC Wallet Showcase Person credential:
 - Though not implemented in this built-in config, proof-request configurations can optionally include substitution variables. Details can be found [here](docs/ConfigurationGuide.md#proof-substitution-variables)
 
+**Note:** The following demo commands are for an **Indy-based** credential ecosystem. The application defaults to the `indy` proof format, so these examples work out-of-the-box. You can switch to `anoncreds` by setting the `ACAPY_PROOF_FORMAT` environment variable.
+
 ```bash
 curl -X 'POST' \
   'http://localhost:5000/ver_configs/' \

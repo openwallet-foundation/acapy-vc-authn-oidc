@@ -1,0 +1,23 @@
+FROM python:3.12
+
+WORKDIR /app/src
+
+# Install Poetry
+ENV POETRY_VIRTUALENVS_CREATE=false
+RUN pip3 install --no-cache-dir poetry==2.0
+
+# Copy configuration files from the project root (context is ..)
+COPY pyproject.toml poetry.lock README.md ./
+
+# Install ALL dependencies including dev (pytest, tox, mock, etc)
+# --no-root prevents installing the project itself as a package yet
+RUN poetry install --no-root --with dev
+
+# Copy the source code
+COPY ./oidc-controller ./oidc-controller
+
+# Set the python path so imports work correctly
+ENV PYTHONPATH=/app/src/oidc-controller
+
+# Default command is to run pytest
+ENTRYPOINT ["pytest"]
