@@ -46,9 +46,11 @@ class Token(BaseModel):
         ]
         # subject claim
 
-        oidc_claims.append(
-            Claim(type="nonce", value=auth_session.request_parameters["nonce"])
-        )
+        # Conditionally append nonce as it is optional in Auth Code flow
+        if "nonce" in auth_session.request_parameters:
+            oidc_claims.append(
+                Claim(type="nonce", value=auth_session.request_parameters["nonce"])
+            )
 
         presentation_claims: dict[str, Claim] = {}
 
@@ -69,12 +71,18 @@ class Token(BaseModel):
                     f"Configured proof format '{proof_format}' not found in record, falling back to 'anoncreds'"
                 )
                 proof_format = "anoncreds"
+            else:
+                # If we reach here, we have a data inconsistency or unsupported format
+                raise ValueError(
+                    f"No valid proof format found in presentation exchange"
+                )
 
         logger.info(
             "Extracted requested attributes from presentation request",
             requested_attributes=auth_session.presentation_exchange["pres_request"][
                 proof_format
             ]["requested_attributes"],
+            proof_format=proof_format,
         )
 
         referent: str
