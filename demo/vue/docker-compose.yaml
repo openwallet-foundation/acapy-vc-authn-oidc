@@ -6,10 +6,10 @@ services:
     command: npm run serve
     environment:
       FRONTEND_KC_PRES_REQ_CONF_ID: showcase-person
-      FRONTEND_KC_SERVERURL: "http://localhost:8880/auth"
+      FRONTEND_KC_SERVERURL: "http://localhost:8880/auth/"
       FRONTEND_KC_REALM: "vc-authn"
       FRONTEND_KC_CLIENTID: "vue-fe"
-      SERVER_KC_SERVERURL: "http://localhost:8880/auth"
+      SERVER_KC_SERVERURL: "http://localhost:8880/auth/"
       SERVER_KC_REALM: "vc-authn"
       SERVER_KC_CLIENTSECRET: "r7Sc7iw2deFz3olSXlFiVoaaODIZf3vp"
       SERVER_KC_CLIENTID: "vue-be"

@@ -61,14 +61,15 @@ export default function getRouter(basePath = '/') {
       !router.app.$keycloak.authenticated
     ) {
       const redirect = location.origin + basePath + to.path + location.search;
-      const loginUrl = router.app.$keycloak.createLoginUrl({
+      router.app.$keycloak.createLoginUrl({
         redirectUri: redirect,
+      }).then(loginUrl => {
+        window.location.replace(
+          loginUrl +
+          '&pres_req_conf_id=' +
+          Vue.prototype.$config.keycloak.presReqConfId
+        );
       });
-      window.location.replace(
-        loginUrl +
-        '&pres_req_conf_id=' +
-        Vue.prototype.$config.keycloak.presReqConfId
-      );
     }
     if (
       Vue.prototype.$keycloak.tokenParsed &&
@@ -79,10 +80,11 @@ export default function getRouter(basePath = '/') {
       // console.log('PRES_REQ_CONF_ID mismatch');
       // if satisified request was NOT the configured request, login is invalid
       const redirect = location.origin + basePath;
-      const logoutUrl = router.app.$keycloak.createLogoutUrl({
+      router.app.$keycloak.createLogoutUrl({
         redirectUri: redirect,
+      }).then(logoutUrl => {
+        window.location.replace(logoutUrl);
       });
-      window.location.replace(logoutUrl);
     } else {
       if (to.meta.title || process.env.VUE_APP_TITLE) {
         document.title = to.meta.title

@@ -2,6 +2,8 @@
 import Keycloak from 'keycloak-js';
 
 let installed = false;
+// eslint-disable-next-line no-unused-vars
+let keycloakInstance = null;
 
 export default {
   install: function (Vue, params = {}) {
@@ -46,7 +48,8 @@ export default {
           responseMode: null,
           responseType: null,
           hasRealmRole: null,
-          hasResourceRole: null
+          hasResourceRole: null,
+          keycloak: null
         };
       }
     });
@@ -67,7 +70,8 @@ export default {
 
 function init(config, watch, options) {
   const ctor = sanitizeConfig(config);
-  const keycloak = Keycloak(ctor);
+  const keycloak = new Keycloak(ctor);
+  keycloakInstance = keycloak;
 
   watch.$once('ready', function (cb) {
     cb && cb();
@@ -102,19 +106,20 @@ function init(config, watch, options) {
 
   function updateWatchVariables(isAuthenticated = false) {
     watch.authenticated = isAuthenticated;
-    watch.loginFn = keycloak.login;
-    watch.login = keycloak.login;
-    watch.createLoginUrl = keycloak.createLoginUrl;
-    watch.createLogoutUrl = keycloak.createLogoutUrl;
-    watch.createRegisterUrl = keycloak.createRegisterUrl;
-    watch.register = keycloak.register;
+    watch.keycloak = keycloak;
+    watch.loginFn = async () => await keycloak.login();
+    watch.login = async () => await keycloak.login();
+    watch.createLoginUrl = async (options) => await keycloak.createLoginUrl(options);
+    watch.createLogoutUrl = async (options) => await keycloak.createLogoutUrl(options);
+    watch.createRegisterUrl = async (options) => await keycloak.createRegisterUrl(options);
+    watch.register = async () => await keycloak.register();
     if (isAuthenticated) {
-      watch.accountManagement = keycloak.accountManagement;
-      watch.createAccountUrl = keycloak.createAccountUrl;
-      watch.hasRealmRole = keycloak.hasRealmRole;
-      watch.hasResourceRole = keycloak.hasResourceRole;
-      watch.loadUserProfile = keycloak.loadUserProfile;
-      watch.loadUserInfo = keycloak.loadUserInfo;
+      watch.accountManagement = async () => await keycloak.accountManagement();
+      watch.createAccountUrl = async (options) => await keycloak.createAccountUrl(options);
+      watch.hasRealmRole = (role) => keycloak.hasRealmRole(role);
+      watch.hasResourceRole = (role, resource) => keycloak.hasResourceRole(role, resource);
+      watch.loadUserProfile = async () => await keycloak.loadUserProfile();
+      watch.loadUserInfo = async () => await keycloak.loadUserInfo();
       watch.token = keycloak.token;
       watch.subject = keycloak.subject;
       watch.idToken = keycloak.idToken;
