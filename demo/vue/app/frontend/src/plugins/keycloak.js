@@ -2,7 +2,6 @@
 import Keycloak from 'keycloak-js';
 
 let installed = false;
-let keycloakInstance = null;
 
 export default {
   install: function (Vue, params = {}) {
@@ -70,7 +69,6 @@ export default {
 function init(config, watch, options) {
   const ctor = sanitizeConfig(config);
   const keycloak = new Keycloak(ctor);
-  keycloakInstance = keycloak;
 
   watch.$once('ready', function (cb) {
     cb && cb();
