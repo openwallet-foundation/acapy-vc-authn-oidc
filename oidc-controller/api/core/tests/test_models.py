@@ -3,8 +3,14 @@
 from unittest.mock import Mock
 
 import pytest
-from api.core.models import (GenericErrorMessage, HealthCheck, PyObjectId,
-                             StatusMessage, UUIDModel, VCUserinfo)
+from api.core.models import (
+    GenericErrorMessage,
+    HealthCheck,
+    PyObjectId,
+    StatusMessage,
+    UUIDModel,
+    VCUserinfo,
+)
 from bson import ObjectId
 from pydantic import ValidationError
 
@@ -96,9 +102,7 @@ class TestVCUserinfo:
         storage = {}
         mock = Mock()
         # RedisWrapper only supports [] access, not .get()
-        mock.__setitem__ = lambda self, key, value: storage.__setitem__(
-            key, value
-        )
+        mock.__setitem__ = lambda self, key, value: storage.__setitem__(key, value)
         mock.__getitem__ = lambda self, key: storage[key]
         mock.keys = lambda: storage.keys()
         return mock
@@ -121,9 +125,7 @@ class TestVCUserinfo:
         assert result == claims
         assert result["pres_req_conf_id"] == "test_config"
 
-    def test_get_claims_for_nonexistent_user_returns_empty_dict(
-        self, dict_storage
-    ):
+    def test_get_claims_for_nonexistent_user_returns_empty_dict(self, dict_storage):
         """Test that get_claims_for returns empty dict for unknown user."""
         userinfo = VCUserinfo({}, claims_storage=dict_storage)
         result = userinfo.get_claims_for("nonexistent_user", {}, None)
@@ -145,9 +147,7 @@ class TestVCUserinfo:
         result = userinfo["unknown_user"]
         assert result == {}
 
-    def test_set_claims_for_user_with_none_user_id_raises_error(
-        self, dict_storage
-    ):
+    def test_set_claims_for_user_with_none_user_id_raises_error(self, dict_storage):
         """Test set_claims_for_user raises ValueError for None user_id."""
         userinfo = VCUserinfo({}, claims_storage=dict_storage)
         with pytest.raises(ValueError, match="user_id cannot be None"):

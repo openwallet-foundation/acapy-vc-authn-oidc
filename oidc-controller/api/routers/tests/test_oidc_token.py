@@ -141,9 +141,7 @@ class TestPostTokenSubjectReplacement:
                 ) as mock_update:
                     # Mock jwt.decode to avoid decoding errors
                     with patch("jwt.decode") as mock_decode:
-                        mock_decode.return_value = {
-                            "sub": "John@showcase-person"
-                        }
+                        mock_decode.return_value = {"sub": "John@showcase-person"}
 
                         # Create mock request with proper form context
                         mock_request = MagicMock()
@@ -195,9 +193,7 @@ class TestPostTokenSubjectReplacement:
                 ):
                     # Mock jwt.decode to avoid decoding errors
                     with patch("jwt.decode") as mock_decode:
-                        mock_decode.return_value = {
-                            "sub": "John@showcase-person"
-                        }
+                        mock_decode.return_value = {"sub": "John@showcase-person"}
 
                         mock_request = MagicMock()
                         mock_form = MagicMock()
@@ -256,9 +252,7 @@ class TestPostTokenSubjectReplacement:
                 ):
                     # Mock jwt.decode to avoid decoding errors
                     with patch("jwt.decode") as mock_decode:
-                        mock_decode.return_value = {
-                            "sub": "John@showcase-person"
-                        }
+                        mock_decode.return_value = {"sub": "John@showcase-person"}
 
                         mock_request = MagicMock()
                         mock_form = MagicMock()
@@ -278,9 +272,7 @@ class TestPostTokenSubjectReplacement:
 
                         # Get the claims that were stored
                         userinfo = mock_provider.provider.userinfo
-                        stored_claims = (
-                            userinfo.set_claims_for_user.call_args[0][1]
-                        )
+                        stored_claims = userinfo.set_claims_for_user.call_args[0][1]
 
                         # Verify sub is NOT in stored claims
                         assert "sub" not in stored_claims
@@ -313,9 +305,7 @@ class TestPostTokenClaimsInclusion:
                 ):
                     # Mock jwt.decode to avoid decoding errors
                     with patch("jwt.decode") as mock_decode:
-                        mock_decode.return_value = {
-                            "sub": "John@showcase-person"
-                        }
+                        mock_decode.return_value = {"sub": "John@showcase-person"}
 
                         mock_request = MagicMock()
                         mock_form = MagicMock()
@@ -334,9 +324,7 @@ class TestPostTokenClaimsInclusion:
                         await post_token(mock_request, mock_db)
 
                         userinfo = mock_provider.provider.userinfo
-                        stored_claims = (
-                            userinfo.set_claims_for_user.call_args[0][1]
-                        )
+                        stored_claims = userinfo.set_claims_for_user.call_args[0][1]
 
                         # Verify custom claims are present
                         conf_id = stored_claims["pres_req_conf_id"]
@@ -410,9 +398,7 @@ class TestPostTokenConsistentIdentifier:
             "get_by_pyop_auth_code",
             return_value=mock_auth_session,
         ):
-            with patch.object(
-                VerificationConfigCRUD, "get", return_value=mock_config
-            ):
+            with patch.object(VerificationConfigCRUD, "get", return_value=mock_config):
                 with patch.object(
                     AuthSessionCRUD,
                     "update_pyop_user_id",
@@ -449,6 +435,4 @@ class TestPostTokenConsistentIdentifier:
 
                         # Should be a hex hash (64 chars for SHA256)
                         assert len(generated_sub) == 64
-                        assert all(
-                            c in "0123456789abcdef" for c in generated_sub
-                        )
+                        assert all(c in "0123456789abcdef" for c in generated_sub)

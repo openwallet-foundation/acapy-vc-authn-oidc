@@ -71,7 +71,7 @@ class VCUserinfo(Userinfo):
     User database for VC-based Identity provider: since no users are
     known ahead of time, a new user is created with
     every authentication request.
-    
+
     This implementation stores custom claims (from VC presentations)
     using a configurable storage backend that supports both:
     - In-memory dictionary for single-pod deployments
@@ -81,7 +81,7 @@ class VCUserinfo(Userinfo):
     def __init__(self, db, claims_storage=None):
         """
         Initialize VCUserinfo with a storage backend.
-        
+
         Args:
             db: Database connection (passed to parent Userinfo class)
             claims_storage: Storage backend for claims. Can be:
@@ -90,15 +90,13 @@ class VCUserinfo(Userinfo):
                 If None, defaults to empty dict (single-pod)
         """
         super().__init__(db)
-        self._claims_storage = (
-            claims_storage if claims_storage is not None else {}
-        )
-    
+        self._claims_storage = claims_storage if claims_storage is not None else {}
+
     def set_claims_for_user(self, user_id, claims):
         """
         Store claims for a specific user_id so they can be retrieved
         later when PyOP generates the ID token.
-        
+
         Args:
             user_id: The user identifier (should match what PyOP uses)
             claims: Dictionary of claims to store (pres_req_conf_id,
@@ -106,9 +104,7 @@ class VCUserinfo(Userinfo):
         """
         try:
             if user_id is None:
-                raise ValueError(
-                    "user_id cannot be None when storing claims"
-                )
+                raise ValueError("user_id cannot be None when storing claims")
             self._claims_storage[user_id] = claims
             logger.debug(
                 f"VCUserinfo: Stored claims for user_id: {user_id}, "
@@ -125,9 +121,7 @@ class VCUserinfo(Userinfo):
         """
         try:
             if item is None:
-                raise ValueError(
-                    "user_id (item) cannot be None when retrieving claims"
-                )
+                raise ValueError("user_id (item) cannot be None when retrieving claims")
             # RedisWrapper doesn't support .get(), use [] with KeyError
             try:
                 claims = self._claims_storage[item]
@@ -148,47 +142,37 @@ class VCUserinfo(Userinfo):
         """
         Return stored claims for the given user_id.
         PyOP calls this method when generating ID tokens.
-        
+
         Args:
             user_id: The user identifier to look up
             requested_claims: Claims requested by the client (ignored)
             userinfo: Additional userinfo (ignored)
-        
+
         Returns:
             Dictionary of claims for this user, including custom claims
             from VC presentation
         """
         try:
             if user_id is None:
-                raise ValueError(
-                    "user_id cannot be None when retrieving claims"
-                )
-            
+                raise ValueError("user_id cannot be None when retrieving claims")
+
             # RedisWrapper doesn't support .get(), use [] with KeyError
             try:
                 claims = self._claims_storage[user_id]
             except KeyError:
                 claims = {}
-            
-            logger.debug(
-                f"VCUserinfo.get_claims_for called for "
-                f"user_id: {user_id}"
-            )
-            logger.debug(
-                f"  Storage type: "
-                f"{type(self._claims_storage).__name__}"
-            )
+
+            logger.debug(f"VCUserinfo.get_claims_for called for " f"user_id: {user_id}")
+            logger.debug(f"  Storage type: " f"{type(self._claims_storage).__name__}")
             if isinstance(self._claims_storage, dict):
                 logger.debug(
-                    f"  Cached user_ids: "
-                    f"{list(self._claims_storage.keys())}"
+                    f"  Cached user_ids: " f"{list(self._claims_storage.keys())}"
                 )
             logger.debug(f"  Returning claims keys: {list(claims.keys())}")
-            
+
             return claims
         except ValueError:
             raise
         except Exception as e:
             logger.error(f"VCUserinfo.get_claims_for ERROR: {e}")
             raise
-

@@ -17,16 +17,19 @@ from pymongo.database import Database
 from pyop.exceptions import InvalidAuthenticationRequest
 
 from ..authSessions.crud import AuthSessionCreate, AuthSessionCRUD
-from ..authSessions.models import (AuthSession, AuthSessionPatch,
-                                   AuthSessionState)
-from ..core.acapy import (PresentationRequestMessage,
-                          PresentProofv20Attachment, ServiceDecorator)
+from ..authSessions.models import AuthSession, AuthSessionPatch, AuthSessionState
+from ..core.acapy import (
+    PresentationRequestMessage,
+    PresentProofv20Attachment,
+    ServiceDecorator,
+)
 from ..core.acapy.client import AcapyClient
 from ..core.config import settings
 from ..core.logger_util import log_debug
 from ..core.oidc import provider
 from ..core.oidc.issue_token_service import Token
 from ..db.session import get_db
+
 # Access to the websocket
 from ..routers.socketio import get_socket_id_for_pid, safe_emit, sio
 from ..verificationConfigs.crud import VerificationConfigCRUD
@@ -389,7 +392,7 @@ async def post_token(request: Request, db: Database = Depends(get_db)):
 
             # Update the subject with the one from the presentation
             presentation_sub = claims.pop("sub")
-            
+
             logger.info(
                 "About to update authorization info with presentation subject",
                 operation="update_authz_sub",
@@ -397,7 +400,7 @@ async def post_token(request: Request, db: Database = Depends(get_db)):
                 original_authz_sub=authz_info.get("sub"),
                 presentation_sub=presentation_sub,
             )
-            
+
             authz_info["sub"] = presentation_sub
 
             # CRITICAL: Update AuthSession.pyop_user_id to match the
@@ -420,13 +423,13 @@ async def post_token(request: Request, db: Database = Depends(get_db)):
                 authz_info
             )
             form_dict["code"] = new_code
-            
+
             # NOTE: Do NOT add sub back to claims dict. PyOP will get the
             # sub from authz_info["sub"] when generating the ID token.
             # If we include sub in claims as well, PyOP will receive it
             # twice and raise: "TypeError: IdToken() got multiple values
             # for keyword argument 'sub'"
-            
+
             logger.info(
                 "Replaced authorization code with presentation subject",
                 operation="update_auth_code_subject",
@@ -466,7 +469,7 @@ async def post_token(request: Request, db: Database = Depends(get_db)):
         # convert form data to what library expects,
         # Flask.app.request.get_data()
         data = urlencode(form_dict)
-        
+
         logger.info(
             "About to call PyOP handle_token_request",
             operation="handle_token_request",
@@ -478,12 +481,12 @@ async def post_token(request: Request, db: Database = Depends(get_db)):
                 else form_dict["code"]
             ),
         )
-        
+
         token_response = provider.provider.handle_token_request(
             data, request.headers, claims
         )
         logger.debug(f"Token response: {token_response.to_dict()}")
-        
+
         # Log the actual sub in the ID token for debugging
         if "id_token" in token_response.to_dict():
             import jwt
@@ -491,7 +494,7 @@ async def post_token(request: Request, db: Database = Depends(get_db)):
             # Decode without verification to inspect the token
             decoded = jwt.decode(
                 token_response.to_dict()["id_token"],
-                options={"verify_signature": False}
+                options={"verify_signature": False},
             )
             logger.debug(
                 "ID token generated",
@@ -500,5 +503,5 @@ async def post_token(request: Request, db: Database = Depends(get_db)):
                 sub_in_token=decoded.get("sub"),
                 all_claims=list(decoded.keys()),
             )
-        
+
         return token_response.to_dict()
