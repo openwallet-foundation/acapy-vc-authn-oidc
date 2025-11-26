@@ -1,10 +1,10 @@
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from typing import TypedDict
 
 from bson import ObjectId
 from pydantic import BaseModel, ConfigDict, Field, field_serializer
-from pyop.userinfo import Userinfo
 from pydantic_core import core_schema
+from pyop.userinfo import Userinfo
 
 
 class PyObjectId(ObjectId):
@@ -68,18 +68,86 @@ class VCUserinfo(Userinfo):
     User database for VC-based Identity provider: since no users are
     known ahead of time, a new user is created with
     every authentication request.
+    
+    This implementation stores custom claims (from VC presentations)
+    in memory so they can be included in ID tokens by PyOP.
     """
+
+    def __init__(self, db):
+        super().__init__(db)
+        self._claims_cache = {}
+    
+    def set_claims_for_user(self, user_id, claims):
+        """
+        Store claims for a specific user_id so they can be retrieved
+        later when PyOP generates the ID token.
+        
+        Args:
+            user_id: The user identifier (should match what PyOP uses)
+            claims: Dictionary of claims to store (pres_req_conf_id,
+                    vc_presented_attributes, etc.)
+        """
+        try:
+            if user_id is None:
+                raise ValueError(
+                    "user_id cannot be None when storing claims"
+                )
+            self._claims_cache[user_id] = claims
+            print(
+                f"VCUserinfo: Stored claims for user_id: {user_id}, "
+                f"claims keys: {list(claims.keys())}"
+            )
+        except Exception as e:
+            print(f"VCUserinfo.set_claims_for_user ERROR: {e}")
+            raise
 
     def __getitem__(self, item):
         """
-        There is no user info database, we always return an empty dictionary
+        Return stored claims for the given user_id.
+        PyOP may call this method to retrieve user info.
         """
-        return {}
+        try:
+            if item is None:
+                raise ValueError(
+                    "user_id (item) cannot be None when retrieving claims"
+                )
+            claims = self._claims_cache.get(item, {})
+            print(
+                f"VCUserinfo.__getitem__ called for item: {item}, "
+                f"returning claims keys: {list(claims.keys())}"
+            )
+            return claims
+        except Exception as e:
+            print(f"VCUserinfo.__getitem__ ERROR: {e}")
+            raise
 
     def get_claims_for(self, user_id, requested_claims, userinfo=None):
-        # type: (str, Mapping[str, Optional[Mapping[str, Union[str, List[str]]]])
-        # -> Dict[str, Union[str, List[str]]]
         """
-        There is no user info database, we always return an empty dictionary
+        Return stored claims for the given user_id.
+        PyOP calls this method when generating ID tokens.
+        
+        Args:
+            user_id: The user identifier to look up
+            requested_claims: Claims requested by the client (ignored)
+            userinfo: Additional userinfo (ignored)
+        
+        Returns:
+            Dictionary of claims for this user, including custom claims
+            from VC presentation
         """
-        return {}
+        try:
+            if user_id is None:
+                raise ValueError(
+                    "user_id cannot be None when retrieving claims"
+                )
+            
+            claims = self._claims_cache.get(user_id, {})
+            print(f"VCUserinfo.get_claims_for called for user_id: {user_id}")
+            print(f"  Cached user_ids: {list(self._claims_cache.keys())}")
+            print(f"  Returning claims keys: {list(claims.keys())}")
+            
+            return claims
+        except Exception as e:
+            print(f"VCUserinfo.get_claims_for ERROR: {e}")
+            raise
+
