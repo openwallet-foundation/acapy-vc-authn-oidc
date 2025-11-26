@@ -1,1 +1,1 @@
-"""API integration tests package."""
+"""VC-AuthN OIDC Controller API package."""

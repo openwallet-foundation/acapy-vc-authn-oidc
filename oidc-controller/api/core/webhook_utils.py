@@ -1,8 +1,6 @@
 import asyncio
 import structlog
 import requests
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
 
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
@@ -47,11 +45,11 @@ async def register_tenant_webhook(
     payload = {"wallet_webhook_urls": [webhook_url]}
 
     max_retries = 5
-    retry_delay = 2  # seconds
+    base_delay = 2  # seconds
 
     logger.info(f"Attempting to register webhook for wallet {wallet_id}...")
 
-    for attempt in range(1, max_retries + 1):
+    for attempt in range(0, max_retries):
         try:
             response = requests.put(
                 target_url, json=payload, headers=headers, timeout=5
@@ -65,21 +63,29 @@ async def register_tenant_webhook(
                     f"Webhook registration failed: Unauthorized (401/403). Check AGENT_ADMIN_API_KEY configuration."
                 )
                 return
+            elif response.status_code >= 500:
+                # Retry on server errors
+                logger.warning(
+                    f"Webhook registration failed with server error {response.status_code}: {response.text}. Retrying..."
+                )
             else:
                 logger.warning(
                     f"Webhook registration returned status {response.status_code}: {response.text}"
                 )
+                return
 
         except requests.exceptions.ConnectionError:
-            logger.warning(
-                f"ACA-Py Agent unreachable at {admin_url} (Attempt {attempt}/{max_retries})"
-            )
+            logger.warning(f"ACA-Py Agent unreachable at {admin_url}")
         except Exception as e:
             logger.error(f"Unexpected error during webhook registration: {str(e)}")
             return
 
-        if attempt < max_retries:
-            await asyncio.sleep(retry_delay)
+        if attempt < max_retries - 1:
+            delay = base_delay * (2**attempt)
+            logger.debug(
+                f"Retrying webhook registration in {delay} seconds (Attempt {attempt + 1}/{max_retries})"
+            )
+            await asyncio.sleep(delay)
 
     logger.error(
         "Failed to register webhook after multiple attempts. Agent notification may fail."

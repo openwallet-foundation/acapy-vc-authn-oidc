@@ -1,6 +1,7 @@
 import pytest
+import json
 from fastapi.testclient import TestClient
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock
 from api.main import app, logging_middleware
 from fastapi import Request
 
@@ -21,7 +22,6 @@ def test_read_root():
 async def test_logging_middleware_exception_handling():
     """
     Directly test the middleware exception handling logic.
-    Covers: main.py middleware exception block (lines 189-205).
     """
     # Mock request object
     mock_request = MagicMock(spec=Request)
@@ -38,8 +38,6 @@ async def test_logging_middleware_exception_handling():
 
     # Verify it catches the error and returns 500 JSON
     assert response.status_code == 500
-
-    import json
 
     body = json.loads(response.body)
     assert body["status"] == "error"

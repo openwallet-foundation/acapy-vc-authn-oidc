@@ -1,5 +1,6 @@
 import pytest
 import asyncio
+import unittest.mock
 from unittest.mock import patch, MagicMock, AsyncMock
 import requests
 from api.core.webhook_utils import register_tenant_webhook
@@ -93,8 +94,12 @@ async def test_webhook_registration_invalid_url(mock_requests_put):
 
 
 @pytest.mark.asyncio
-async def test_webhook_registration_retry_logic(mock_requests_put, mock_sleep):
-    """Test that the function retries on connection error and eventually succeeds."""
+async def test_webhook_registration_retry_logic_with_backoff(
+    mock_requests_put, mock_sleep
+):
+    """
+    Test that the function retries on connection error with exponential backoff.
+    """
     # Fail twice with ConnectionError, then succeed
     mock_requests_put.side_effect = [
         requests.exceptions.ConnectionError("Not ready"),
@@ -111,8 +116,17 @@ async def test_webhook_registration_retry_logic(mock_requests_put, mock_sleep):
         admin_api_key_name=None,
     )
 
+    # Verify call count
     assert mock_requests_put.call_count == 3
-    assert mock_sleep.call_count == 2  # Slept twice between 3 attempts
+
+    # Verify backoff delays: 2s, then 4s
+    # sleep is called 'attempt' times (2 times for 3 attempts, as success happens on 3rd)
+    assert mock_sleep.call_count == 2
+
+    # Check arguments passed to sleep
+    # First retry (attempt 0 failure): 2 * (2^0) = 2
+    # Second retry (attempt 1 failure): 2 * (2^1) = 4
+    mock_sleep.assert_has_calls([unittest.mock.call(2), unittest.mock.call(4)])
 
 
 @pytest.mark.asyncio
