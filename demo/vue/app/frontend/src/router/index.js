@@ -54,6 +54,18 @@ export default function getRouter(basePath = '/') {
 
   router.beforeEach((to, _from, next) => {
     NProgress.start();
+
+    // Redirect authenticated users from Home to Secure page
+    if (
+      to.name === 'Home' &&
+      router.app.$keycloak &&
+      router.app.$keycloak.ready &&
+      router.app.$keycloak.authenticated
+    ) {
+      next({ name: 'Secure' });
+      return;
+    }
+
     if (
       to.matched.some((route) => route.meta.requiresAuth) &&
       router.app.$keycloak &&
