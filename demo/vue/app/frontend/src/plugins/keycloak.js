@@ -2,8 +2,6 @@
 import Keycloak from 'keycloak-js';
 
 let installed = false;
-// eslint-disable-next-line no-unused-vars
-let keycloakInstance = null;
 
 export default {
   install: function (Vue, params = {}) {

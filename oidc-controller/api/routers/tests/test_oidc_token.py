@@ -1,15 +1,12 @@
 """Tests for the OIDC token endpoint."""
 
-import jwt
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from api.authSessions.models import AuthSession
+from api.verificationConfigs.models import VerificationConfig
 from bson import ObjectId
 from fastapi import HTTPException
-
-from api.authSessions.models import AuthSession, AuthSessionState
-from api.core.oidc.issue_token_service import Token
-from api.verificationConfigs.models import VerificationConfig
 
 
 @pytest.fixture
@@ -125,8 +122,8 @@ class TestPostTokenSubjectReplacement:
         self, mock_db, mock_auth_session, mock_ver_config, mock_provider
     ):
         """Test that sub in authz_info is replaced with presentation_sub."""
-        from api.routers.oidc import post_token
         from api.authSessions.crud import AuthSessionCRUD
+        from api.routers.oidc import post_token
         from api.verificationConfigs.crud import VerificationConfigCRUD
 
         # Mock CRUD operations
@@ -174,8 +171,8 @@ class TestPostTokenSubjectReplacement:
         self, mock_db, mock_auth_session, mock_ver_config, mock_provider
     ):
         """Test that claims are stored with presentation_sub as user_id."""
-        from api.routers.oidc import post_token
         from api.authSessions.crud import AuthSessionCRUD
+        from api.routers.oidc import post_token
         from api.verificationConfigs.crud import VerificationConfigCRUD
 
         with patch.object(
@@ -233,8 +230,8 @@ class TestPostTokenSubjectReplacement:
         self, mock_db, mock_auth_session, mock_ver_config, mock_provider
     ):
         """Test sub is NOT in claims stored in VCUserinfo."""
-        from api.routers.oidc import post_token
         from api.authSessions.crud import AuthSessionCRUD
+        from api.routers.oidc import post_token
         from api.verificationConfigs.crud import VerificationConfigCRUD
 
         with patch.object(
@@ -286,8 +283,8 @@ class TestPostTokenClaimsInclusion:
         self, mock_db, mock_auth_session, mock_ver_config, mock_provider
     ):
         """Test pres_req_conf_id and vc_presented_attributes stored."""
-        from api.routers.oidc import post_token
         from api.authSessions.crud import AuthSessionCRUD
+        from api.routers.oidc import post_token
         from api.verificationConfigs.crud import VerificationConfigCRUD
 
         with patch.object(
@@ -338,8 +335,8 @@ class TestPostTokenClaimsInclusion:
         self, mock_db, mock_auth_session, mock_ver_config, mock_provider
     ):
         """Test that missing pyop_user_id raises HTTPException."""
-        from api.routers.oidc import post_token
         from api.authSessions.crud import AuthSessionCRUD
+        from api.routers.oidc import post_token
         from api.verificationConfigs.crud import VerificationConfigCRUD
 
         # Set pyop_user_id to None
@@ -383,8 +380,8 @@ class TestPostTokenConsistentIdentifier:
         self, mock_db, mock_auth_session, mock_provider
     ):
         """Test consistent ID when subject_identifier doesn't match."""
-        from api.routers.oidc import post_token
         from api.authSessions.crud import AuthSessionCRUD
+        from api.routers.oidc import post_token
         from api.verificationConfigs.crud import VerificationConfigCRUD
 
         # Config with non-matching subject_identifier
@@ -446,8 +443,8 @@ class TestPostTokenErrorHandling:
         self, mock_db, mock_auth_session, mock_ver_config, mock_provider
     ):
         """Test that exception in set_claims_for_user raises HTTPException."""
-        from api.routers.oidc import post_token
         from api.authSessions.crud import AuthSessionCRUD
+        from api.routers.oidc import post_token
         from api.verificationConfigs.crud import VerificationConfigCRUD
 
         # Make userinfo.set_claims_for_user raise an exception
