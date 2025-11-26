@@ -73,12 +73,26 @@ class VCUserinfo(Userinfo):
     every authentication request.
     
     This implementation stores custom claims (from VC presentations)
-    in memory so they can be included in ID tokens by PyOP.
+    using a configurable storage backend that supports both:
+    - In-memory dictionary for single-pod deployments
+    - Redis storage for multi-pod deployments
     """
 
-    def __init__(self, db):
+    def __init__(self, db, claims_storage=None):
+        """
+        Initialize VCUserinfo with a storage backend.
+        
+        Args:
+            db: Database connection (passed to parent Userinfo class)
+            claims_storage: Storage backend for claims. Can be:
+                - dict: In-memory storage for single-pod
+                - RedisWrapperWithPack: Redis storage for multi-pod
+                If None, defaults to empty dict (single-pod)
+        """
         super().__init__(db)
-        self._claims_cache = {}
+        self._claims_storage = (
+            claims_storage if claims_storage is not None else {}
+        )
     
     def set_claims_for_user(self, user_id, claims):
         """
@@ -95,7 +109,7 @@ class VCUserinfo(Userinfo):
                 raise ValueError(
                     "user_id cannot be None when storing claims"
                 )
-            self._claims_cache[user_id] = claims
+            self._claims_storage[user_id] = claims
             logger.debug(
                 f"VCUserinfo: Stored claims for user_id: {user_id}, "
                 f"claims keys: {list(claims.keys())}"
@@ -114,12 +128,18 @@ class VCUserinfo(Userinfo):
                 raise ValueError(
                     "user_id (item) cannot be None when retrieving claims"
                 )
-            claims = self._claims_cache.get(item, {})
+            # RedisWrapper doesn't support .get(), use [] with KeyError
+            try:
+                claims = self._claims_storage[item]
+            except KeyError:
+                claims = {}
             logger.debug(
                 f"VCUserinfo.__getitem__ called for item: {item}, "
                 f"returning claims keys: {list(claims.keys())}"
             )
             return claims
+        except ValueError:
+            raise
         except Exception as e:
             logger.error(f"VCUserinfo.__getitem__ ERROR: {e}")
             raise
@@ -144,18 +164,30 @@ class VCUserinfo(Userinfo):
                     "user_id cannot be None when retrieving claims"
                 )
             
-            claims = self._claims_cache.get(user_id, {})
+            # RedisWrapper doesn't support .get(), use [] with KeyError
+            try:
+                claims = self._claims_storage[user_id]
+            except KeyError:
+                claims = {}
+            
             logger.debug(
                 f"VCUserinfo.get_claims_for called for "
                 f"user_id: {user_id}"
             )
             logger.debug(
-                f"  Cached user_ids: "
-                f"{list(self._claims_cache.keys())}"
+                f"  Storage type: "
+                f"{type(self._claims_storage).__name__}"
             )
+            if isinstance(self._claims_storage, dict):
+                logger.debug(
+                    f"  Cached user_ids: "
+                    f"{list(self._claims_storage.keys())}"
+                )
             logger.debug(f"  Returning claims keys: {list(claims.keys())}")
             
             return claims
+        except ValueError:
+            raise
         except Exception as e:
             logger.error(f"VCUserinfo.get_claims_for ERROR: {e}")
             raise

@@ -314,6 +314,12 @@ if settings.USE_REDIS_ADAPTER:
         ttl=None,  # No expiration
     )
 
+    userinfo_claims_storage = RedisWrapperWithPack(
+        db_uri=redis_url,
+        collection="pyop_userinfo_claims",
+        ttl=600,  # 10 minutes - same as auth codes
+    )
+
     logger.info(
         "Initialized Redis storage for PyOP tokens",
         storage_backend="redis",
@@ -329,6 +335,7 @@ else:
     access_token_storage = stateless_storage
     refresh_token_storage = stateless_storage
     subject_identifier_storage = stateless_storage
+    userinfo_claims_storage = {}  # In-memory dict for single-pod
 
     logger.info(
         "Initialized StatelessWrapper storage for PyOP tokens",
@@ -369,5 +376,5 @@ async def init_provider(db: Database):
             subject_identifier_db=subject_identifier_storage,
         ),
         client_db,
-        VCUserinfo({}),
+        VCUserinfo({}, claims_storage=userinfo_claims_storage),
     )

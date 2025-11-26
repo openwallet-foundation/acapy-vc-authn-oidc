@@ -1,5 +1,7 @@
 """Tests for core models."""
 
+from unittest.mock import Mock
+
 import pytest
 from api.core.models import (GenericErrorMessage, HealthCheck, PyObjectId,
                              StatusMessage, UUIDModel, VCUserinfo)
@@ -81,11 +83,29 @@ class TestGenericErrorMessage:
 
 
 class TestVCUserinfo:
-    """Test VCUserinfo class."""
+    """Test VCUserinfo class with both dict and Redis-like storage."""
 
-    def test_set_and_get_claims_for_user(self):
+    @pytest.fixture
+    def dict_storage(self):
+        """Create in-memory dict storage (single-pod mode)."""
+        return {}
+
+    @pytest.fixture
+    def mock_redis_storage(self):
+        """Create mock Redis storage (multi-pod mode)."""
+        storage = {}
+        mock = Mock()
+        # RedisWrapper only supports [] access, not .get()
+        mock.__setitem__ = lambda self, key, value: storage.__setitem__(
+            key, value
+        )
+        mock.__getitem__ = lambda self, key: storage[key]
+        mock.keys = lambda: storage.keys()
+        return mock
+
+    def test_set_and_get_claims_for_user(self, dict_storage):
         """Test storing and retrieving claims for a user."""
-        userinfo = VCUserinfo({})
+        userinfo = VCUserinfo({}, claims_storage=dict_storage)
         user_id = "test_user_id"
         claims = {
             "pres_req_conf_id": "test_config",
@@ -101,15 +121,17 @@ class TestVCUserinfo:
         assert result == claims
         assert result["pres_req_conf_id"] == "test_config"
 
-    def test_get_claims_for_nonexistent_user_returns_empty_dict(self):
+    def test_get_claims_for_nonexistent_user_returns_empty_dict(
+        self, dict_storage
+    ):
         """Test that get_claims_for returns empty dict for unknown user."""
-        userinfo = VCUserinfo({})
+        userinfo = VCUserinfo({}, claims_storage=dict_storage)
         result = userinfo.get_claims_for("nonexistent_user", {}, None)
         assert result == {}
 
-    def test_getitem_returns_stored_claims(self):
+    def test_getitem_returns_stored_claims(self, dict_storage):
         """Test that __getitem__ returns stored claims."""
-        userinfo = VCUserinfo({})
+        userinfo = VCUserinfo({}, claims_storage=dict_storage)
         user_id = "test_user"
         claims = {"test_claim": "test_value"}
 
@@ -117,34 +139,36 @@ class TestVCUserinfo:
         result = userinfo[user_id]
         assert result == claims
 
-    def test_getitem_returns_empty_dict_for_unknown_user(self):
+    def test_getitem_returns_empty_dict_for_unknown_user(self, dict_storage):
         """Test that __getitem__ returns empty dict for unknown user."""
-        userinfo = VCUserinfo({})
+        userinfo = VCUserinfo({}, claims_storage=dict_storage)
         result = userinfo["unknown_user"]
         assert result == {}
 
-    def test_set_claims_for_user_with_none_user_id_raises_error(self):
-        """Test that set_claims_for_user raises ValueError for None user_id."""
-        userinfo = VCUserinfo({})
+    def test_set_claims_for_user_with_none_user_id_raises_error(
+        self, dict_storage
+    ):
+        """Test set_claims_for_user raises ValueError for None user_id."""
+        userinfo = VCUserinfo({}, claims_storage=dict_storage)
         with pytest.raises(ValueError, match="user_id cannot be None"):
             userinfo.set_claims_for_user(None, {"claim": "value"})
 
-    def test_get_claims_for_with_none_user_id_raises_error(self):
+    def test_get_claims_for_with_none_user_id_raises_error(self, dict_storage):
         """Test that get_claims_for raises ValueError for None user_id."""
-        userinfo = VCUserinfo({})
+        userinfo = VCUserinfo({}, claims_storage=dict_storage)
         with pytest.raises(ValueError, match="user_id cannot be None"):
             userinfo.get_claims_for(None, {}, None)
 
-    def test_getitem_with_none_user_id_raises_error(self):
+    def test_getitem_with_none_user_id_raises_error(self, dict_storage):
         """Test that __getitem__ raises ValueError for None user_id."""
-        userinfo = VCUserinfo({})
+        userinfo = VCUserinfo({}, claims_storage=dict_storage)
         match_msg = "user_id \\(item\\) cannot be None"
         with pytest.raises(ValueError, match=match_msg):
             _ = userinfo[None]
 
-    def test_multiple_users_with_different_claims(self):
+    def test_multiple_users_with_different_claims(self, dict_storage):
         """Test storing claims for multiple users with different data."""
-        userinfo = VCUserinfo({})
+        userinfo = VCUserinfo({}, claims_storage=dict_storage)
 
         user1_claims = {
             "pres_req_conf_id": "config1",
@@ -161,9 +185,9 @@ class TestVCUserinfo:
         assert userinfo.get_claims_for("user1", {}, None) == user1_claims
         assert userinfo.get_claims_for("user2", {}, None) == user2_claims
 
-    def test_overwriting_claims_for_same_user(self):
+    def test_overwriting_claims_for_same_user(self, dict_storage):
         """Test that setting claims again overwrites previous claims."""
-        userinfo = VCUserinfo({})
+        userinfo = VCUserinfo({}, claims_storage=dict_storage)
         user_id = "test_user"
 
         original_claims = {"claim1": "value1"}
@@ -176,9 +200,9 @@ class TestVCUserinfo:
         assert result == new_claims
         assert "claim1" not in result
 
-    def test_claims_include_custom_fields(self):
+    def test_claims_include_custom_fields(self, dict_storage):
         """Test that custom VC claims are properly stored and retrieved."""
-        userinfo = VCUserinfo({})
+        userinfo = VCUserinfo({}, claims_storage=dict_storage)
         user_id = "hash_from_vc"
         claims = {
             "pres_req_conf_id": "showcase-person",
@@ -197,3 +221,30 @@ class TestVCUserinfo:
         assert "vc_presented_attributes" in result
         assert result["acr"] == "vc_authn"
         assert result["nonce"] == "test_nonce"
+
+    def test_with_redis_like_storage(self, mock_redis_storage):
+        """Test VCUserinfo works with Redis-like storage backend."""
+        userinfo = VCUserinfo({}, claims_storage=mock_redis_storage)
+        user_id = "test_user"
+        claims = {
+            "pres_req_conf_id": "test_config",
+            "email": "test@example.com",
+        }
+
+        # Store and retrieve claims through Redis-like storage
+        userinfo.set_claims_for_user(user_id, claims)
+        result = userinfo.get_claims_for(user_id, {}, None)
+
+        assert result == claims
+        assert result["pres_req_conf_id"] == "test_config"
+
+    def test_defaults_to_dict_storage_when_none(self):
+        """Test that VCUserinfo defaults to dict storage if none provided."""
+        userinfo = VCUserinfo({})
+        user_id = "test_user"
+        claims = {"test": "value"}
+
+        userinfo.set_claims_for_user(user_id, claims)
+        result = userinfo.get_claims_for(user_id, {}, None)
+
+        assert result == claims
