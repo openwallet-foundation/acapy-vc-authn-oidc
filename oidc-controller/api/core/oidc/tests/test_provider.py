@@ -131,6 +131,41 @@ class TestDynamicClientDatabase:
         assert "_id" not in result
         assert result["client_id"] == "test_client"
 
+    def test_lookup_by_client_id_when_name_differs(self, db_getter, mock_db):
+        """
+        Regression Test for #894:
+        Test that client lookup uses client_id as key, even if client_name is different.
+        """
+        _, mock_collection = mock_db
+        target_client_id = "client-id-123"
+        target_client_name = "My Friendly Client Name"
+
+        client_doc = {
+            "client_id": target_client_id,
+            "client_name": target_client_name,
+            "client_secret": "secret",
+        }
+
+        # Setup find_one to return doc only when querying by correct ID
+        def find_one_side_effect(query):
+            if query.get("client_id") == target_client_id:
+                return client_doc.copy()
+            return None
+
+        mock_collection.find_one.side_effect = find_one_side_effect
+
+        client_db = DynamicClientDatabase(db_getter)
+
+        # 1. Happy Path: Lookup using client_id must succeed
+        result = client_db[target_client_id]
+        assert result["client_id"] == target_client_id
+        assert result["client_name"] == target_client_name
+
+        # 2. Negative Test: Lookup using client_name must fail
+        # This confirms we are not building a dict keyed by name
+        with pytest.raises(KeyError):
+            _ = client_db[target_client_name]
+
     def test_getitem_raises_keyerror_for_missing_client(self, db_getter, mock_db):
         """Test that __getitem__ raises KeyError for non-existent client."""
         _, mock_collection = mock_db
