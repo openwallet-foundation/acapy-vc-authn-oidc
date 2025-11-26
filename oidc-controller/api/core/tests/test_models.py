@@ -1,17 +1,10 @@
 """Tests for core models."""
 
 import pytest
+from api.core.models import (GenericErrorMessage, HealthCheck, PyObjectId,
+                             StatusMessage, UUIDModel, VCUserinfo)
 from bson import ObjectId
 from pydantic import ValidationError
-
-from api.core.models import (
-    PyObjectId,
-    HealthCheck,
-    StatusMessage,
-    UUIDModel,
-    VCUserinfo,
-    GenericErrorMessage,
-)
 
 
 class TestPyObjectId:

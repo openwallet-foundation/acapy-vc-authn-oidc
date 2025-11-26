@@ -68,7 +68,7 @@ async def poll_pres_exch_complete(pid: str, db: Database = Depends(get_db)):
         now = datetime.now(UTC)
 
     if expired_time < now and auth_session.proof_status == AuthSessionState.NOT_STARTED:
-        logger.info("PROOF EXPIRED")
+        logger.warning("PROOF EXPIRED")
         auth_session.proof_status = AuthSessionState.EXPIRED
         await AuthSessionCRUD(db).patch(
             str(auth_session.id), AuthSessionPatch(**auth_session.model_dump())
@@ -493,7 +493,7 @@ async def post_token(request: Request, db: Database = Depends(get_db)):
                 token_response.to_dict()["id_token"],
                 options={"verify_signature": False}
             )
-            logger.info(
+            logger.debug(
                 "ID token generated",
                 operation="id_token_generated",
                 auth_session_id=str(auth_session.id),

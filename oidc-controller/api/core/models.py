@@ -1,10 +1,13 @@
 from datetime import UTC, datetime
 from typing import TypedDict
 
+import structlog
 from bson import ObjectId
 from pydantic import BaseModel, ConfigDict, Field, field_serializer
 from pydantic_core import core_schema
 from pyop.userinfo import Userinfo
+
+logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
 
 
 class PyObjectId(ObjectId):
@@ -93,12 +96,12 @@ class VCUserinfo(Userinfo):
                     "user_id cannot be None when storing claims"
                 )
             self._claims_cache[user_id] = claims
-            print(
+            logger.debug(
                 f"VCUserinfo: Stored claims for user_id: {user_id}, "
                 f"claims keys: {list(claims.keys())}"
             )
         except Exception as e:
-            print(f"VCUserinfo.set_claims_for_user ERROR: {e}")
+            logger.error(f"VCUserinfo.set_claims_for_user ERROR: {e}")
             raise
 
     def __getitem__(self, item):
@@ -112,13 +115,13 @@ class VCUserinfo(Userinfo):
                     "user_id (item) cannot be None when retrieving claims"
                 )
             claims = self._claims_cache.get(item, {})
-            print(
+            logger.debug(
                 f"VCUserinfo.__getitem__ called for item: {item}, "
                 f"returning claims keys: {list(claims.keys())}"
             )
             return claims
         except Exception as e:
-            print(f"VCUserinfo.__getitem__ ERROR: {e}")
+            logger.error(f"VCUserinfo.__getitem__ ERROR: {e}")
             raise
 
     def get_claims_for(self, user_id, requested_claims, userinfo=None):
@@ -142,12 +145,18 @@ class VCUserinfo(Userinfo):
                 )
             
             claims = self._claims_cache.get(user_id, {})
-            print(f"VCUserinfo.get_claims_for called for user_id: {user_id}")
-            print(f"  Cached user_ids: {list(self._claims_cache.keys())}")
-            print(f"  Returning claims keys: {list(claims.keys())}")
+            logger.debug(
+                f"VCUserinfo.get_claims_for called for "
+                f"user_id: {user_id}"
+            )
+            logger.debug(
+                f"  Cached user_ids: "
+                f"{list(self._claims_cache.keys())}"
+            )
+            logger.debug(f"  Returning claims keys: {list(claims.keys())}")
             
             return claims
         except Exception as e:
-            print(f"VCUserinfo.get_claims_for ERROR: {e}")
+            logger.error(f"VCUserinfo.get_claims_for ERROR: {e}")
             raise
 

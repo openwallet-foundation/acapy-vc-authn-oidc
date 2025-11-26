@@ -1,12 +1,12 @@
+import json
 import os
 import secrets
-import json
-from urllib.parse import urlparse
 from datetime import datetime, timedelta
+from urllib.parse import urlparse
 
+import redis
 import structlog
 import structlog.typing
-import redis
 from api.clientConfigurations.models import TOKENENDPOINTAUTHMETHODS
 from api.core.config import settings
 from api.core.models import VCUserinfo
@@ -149,7 +149,9 @@ logger.info(f"pem file located at {SIGNING_KEY_FILEPATH}.")
 
 issuer_url = settings.CONTROLLER_URL
 if urlparse(issuer_url).scheme != "https":
-    logger.error("CONTROLLER_URL is not HTTPS. changing openid-config for development")
+    logger.warning(
+        "CONTROLLER_URL is not HTTPS. changing openid-config for development"
+    )
     issuer_url = issuer_url[:4] + "s" + issuer_url[4:]
 signing_key = RSAKey(
     key=rsa_load(SIGNING_KEY_FILEPATH), use="sig", alg=settings.SIGNING_KEY_ALGORITHM
@@ -180,8 +182,9 @@ class DynamicClientDatabase(dict):
 
     def _get_client_from_db(self, client_id: str):
         """Load client from MongoDB."""
-        from api.db.session import COLLECTION_NAMES
         import time
+
+        from api.db.session import COLLECTION_NAMES
 
         # Check cache first
         if client_id in self._cache:
