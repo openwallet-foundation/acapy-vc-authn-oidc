@@ -389,6 +389,15 @@ async def post_token(request: Request, db: Database = Depends(get_db)):
 
             # Update the subject with the one from the presentation
             presentation_sub = claims.pop("sub")
+            
+            logger.info(
+                "About to update authorization info with presentation subject",
+                operation="update_authz_sub",
+                auth_session_id=str(auth_session.id),
+                original_authz_sub=authz_info.get("sub"),
+                presentation_sub=presentation_sub,
+            )
+            
             authz_info["sub"] = presentation_sub
 
             # CRITICAL: Update AuthSession.pyop_user_id to match the
@@ -411,6 +420,13 @@ async def post_token(request: Request, db: Database = Depends(get_db)):
                 authz_info
             )
             form_dict["code"] = new_code
+            
+            # NOTE: Do NOT add sub back to claims dict. PyOP will get the
+            # sub from authz_info["sub"] when generating the ID token.
+            # If we include sub in claims as well, PyOP will receive it
+            # twice and raise: "TypeError: IdToken() got multiple values
+            # for keyword argument 'sub'"
+            
             logger.info(
                 "Replaced authorization code with presentation subject",
                 operation="update_auth_code_subject",
@@ -450,8 +466,39 @@ async def post_token(request: Request, db: Database = Depends(get_db)):
         # convert form data to what library expects,
         # Flask.app.request.get_data()
         data = urlencode(form_dict)
+        
+        logger.info(
+            "About to call PyOP handle_token_request",
+            operation="handle_token_request",
+            auth_session_id=str(auth_session.id),
+            user_id=user_id,
+            code_prefix=(
+                form_dict["code"][:16] + "..."
+                if len(form_dict["code"]) > 16
+                else form_dict["code"]
+            ),
+        )
+        
         token_response = provider.provider.handle_token_request(
             data, request.headers, claims
         )
         logger.debug(f"Token response: {token_response.to_dict()}")
+        
+        # Log the actual sub in the ID token for debugging
+        if "id_token" in token_response.to_dict():
+            import jwt
+
+            # Decode without verification to inspect the token
+            decoded = jwt.decode(
+                token_response.to_dict()["id_token"],
+                options={"verify_signature": False}
+            )
+            logger.info(
+                "ID token generated",
+                operation="id_token_generated",
+                auth_session_id=str(auth_session.id),
+                sub_in_token=decoded.get("sub"),
+                all_claims=list(decoded.keys()),
+            )
+        
         return token_response.to_dict()
