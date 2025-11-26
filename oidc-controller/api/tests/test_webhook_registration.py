@@ -2,13 +2,8 @@ import pytest
 import asyncio
 from unittest.mock import patch, MagicMock, AsyncMock
 import requests
-from api.main import _register_tenant_webhook
-
-import pytest
-import asyncio
-from unittest.mock import patch, MagicMock, AsyncMock
-import requests
-from api.main import _register_tenant_webhook, on_tenant_startup
+from api.core.webhook_utils import register_tenant_webhook
+from api.main import on_tenant_startup
 from api.core.config import settings
 
 
@@ -31,14 +26,14 @@ def mock_settings():
 @pytest.fixture
 def mock_requests_put():
     """Mock requests.put."""
-    with patch("api.main.requests.put") as mock:
+    with patch("api.core.webhook_utils.requests.put") as mock:
         yield mock
 
 
 @pytest.fixture
 def mock_sleep():
     """Mock asyncio.sleep to prevent slow tests."""
-    with patch("api.main.asyncio.sleep", new_callable=AsyncMock) as mock:
+    with patch("api.core.webhook_utils.asyncio.sleep", new_callable=AsyncMock) as mock:
         yield mock
 
 
@@ -47,7 +42,7 @@ async def test_webhook_registration_success(mock_requests_put):
     """Test successful webhook registration with API key injection."""
     mock_requests_put.return_value.status_code = 200
 
-    await _register_tenant_webhook(
+    await register_tenant_webhook(
         wallet_id="test-wallet",
         webhook_url="http://controller/webhooks",
         admin_url="http://acapy:8077",
@@ -70,7 +65,7 @@ async def test_webhook_registration_success(mock_requests_put):
 async def test_webhook_registration_missing_config(mock_requests_put):
     """Test early return if config is missing."""
     # Missing wallet_id
-    await _register_tenant_webhook(
+    await register_tenant_webhook(
         wallet_id=None,
         webhook_url="http://controller",
         admin_url="http://acapy",
@@ -85,7 +80,7 @@ async def test_webhook_registration_missing_config(mock_requests_put):
 @pytest.mark.asyncio
 async def test_webhook_registration_invalid_url(mock_requests_put):
     """Test validation for invalid URL protocol."""
-    await _register_tenant_webhook(
+    await register_tenant_webhook(
         wallet_id="test-wallet",
         webhook_url="ftp://invalid-url",  # Invalid protocol
         admin_url="http://acapy",
@@ -107,7 +102,7 @@ async def test_webhook_registration_retry_logic(mock_requests_put, mock_sleep):
         MagicMock(status_code=200),
     ]
 
-    await _register_tenant_webhook(
+    await register_tenant_webhook(
         wallet_id="test-wallet",
         webhook_url="http://controller",
         admin_url="http://acapy",
@@ -125,7 +120,7 @@ async def test_webhook_registration_fatal_auth_error(mock_requests_put, mock_sle
     """Test that 401/403 errors stop retries immediately."""
     mock_requests_put.return_value.status_code = 401  # Unauthorized
 
-    await _register_tenant_webhook(
+    await register_tenant_webhook(
         wallet_id="test-wallet",
         webhook_url="http://controller",
         admin_url="http://acapy",
@@ -143,7 +138,7 @@ async def test_webhook_registration_exhaust_retries(mock_requests_put, mock_slee
     """Test that function handles exhausting all retries gracefully."""
     mock_requests_put.side_effect = requests.exceptions.ConnectionError("Down")
 
-    await _register_tenant_webhook(
+    await register_tenant_webhook(
         wallet_id="test-wallet",
         webhook_url="http://controller",
         admin_url="http://acapy",
@@ -161,7 +156,7 @@ async def test_webhook_registration_unexpected_exception(mock_requests_put, mock
     """Test that generic exceptions stop execution immediately (no retry)."""
     mock_requests_put.side_effect = Exception("Something weird happened")
 
-    await _register_tenant_webhook(
+    await register_tenant_webhook(
         wallet_id="test-wallet",
         webhook_url="http://controller",
         admin_url="http://acapy",
@@ -182,12 +177,13 @@ async def test_startup_multi_tenant_registers_webhook(mock_settings, mock_reques
 
     with patch("api.main.init_db", new_callable=AsyncMock), patch(
         "api.main.init_provider", new_callable=AsyncMock
-    ), patch("api.main.get_db", new_callable=AsyncMock):
+    ), patch("api.main.get_db", new_callable=AsyncMock), patch(
+        "api.main.register_tenant_webhook", new_callable=AsyncMock
+    ) as mock_register:
 
-        mock_requests_put.return_value.status_code = 200
         await on_tenant_startup()
 
-        assert mock_requests_put.called
+        assert mock_register.called
 
 
 @pytest.mark.asyncio
