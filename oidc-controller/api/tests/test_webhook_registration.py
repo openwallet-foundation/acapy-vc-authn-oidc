@@ -8,7 +8,24 @@ import pytest
 import asyncio
 from unittest.mock import patch, MagicMock, AsyncMock
 import requests
-from api.main import _register_tenant_webhook
+from api.main import _register_tenant_webhook, on_tenant_startup
+from api.core.config import settings
+
+
+@pytest.fixture
+def mock_settings():
+    """Mock settings for webhook registration tests."""
+    with patch("api.main.settings") as mock:
+        mock.CONTROLLER_WEB_HOOK_URL = "http://controller:5000/webhooks"
+        mock.MT_ACAPY_WALLET_ID = "test-wallet-id"
+        mock.CONTROLLER_API_KEY = "controller-api-key"
+        mock.ACAPY_ADMIN_URL = "http://acapy:8077"
+        mock.ST_ACAPY_ADMIN_API_KEY_NAME = "x-api-key"
+        mock.ST_ACAPY_ADMIN_API_KEY = "admin-api-key"
+        # Default safe values
+        mock.USE_REDIS_ADAPTER = False
+        mock.ACAPY_TENANCY = "multi"
+        yield mock
 
 
 @pytest.fixture
@@ -155,3 +172,80 @@ async def test_webhook_registration_unexpected_exception(mock_requests_put, mock
 
     assert mock_requests_put.call_count == 1
     mock_sleep.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_startup_multi_tenant_registers_webhook(mock_settings, mock_requests_put):
+    """Test startup logic in multi-tenant mode calls registration."""
+    mock_settings.ACAPY_TENANCY = "multi"
+    mock_settings.USE_REDIS_ADAPTER = False
+
+    with patch("api.main.init_db", new_callable=AsyncMock), patch(
+        "api.main.init_provider", new_callable=AsyncMock
+    ), patch("api.main.get_db", new_callable=AsyncMock):
+
+        mock_requests_put.return_value.status_code = 200
+        await on_tenant_startup()
+
+        assert mock_requests_put.called
+
+
+@pytest.mark.asyncio
+async def test_startup_single_tenant_skips_registration(
+    mock_settings, mock_requests_put
+):
+    """Test startup logic in single-tenant mode skips registration."""
+    mock_settings.ACAPY_TENANCY = "single"
+    mock_settings.USE_REDIS_ADAPTER = False
+
+    with patch("api.main.init_db", new_callable=AsyncMock), patch(
+        "api.main.init_provider", new_callable=AsyncMock
+    ), patch("api.main.get_db", new_callable=AsyncMock):
+
+        await on_tenant_startup()
+
+        assert not mock_requests_put.called
+
+
+@pytest.mark.asyncio
+async def test_startup_redis_check_success(mock_settings):
+    """Test startup logic verifies Redis connection if adapter enabled."""
+    mock_settings.USE_REDIS_ADAPTER = True
+
+    # Mock redis client
+    mock_redis_client = AsyncMock()
+    mock_redis_client.ping.return_value = True
+
+    with patch("api.main.init_db", new_callable=AsyncMock), patch(
+        "api.main.init_provider", new_callable=AsyncMock
+    ), patch("api.main.get_db", new_callable=AsyncMock), patch(
+        "api.main.async_redis.from_url", return_value=mock_redis_client
+    ), patch(
+        "api.main._build_redis_url", return_value="redis://localhost"
+    ):
+
+        await on_tenant_startup()
+
+        mock_redis_client.ping.assert_called_once()
+        mock_redis_client.close.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_startup_redis_check_failure(mock_settings):
+    """Test startup logic handles Redis connection failure gracefully."""
+    mock_settings.USE_REDIS_ADAPTER = True
+
+    with patch("api.main.init_db", new_callable=AsyncMock), patch(
+        "api.main.init_provider", new_callable=AsyncMock
+    ), patch("api.main.get_db", new_callable=AsyncMock), patch(
+        "api.main.async_redis.from_url", side_effect=Exception("Redis Down")
+    ), patch(
+        "api.main._build_redis_url", return_value="redis://localhost"
+    ), patch(
+        "api.main._handle_redis_failure"
+    ) as mock_handler:
+
+        await on_tenant_startup()
+
+        # Should log error but continue startup
+        mock_handler.assert_called_once()
