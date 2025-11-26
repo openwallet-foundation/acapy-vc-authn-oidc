@@ -248,3 +248,38 @@ class TestVCUserinfo:
         result = userinfo.get_claims_for(user_id, {}, None)
 
         assert result == claims
+
+    def test_set_claims_for_user_storage_exception_handling(self):
+        """Test that set_claims_for_user handles storage exceptions."""
+        # Create a mock storage that raises an exception on write
+        mock_storage = Mock()
+        mock_storage.__setitem__ = Mock(
+            side_effect=RuntimeError("Storage write failed")
+        )
+
+        userinfo = VCUserinfo({}, claims_storage=mock_storage)
+
+        with pytest.raises(RuntimeError, match="Storage write failed"):
+            userinfo.set_claims_for_user("user_id", {"claim": "value"})
+
+    def test_getitem_storage_exception_handling(self):
+        """Test that __getitem__ handles storage exceptions properly."""
+        # Create a mock storage that raises an unexpected exception
+        mock_storage = Mock()
+        mock_storage.__getitem__ = Mock(side_effect=RuntimeError("Storage read failed"))
+
+        userinfo = VCUserinfo({}, claims_storage=mock_storage)
+
+        with pytest.raises(RuntimeError, match="Storage read failed"):
+            _ = userinfo["user_id"]
+
+    def test_get_claims_for_storage_exception_handling(self):
+        """Test that get_claims_for handles storage exceptions properly."""
+        # Create a mock storage that raises an unexpected exception
+        mock_storage = Mock()
+        mock_storage.__getitem__ = Mock(side_effect=RuntimeError("Storage read failed"))
+
+        userinfo = VCUserinfo({}, claims_storage=mock_storage)
+
+        with pytest.raises(RuntimeError, match="Storage read failed"):
+            userinfo.get_claims_for("user_id", {}, None)

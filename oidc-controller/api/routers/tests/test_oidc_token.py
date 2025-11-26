@@ -436,3 +436,60 @@ class TestPostTokenConsistentIdentifier:
                         # Should be a hex hash (64 chars for SHA256)
                         assert len(generated_sub) == 64
                         assert all(c in "0123456789abcdef" for c in generated_sub)
+
+
+class TestPostTokenErrorHandling:
+    """Test error handling in post_token endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_claims_storage_exception_raises_http_exception(
+        self, mock_db, mock_auth_session, mock_ver_config, mock_provider
+    ):
+        """Test that exception in set_claims_for_user raises HTTPException."""
+        from api.routers.oidc import post_token
+        from api.authSessions.crud import AuthSessionCRUD
+        from api.verificationConfigs.crud import VerificationConfigCRUD
+
+        # Make userinfo.set_claims_for_user raise an exception
+        mock_provider.provider.userinfo.set_claims_for_user.side_effect = RuntimeError(
+            "Redis connection failed"
+        )
+
+        with patch.object(
+            AuthSessionCRUD,
+            "get_by_pyop_auth_code",
+            return_value=mock_auth_session,
+        ):
+            with patch.object(
+                VerificationConfigCRUD, "get", return_value=mock_ver_config
+            ):
+                with patch.object(
+                    AuthSessionCRUD,
+                    "update_pyop_user_id",
+                    new_callable=AsyncMock,
+                ):
+                    # Mock jwt.decode to avoid decoding errors
+                    with patch("jwt.decode") as mock_decode:
+                        mock_decode.return_value = {"sub": "John@showcase-person"}
+
+                        mock_request = MagicMock()
+                        mock_form = MagicMock()
+                        mock_form._dict = {
+                            "code": "test-auth-code",
+                            "grant_type": "authorization_code",
+                        }
+                        mock_request.form = MagicMock(
+                            return_value=MagicMock(
+                                __aenter__=AsyncMock(return_value=mock_form),
+                                __aexit__=AsyncMock(return_value=None),
+                            )
+                        )
+                        mock_request.headers = {}
+
+                        # Should raise HTTPException with 500 status
+                        with pytest.raises(HTTPException) as exc_info:
+                            await post_token(mock_request, mock_db)
+
+                        assert exc_info.value.status_code == 500
+                        assert "Failed to store claims" in exc_info.value.detail
+                        assert "Redis connection failed" in exc_info.value.detail
