@@ -2,6 +2,7 @@
 import Keycloak from 'keycloak-js';
 
 let installed = false;
+let keycloakInstance = null;
 
 export default {
   install: function (Vue, params = {}) {
