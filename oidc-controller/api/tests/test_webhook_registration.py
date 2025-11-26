@@ -1,5 +1,4 @@
 import pytest
-import asyncio
 import unittest.mock
 from unittest.mock import patch, MagicMock, AsyncMock
 import requests
