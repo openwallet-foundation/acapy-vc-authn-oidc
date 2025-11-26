@@ -12,7 +12,6 @@ from api.core.models import (
     VCUserinfo,
 )
 from bson import ObjectId
-from pydantic import ValidationError
 
 
 class TestPyObjectId:

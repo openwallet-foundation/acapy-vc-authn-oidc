@@ -1,11 +1,11 @@
 import base64
 import io
-import json
 import uuid
 from datetime import UTC, datetime
 from typing import cast
 from urllib.parse import urlencode
 
+import jwt
 import qrcode
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -26,7 +26,7 @@ from ..core.oidc.issue_token_service import Token
 from ..db.session import get_db
 
 # Access to the websocket
-from ..routers.socketio import get_socket_id_for_pid, safe_emit, sio
+from ..routers.socketio import get_socket_id_for_pid, safe_emit
 from ..verificationConfigs.crud import VerificationConfigCRUD
 from ..verificationConfigs.helpers import VariableSubstitutionError
 from ..verificationConfigs.models import MetaData
@@ -484,7 +484,6 @@ async def post_token(request: Request, db: Database = Depends(get_db)):
 
         # Log the actual sub in the ID token for debugging
         if "id_token" in token_response.to_dict():
-            import jwt
 
             # Decode without verification to inspect the token
             decoded = jwt.decode(

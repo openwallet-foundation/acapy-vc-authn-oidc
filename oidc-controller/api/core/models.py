@@ -121,7 +121,7 @@ class VCUserinfo(Userinfo):
         """
         try:
             if item is None:
-                raise KeyError("user_id (item) cannot be None when retrieving claims")
+                raise ValueError("user_id (item) cannot be None when retrieving claims")
             # RedisWrapper doesn't support .get(), use [] with KeyError
             try:
                 claims = self._claims_storage[item]
