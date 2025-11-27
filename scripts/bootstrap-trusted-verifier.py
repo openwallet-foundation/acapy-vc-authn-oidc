@@ -46,6 +46,9 @@ CREDENTIAL_VALUES = {
     "issuer_name": os.getenv("ISSUER_NAME", "Trusted Verifier Issuer"),
 }
 
+# Prover-role testing configuration
+TEST_PROVER_ROLE = os.getenv("TEST_PROVER_ROLE", "false").lower() == "true"
+
 
 def log(message: str):
     """Print timestamped log message."""
@@ -405,6 +408,134 @@ def verify_credential_in_wallet(cred_def_id: str) -> bool:
         return False
 
 
+# ============================================================================
+# PROVER-ROLE TESTING FUNCTIONS (for issue #898)
+# These functions test VC-AuthN acting as a prover responding to proof requests
+# ============================================================================
+
+
+def send_proof_request(connection_id: str, cred_def_id: str) -> str:
+    """Send proof request from issuer to VC-AuthN (prover role test).
+
+    Args:
+        connection_id: Issuer's connection ID to VC-AuthN
+        cred_def_id: Credential definition to request proof for
+
+    Returns:
+        Presentation exchange ID
+    """
+    log("PROVER-ROLE TEST: Sending proof request to VC-AuthN...")
+
+    # Build proof request for trusted verifier credential
+    proof_request = {
+        "comment": "Proof request for testing VC-AuthN prover role (issue #898)",
+        "connection_id": connection_id,
+        "presentation_request": {
+            "indy": {
+                "name": "Trusted Verifier Proof Request",
+                "version": "1.0",
+                "requested_attributes": {
+                    "verifier_name": {
+                        "name": "verifier_name",
+                        "restrictions": [{"cred_def_id": cred_def_id}],
+                    },
+                    "authorized_scopes": {
+                        "name": "authorized_scopes",
+                        "restrictions": [{"cred_def_id": cred_def_id}],
+                    },
+                },
+                "requested_predicates": {},
+            }
+        },
+        "auto_verify": True,
+        "auto_remove": False,
+    }
+
+    result = make_request(
+        "POST",
+        f"{ISSUER_ADMIN_URL}/present-proof-2.0/send-request",
+        json_data=proof_request,
+    )
+    pres_ex_id = result.get("pres_ex_id")
+    log(f"PROVER-ROLE TEST: Sent proof request (pres_ex_id: {pres_ex_id})")
+    return pres_ex_id
+
+
+def verify_proof_presentation(pres_ex_id: str) -> bool:
+    """Verify presentation exchange completes successfully.
+
+    Args:
+        pres_ex_id: Presentation exchange ID
+
+    Returns:
+        True if presentation verified successfully
+    """
+    log("PROVER-ROLE TEST: Waiting for VC-AuthN to respond with presentation...")
+
+    for attempt in range(30):
+        result = make_request(
+            "GET", f"{ISSUER_ADMIN_URL}/present-proof-2.0/records/{pres_ex_id}"
+        )
+        state = result.get("state")
+        verified = result.get("verified")
+
+        log(
+            f"PROVER-ROLE TEST: Presentation state: {state}, verified: {verified} (attempt {attempt + 1})"
+        )
+
+        if state == "done":
+            if verified == "true":
+                log("PROVER-ROLE TEST: ✓ Presentation verified successfully!")
+                return True
+            else:
+                log(
+                    f"PROVER-ROLE TEST: ✗ Presentation not verified (verified={verified})"
+                )
+                return False
+
+        time.sleep(2)
+
+    log("PROVER-ROLE TEST: ✗ Presentation did not complete in time")
+    return False
+
+
+def test_prover_role(issuer_conn_id: str, cred_def_id: str) -> bool:
+    """Test VC-AuthN acting as prover by sending proof request.
+
+    This tests the webhook logging functionality for issue #898.
+
+    Args:
+        issuer_conn_id: Issuer's connection ID to VC-AuthN
+        cred_def_id: Credential definition to request proof for
+
+    Returns:
+        True if prover-role test passed
+    """
+    log("=" * 60)
+    log("PROVER-ROLE TEST: Starting (issue #898)")
+    log("=" * 60)
+
+    try:
+        pres_ex_id = send_proof_request(issuer_conn_id, cred_def_id)
+        success = verify_proof_presentation(pres_ex_id)
+
+        log("=" * 60)
+        if success:
+            log("PROVER-ROLE TEST: ✓ SUCCESS")
+            log(
+                "Check controller logs for prover-role webhook events with role='prover'"
+            )
+        else:
+            log("PROVER-ROLE TEST: ✗ FAILED")
+        log("=" * 60)
+
+        return success
+
+    except Exception as e:
+        log(f"PROVER-ROLE TEST: ✗ Error: {e}")
+        return False
+
+
 def main():
     """Main bootstrap process."""
     log("=" * 60)
@@ -443,10 +574,19 @@ def main():
             log("=" * 60)
             log(f"Schema ID: {schema_id}")
             log(f"Cred Def ID: {cred_def_id}")
+            log(f"Connection ID (Issuer): {issuer_conn_id}")
             log("=" * 60)
         else:
             log("WARNING: Bootstrap completed but credential not found in wallet")
             sys.exit(1)
+
+        # Step 7: Optional prover-role testing (issue #898)
+        if TEST_PROVER_ROLE:
+            log("")
+            log("TEST_PROVER_ROLE=true detected, running prover-role test...")
+            if not test_prover_role(issuer_conn_id, cred_def_id):
+                log("ERROR: Prover-role test failed")
+                sys.exit(1)
 
     except Exception as e:
         log(f"ERROR: Bootstrap failed: {e}")
