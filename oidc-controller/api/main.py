@@ -29,6 +29,7 @@ from .verificationConfigs.router import router as ver_configs_router
 from .clientConfigurations.router import router as client_config_router
 from .routers.socketio import sio_app, _build_redis_url, _handle_redis_failure
 from api.core.oidc.provider import init_provider
+from api.core.webhook_utils import register_tenant_webhook
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
 
@@ -156,6 +157,17 @@ async def on_tenant_startup():
             )
     else:
         logger.debug("Redis adapter disabled")
+
+    # Robust Webhook Registration
+    if settings.ACAPY_TENANCY == "multi":
+        await register_tenant_webhook(
+            wallet_id=settings.MT_ACAPY_WALLET_ID,
+            webhook_url=settings.CONTROLLER_WEB_HOOK_URL,
+            admin_url=settings.ACAPY_ADMIN_URL,
+            api_key=settings.CONTROLLER_API_KEY,
+            admin_api_key=settings.ST_ACAPY_ADMIN_API_KEY,
+            admin_api_key_name=settings.ST_ACAPY_ADMIN_API_KEY_NAME,
+        )
 
     logger.info(">>> Starting up app new ...")
 
