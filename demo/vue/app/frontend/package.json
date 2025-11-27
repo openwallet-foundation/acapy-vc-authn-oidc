@@ -23,7 +23,7 @@
     "core-js": "^3.44.0",
     "eslint": "^8.57.1",
     "eslint-plugin-prettier": "^5.5.3",
-    "keycloak-js": "^15.1.1",
+    "keycloak-js": "^26.0.8",
     "nprogress": "^0.2.0",
     "vue": "^2.7.16",
     "vue-router": "^3.6.5",

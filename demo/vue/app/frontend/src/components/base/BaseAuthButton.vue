@@ -27,23 +27,23 @@ export default {
     },
   },
   methods: {
-    login() {
+    async login() {
       if (this.keycloakReady) {
+        const loginUrl = await this.createLoginUrl();
         window.location.replace(
-          this.createLoginUrl() +
+          loginUrl +
             '&pres_req_conf_id=' +
             this.presReqConfId +
             '&back_to_url=http://localhost:8080/',
         );
       }
     },
-    logout() {
+    async logout() {
       if (this.keycloakReady) {
-        window.location.replace(
-          this.createLogoutUrl({
-            redirectUri: `${location.origin}/${this.$config.basePath}`,
-          }),
-        );
+        const logoutUrl = await this.createLogoutUrl({
+          redirectUri: `${location.origin}/${this.$config.basePath}`,
+        });
+        window.location.replace(logoutUrl);
       }
     },
   },

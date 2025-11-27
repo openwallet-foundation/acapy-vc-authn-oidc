@@ -335,6 +335,9 @@ _build/
 oidc-controller/private/
 oidc-controller/static/
 oidc-controller/signing-keys/
+**/test-signing-keys
 
 wallet.txt
 /charts/vc-authn-oidc/charts/.helm_ls_cache/
+
+
