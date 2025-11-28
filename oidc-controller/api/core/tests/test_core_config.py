@@ -1,6 +1,7 @@
 import pytest
 import logging
 import os
+import importlib
 from unittest.mock import patch
 from api.core.config import (
     strtobool,
@@ -88,3 +89,17 @@ class TestFactoryConfig:
         config_factory = FactoryConfig(None)
         result = config_factory()
         assert isinstance(result, ProdConfig)
+
+
+class TestConfigValidation:
+    """Test configuration validation logic."""
+
+    def test_invalid_proof_format_raises_error(self):
+        """Test that initializing settings with invalid ACAPY_PROOF_FORMAT raises ValueError."""
+        with patch.dict(os.environ, {"ACAPY_PROOF_FORMAT": "invalid_format"}):
+            with pytest.raises(
+                ValueError, match="ACAPY_PROOF_FORMAT must be 'indy' or 'anoncreds'"
+            ):
+                from api.core import config
+
+                importlib.reload(config)
