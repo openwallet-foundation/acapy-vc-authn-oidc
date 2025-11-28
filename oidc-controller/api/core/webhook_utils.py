@@ -1,6 +1,7 @@
 import asyncio
 import structlog
 import requests
+from typing import Callable
 
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
@@ -13,10 +14,14 @@ async def register_tenant_webhook(
     api_key: str | None,
     admin_api_key: str | None,
     admin_api_key_name: str | None,
+    token_fetcher: Callable[[], str] | None = None,
 ):
     """
     Registers the controller's webhook URL with the ACA-Py Agent Tenant.
-    Includes retries for agent startup and validation for configuration.
+    Strategy:
+    1. Try the Admin API (`/multitenancy/wallet/{id}`).
+    2. If that fails with 403/404 (Blocked) and wallet_key is present,
+       fallback to the Tenant API (`/tenant/wallet`).
     """
     if not webhook_url or not wallet_id:
         logger.warning(
@@ -51,6 +56,7 @@ async def register_tenant_webhook(
 
     for attempt in range(0, max_retries):
         try:
+            # Try Admin API
             response = requests.put(
                 target_url, json=payload, headers=headers, timeout=5
             )
@@ -58,16 +64,27 @@ async def register_tenant_webhook(
             if response.status_code == 200:
                 logger.info("Successfully registered webhook URL with ACA-Py tenant")
                 return
-            elif response.status_code in [401, 403]:
-                logger.error(
-                    f"Webhook registration failed: Unauthorized (401/403). Check AGENT_ADMIN_API_KEY configuration."
+
+            # Fallback Logic: If Admin API is blocked (403/404)
+            elif response.status_code in [403, 404] and token_fetcher:
+                logger.info(
+                    f"Admin API returned {response.status_code}. Attempting Tenant API fallback..."
                 )
+                if await _register_via_tenant_api(admin_url, payload, token_fetcher):
+                    return
+                # If fallback fails, stop (don't retry admin api)
                 return
+
+            elif response.status_code == 401:
+                logger.error("Admin API Unauthorized (401). Check ADMIN_API_KEY.")
+                return
+
             elif response.status_code >= 500:
                 # Retry on server errors
                 logger.warning(
                     f"Webhook registration failed with server error {response.status_code}: {response.text}. Retrying..."
                 )
+
             else:
                 logger.warning(
                     f"Webhook registration returned status {response.status_code}: {response.text}"
@@ -90,3 +107,38 @@ async def register_tenant_webhook(
     logger.error(
         "Failed to register webhook after multiple attempts. Agent notification may fail."
     )
+
+
+async def _register_via_tenant_api(
+    admin_url: str, payload: dict, token_fetcher: Callable[[], str]
+) -> bool:
+    """Fallback: use /tenant/wallet endpoint with provided token fetcher."""
+    try:
+        # 1. Get Token
+        token = token_fetcher()
+
+        if not token:
+            logger.error("Tenant Fallback: Token fetcher returned empty token")
+            return False
+
+        # 2. Update via Tenant API
+        # Using the standard Traction/ACA-Py Tenant endpoint
+        tenant_url = f"{admin_url}/tenant/wallet"
+        tenant_headers = {"Authorization": f"Bearer {token}"}
+
+        update_res = requests.put(
+            tenant_url, json=payload, headers=tenant_headers, timeout=5
+        )
+
+        if update_res.status_code == 200:
+            logger.info("Successfully registered webhook via Tenant API")
+            return True
+        else:
+            logger.error(
+                f"Tenant Fallback: Update failed. Status: {update_res.status_code} Body: {update_res.text}"
+            )
+            return False
+
+    except Exception as e:
+        logger.error(f"Tenant Fallback Exception: {e}")
+        return False
