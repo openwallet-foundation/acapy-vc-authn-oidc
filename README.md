@@ -74,8 +74,7 @@ curl -X 'POST' \
         "names": ["given_names", "family_name", "country"],
         "restrictions": [
           {
-            "schema_name": "Person",
-            "issuer_did": "QEquAHkM35w4XVT3Ku5yat"
+            "schema_name": "Person"
           }
         ]
       }

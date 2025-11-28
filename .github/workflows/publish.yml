@@ -49,15 +49,90 @@ jobs:
       image_tag: ${{ steps.values.outputs.image_tag }}
       image_version: ${{ steps.values.outputs.image_version }}
     steps:
+      - name: Determine checkout ref
+        id: ref
+        run: |
+          if [ -n "${{ inputs.ref }}" ]; then
+            echo "checkout_ref=${{ inputs.ref }}" >> $GITHUB_OUTPUT
+            echo "Building from specified ref: ${{ inputs.ref }}"
+          elif [ -n "${{ github.event.release.tag_name }}" ]; then
+            echo "checkout_ref=${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
+            echo "Building from release tag: ${{ github.event.release.tag_name }}"
+          else
+            echo "checkout_ref=${{ github.ref }}" >> $GITHUB_OUTPUT
+            echo "Building from triggering ref: ${{ github.ref }}"
+          fi
+
       - name: Checkout Code
         uses: actions/checkout@v5
         with:
-          ref: ${{ inputs.ref || '' }}
+          ref: ${{ steps.ref.outputs.checkout_ref }}
+
+      - name: Verify checkout
+        run: |
+          echo "Checked out ref: $(git describe --always --tags)"
+          echo "Current commit: $(git rev-parse HEAD)"
+          echo "Current branch/tag: $(git branch --show-current || git describe --tags --exact-match 2>/dev/null || echo 'detached HEAD')"
+          
+          # If a specific ref was requested, verify we're on it
+          if [ -n "${{ inputs.ref }}" ]; then
+            REQUESTED_REF="${{ inputs.ref }}"
+            CURRENT_REF=$(git rev-parse HEAD)
+            REQUESTED_SHA=$(git rev-parse "$REQUESTED_REF" 2>/dev/null || echo "unknown")
+            
+            if [ "$CURRENT_REF" != "$REQUESTED_SHA" ]; then
+              echo "ERROR: Failed to checkout requested ref '$REQUESTED_REF'"
+              echo "Expected SHA: $REQUESTED_SHA"
+              echo "Current SHA: $CURRENT_REF"
+              exit 1
+            fi
+            echo "✓ Successfully verified checkout of ref: $REQUESTED_REF"
+          fi
 
       - name: Gather image info
         id: info
         run: |
           echo "repo-owner=${GITHUB_REPOSITORY_OWNER,,}" >> $GITHUB_OUTPUT
+          
+          # Determine tags based on what we checked out
+          CHECKOUT_REF="${{ steps.ref.outputs.checkout_ref }}"
+          echo "Determining tags for ref: ${CHECKOUT_REF}"
+          
+          TAGS="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/acapy-vc-authn-oidc:"
+          
+          # Check if it's a semver tag (v1.2.3 or 1.2.3)
+          if [[ "${CHECKOUT_REF}" =~ ^refs/tags/v?([0-9]+\.[0-9]+\.[0-9]+.*)$ ]] || [[ "${CHECKOUT_REF}" =~ ^v?([0-9]+\.[0-9]+\.[0-9]+.*)$ ]]; then
+            VERSION="${BASH_REMATCH[1]}"
+            echo "Detected version: ${VERSION}"
+            
+            # Full version tag
+            TAGS="${TAGS}${VERSION}"
+            
+            # Major.minor tag
+            if [[ "${VERSION}" =~ ^([0-9]+\.[0-9]+) ]]; then
+              TAGS="${TAGS},ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/acapy-vc-authn-oidc:${BASH_REMATCH[1]}"
+            fi
+            
+            # Latest tag for releases
+            TAGS="${TAGS},ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/acapy-vc-authn-oidc:latest"
+            
+          # Check if it's main branch
+          elif [[ "${CHECKOUT_REF}" == "refs/heads/main" ]] || [[ "${CHECKOUT_REF}" == "main" ]]; then
+            echo "Building from main branch"
+            TAGS="${TAGS}dev"
+            
+          # For other branches, use branch name
+          else
+            # Extract branch name from refs/heads/branch-name or just use as-is
+            BRANCH_NAME="${CHECKOUT_REF#refs/heads/}"
+            # Sanitize branch name for docker tag (replace / with -)
+            BRANCH_NAME="${BRANCH_NAME//\//-}"
+            echo "Building from branch: ${BRANCH_NAME}"
+            TAGS="${TAGS}${BRANCH_NAME}"
+          fi
+          
+          echo "tags=${TAGS}" >> $GITHUB_OUTPUT
+          echo "Generated tags: ${TAGS}"
 
       - name: Cache Docker layers
         uses: actions/cache@v4
@@ -83,14 +158,12 @@ jobs:
         with:
           images: |
             ghcr.io/${{ steps.info.outputs.repo-owner }}/acapy-vc-authn-oidc
+          # We generate tags manually in the "Gather image info" step
+          # but still use metadata-action for labels
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            # set dev tag when building from the default branch (main)
-            type=raw,value=dev,enable={{is_default_branch}}
-            # set latest tag for published release
-            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/') }}
-            
+            type=raw,value=dummy
+          flavor: |
+            latest=false
 
       - name: Build and Push Image to ghcr.io
         uses: docker/build-push-action@v6
@@ -98,7 +171,7 @@ jobs:
           push: true
           context: .
           file: docker/oidc-controller/Dockerfile
-          tags: ${{ steps.meta.outputs.tags }}
+          tags: ${{ steps.info.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           target: main
           cache-from: type=local,src=/tmp/.buildx-cache
