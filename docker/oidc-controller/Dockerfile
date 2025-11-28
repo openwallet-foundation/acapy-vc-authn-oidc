@@ -5,9 +5,9 @@ WORKDIR /app/src
 # Metadata labels following OCI Image Format Specification
 LABEL org.opencontainers.image.title="ACA-Py VC-AuthN OIDC Controller"
 LABEL org.opencontainers.image.description="OpenID Connect Identity Provider powered by Verifiable Credentials using ACA-Py"
-LABEL org.opencontainers.image.url="https://github.com/openwallet-foundation/vc-authn-oidc"
-LABEL org.opencontainers.image.documentation="https://github.com/openwallet-foundation/vc-authn-oidc/blob/main/README.md"
-LABEL org.opencontainers.image.source="https://github.com/openwallet-foundation/vc-authn-oidc"
+LABEL org.opencontainers.image.url="https://github.com/openwallet-foundation/acapy-vc-authn-oidc"
+LABEL org.opencontainers.image.documentation="https://github.com/openwallet-foundation/acapy-vc-authn-oidc/blob/main/README.md"
+LABEL org.opencontainers.image.source="https://github.com/openwallet-foundation/acapy-vc-authn-oidc"
 LABEL org.opencontainers.image.vendor="OpenWallet Foundation"
 LABEL org.opencontainers.image.licenses="Apache-2.0"
 LABEL org.opencontainers.image.authors="OpenWallet Foundation"
