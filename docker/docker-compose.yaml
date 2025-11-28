@@ -118,8 +118,8 @@ services:
       - vc_auth
 
   keycloak:
-    image: quay.io/keycloak/keycloak:22.0
-    command: start-dev --import-realm --http-relative-path=/auth
+    image: quay.io/keycloak/keycloak:26.0
+    command: start-dev --import-realm
     ports:
       - 8880:8080
     volumes:
@@ -127,17 +127,12 @@ services:
     environment:
       KC_DB: ${KEYCLOAK_DB_VENDOR}
       KC_DB_URL: jdbc:postgresql://${KEYCLOAK_DB_ADDR}/keycloak
-      # DB_DATABASE: ${KEYCLOAK_DB_NAME}
       KC_DB_USERNAME: ${KEYCLOAK_DB_USER}
       KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD}
-      KEYCLOAK_ADMIN: ${KEYCLOAK_USER}
-      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_PASSWORD}
-      # KEYCLOAK_LOGLEVEL: ${KEYCLOAK_LOGLEVEL}
-      # ROOT_LOGLEVEL: ${KEYCLOAK_ROOT_LOGLEVEL}
-      #
-      # The following parameter addresses a redirect error on logout in later (post KC 16 at least).
-      # It may be fixable by updating the vue app as well -- google "keycloak error Invalid parameter: redirect_uri"
-      KC_SPI_LOGIN_PROTOCOL_OPENID_CONNECT_LEGACY_LOGOUT_REDIRECT_URI: "true"
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_USER}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_PASSWORD}
+      KC_HTTP_ENABLED: true
+      KC_HTTP_RELATIVE_PATH: /auth
     depends_on:
       - keycloak-db
     networks:
