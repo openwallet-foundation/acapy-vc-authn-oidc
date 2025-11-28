@@ -152,11 +152,23 @@ class TestVCUserinfo:
         with pytest.raises(ValueError, match="user_id cannot be None"):
             userinfo.set_claims_for_user(None, {"claim": "value"})
 
-    def test_get_claims_for_with_none_user_id_raises_error(self, dict_storage):
-        """Test that get_claims_for raises ValueError for None user_id."""
+    def test_get_claims_for_with_none_user_id_stateless_mode(self, dict_storage):
+        """Test that get_claims_for handles None user_id for StatelessWrapper."""
         userinfo = VCUserinfo({}, claims_storage=dict_storage)
-        with pytest.raises(ValueError, match="user_id cannot be None"):
-            userinfo.get_claims_for(None, {}, None)
+        # StatelessWrapper mode: user_id=None, claims passed in userinfo param
+        userinfo_claims = {
+            "pres_req_conf_id": "test_config",
+            "vc_presented_attributes": '{"email": "test@example.com"}',
+        }
+        result = userinfo.get_claims_for(None, {}, userinfo=userinfo_claims)
+        assert result == userinfo_claims
+        assert result["pres_req_conf_id"] == "test_config"
+
+    def test_get_claims_for_stateless_mode_with_empty_userinfo(self, dict_storage):
+        """Test StatelessWrapper mode returns empty dict when userinfo is None."""
+        userinfo = VCUserinfo({}, claims_storage=dict_storage)
+        result = userinfo.get_claims_for(None, {}, userinfo=None)
+        assert result == {}
 
     def test_getitem_with_none_user_id_raises_error(self, dict_storage):
         """Test that __getitem__ raises ValueError for None user_id."""
@@ -282,3 +294,43 @@ class TestVCUserinfo:
 
         with pytest.raises(RuntimeError, match="Storage read failed"):
             userinfo.get_claims_for("user_id", {}, None)
+
+    def test_stateless_mode_with_custom_vc_claims(self, dict_storage):
+        """Test StatelessWrapper mode properly returns all VC claims."""
+        userinfo = VCUserinfo({}, claims_storage=dict_storage)
+        vc_claims = {
+            "pres_req_conf_id": "showcase-person",
+            "vc_presented_attributes": '{"given_names": "John", "family_name": "Doe"}',
+            "acr": "vc_authn",
+            "nonce": "test_nonce_123",
+        }
+        
+        # Simulate StatelessWrapper calling get_claims_for
+        result = userinfo.get_claims_for(None, {}, userinfo=vc_claims)
+        
+        assert result == vc_claims
+        assert result["pres_req_conf_id"] == "showcase-person"
+        assert "vc_presented_attributes" in result
+        assert result["acr"] == "vc_authn"
+        assert result["nonce"] == "test_nonce_123"
+
+    def test_redis_mode_vs_stateless_mode(self, dict_storage):
+        """Test that Redis mode and StatelessWrapper mode work correctly."""
+        userinfo = VCUserinfo({}, claims_storage=dict_storage)
+        
+        # Redis mode: store claims with user_id
+        redis_claims = {"redis_claim": "redis_value"}
+        userinfo.set_claims_for_user("redis_user_id", redis_claims)
+        
+        # Redis mode: retrieve with user_id, userinfo=None
+        result_redis = userinfo.get_claims_for("redis_user_id", {}, None)
+        assert result_redis == redis_claims
+        
+        # StatelessWrapper mode: retrieve with user_id=None, claims in userinfo
+        stateless_claims = {"stateless_claim": "stateless_value"}
+        result_stateless = userinfo.get_claims_for(None, {}, userinfo=stateless_claims)
+        assert result_stateless == stateless_claims
+        
+        # Verify they're independent
+        assert result_redis != result_stateless
+
