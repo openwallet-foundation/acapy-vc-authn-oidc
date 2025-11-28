@@ -41,28 +41,22 @@ class MultiTenantAcapy:
 
         payload = {"wallet_key": self.wallet_key}
 
-        try:
-            resp_raw = requests.post(
-                settings.ACAPY_ADMIN_URL
-                + f"/multitenancy/wallet/{self.wallet_id}/token",
-                headers=headers,
-                json=payload,
+        resp_raw = requests.post(
+            settings.ACAPY_ADMIN_URL + f"/multitenancy/wallet/{self.wallet_id}/token",
+            headers=headers,
+            json=payload,
+        )
+
+        if resp_raw.status_code != 200:
+            error_detail = resp_raw.content.decode()
+            logger.error(
+                f"Failed to get wallet token. Status: {resp_raw.status_code}, Detail: {error_detail}"
             )
+            # Raising Exception to be caught by the except block below or propagated
+            raise Exception(f"{resp_raw.status_code}::{error_detail}")
 
-            if resp_raw.status_code != 200:
-                error_detail = resp_raw.content.decode()
-                logger.error(
-                    f"Failed to get wallet token. Status: {resp_raw.status_code}, Detail: {error_detail}"
-                )
-                # Raising Exception to be caught by the except block below or propagated
-                raise Exception(f"{resp_raw.status_code}::{error_detail}")
-
-            resp = json.loads(resp_raw.content)
-            wallet_token = resp["token"]
-
-        except Exception as e:
-            logger.error(f"Exception occurred while getting wallet token: {str(e)}")
-            raise
+        resp = json.loads(resp_raw.content)
+        wallet_token = resp["token"]
 
         logger.debug("<<< get_wallet_token")
         return wallet_token
