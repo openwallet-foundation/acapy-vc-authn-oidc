@@ -1,6 +1,6 @@
 [project]
 name = "acapy-vc-authn-oidc"
-version = "2.3.2"
+version = "2.3.3"
 description = "Verifiable Credential Identity Provider for OpenID Connect."
 authors = [ { name = "OpenWallet Foundation" } ]
 license = "Apache-2.0"
@@ -17,27 +17,27 @@ package-mode = false
 
 [tool.poetry.dependencies]
 python = ">=3.12,<4.0"
-fastapi = "^0.116.1"
+fastapi = "^0.122.0"
 jinja2 = "^3.1.6"
 oic = "^1.7.0"
-pymongo = "^4.13.2"
-pyop = { version = "^3.4.1", extras = ["redis"] }
+pymongo = "^4.15.4"
+pyop = { version = "^3.4.2", extras = ["redis"] }
 python-multipart = "^0.0.20" # required by fastapi to serve/upload files
 qrcode = { version = "^8.2", extras = ["pil"]}
-structlog = "^25.4.0"
-uvicorn = { version = "^0.35.0", extras = ["standard"] }
-python-socketio = "^5.13.0" # required to run websockets
+structlog = "^25.5.0"
+uvicorn = { version = "^0.38.0", extras = ["standard"] }
+python-socketio = "^5.15.0" # required to run websockets
 redis = "^5.0.0" # required for multi-pod Socket.IO communication
 canonicaljson = "^2.0.0" # used to provide unique consistent user identifiers"
-pydantic-settings = "^2.10.1"
+pydantic-settings = "^2.12.0"
 
 [tool.poetry.group.dev.dependencies]
-black = "^25.1.0"
+black = "^25.11.0"
 mock = "^5.2.0"
 mongomock = "^4.3.0"
-pytest-asyncio = "^1.1.0"
-pytest-cov = "^6.2.1"
-pytest = "^8.4.1"
+pytest-asyncio = "^1.3.0"
+pytest-cov = "^7.0.0"
+pytest = "^9.0.1"
 requests-mock = "^1.12.1"
 setuptools = "^80.9.0"
 httpx = "^0.28.1"
