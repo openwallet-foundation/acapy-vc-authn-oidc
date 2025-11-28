@@ -143,20 +143,33 @@ class VCUserinfo(Userinfo):
         Return stored claims for the given user_id.
         PyOP calls this method when generating ID tokens.
 
+        For StatelessWrapper (in-memory): PyOP passes user_id=None and
+        userinfo contains the claims from the authorization code.
+
+        For RedisWrapper (multi-pod): PyOP passes user_id and userinfo=None,
+        and we look up claims from Redis storage.
+
         Args:
-            user_id: The user identifier to look up
+            user_id: The user identifier to look up (None for StatelessWrapper)
             requested_claims: Claims requested by the client (ignored)
-            userinfo: Additional userinfo (ignored)
+            userinfo: Claims dict from authz code (for StatelessWrapper only)
 
         Returns:
             Dictionary of claims for this user, including custom claims
             from VC presentation
         """
         try:
+            # StatelessWrapper case: claims are passed in userinfo parameter
             if user_id is None:
-                raise ValueError("user_id cannot be None when retrieving claims")
+                claims = userinfo or {}
+                logger.debug(
+                    "VCUserinfo.get_claims_for called with user_id=None (StatelessWrapper mode)",
+                    storage_type="stateless",
+                    claims_keys=list(claims.keys()),
+                )
+                return claims
 
-            # RedisWrapper doesn't support .get(), use [] with KeyError
+            # RedisWrapper case: look up claims from storage
             try:
                 claims = self._claims_storage[user_id]
             except KeyError:
@@ -171,8 +184,6 @@ class VCUserinfo(Userinfo):
             logger.debug(f"  Returning claims keys: {list(claims.keys())}")
 
             return claims
-        except ValueError:
-            raise
         except Exception as e:
             logger.error(f"VCUserinfo.get_claims_for ERROR: {e}")
             raise
