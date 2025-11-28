@@ -518,6 +518,7 @@ single-pod)
 
   configureEnvironment $@
   export CONTROLLER_REPLICAS=1
+  export USE_REDIS_ADAPTER=false
   echo "Running single pod setup..."
   docker-compose up -d ${DEFAULT_CONTAINERS} ${ACAPY_CONTAINERS} ${PROD_CONTAINERS}
   docker-compose logs -f
