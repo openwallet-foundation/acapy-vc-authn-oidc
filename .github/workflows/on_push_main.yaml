@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: 'Branch or full SHA to deploy'
+        description: 'Branch or full SHA to build'
         required: false
         default: 'main'
   push:
