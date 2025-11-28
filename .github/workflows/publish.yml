@@ -49,10 +49,45 @@ jobs:
       image_tag: ${{ steps.values.outputs.image_tag }}
       image_version: ${{ steps.values.outputs.image_version }}
     steps:
+      - name: Determine checkout ref
+        id: ref
+        run: |
+          if [ -n "${{ inputs.ref }}" ]; then
+            echo "checkout_ref=${{ inputs.ref }}" >> $GITHUB_OUTPUT
+            echo "Building from specified ref: ${{ inputs.ref }}"
+          elif [ -n "${{ github.event.release.tag_name }}" ]; then
+            echo "checkout_ref=${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
+            echo "Building from release tag: ${{ github.event.release.tag_name }}"
+          else
+            echo "checkout_ref=${{ github.ref }}" >> $GITHUB_OUTPUT
+            echo "Building from triggering ref: ${{ github.ref }}"
+          fi
+
       - name: Checkout Code
         uses: actions/checkout@v5
         with:
-          ref: ${{ inputs.ref || '' }}
+          ref: ${{ steps.ref.outputs.checkout_ref }}
+
+      - name: Verify checkout
+        run: |
+          echo "Checked out ref: $(git describe --always --tags)"
+          echo "Current commit: $(git rev-parse HEAD)"
+          echo "Current branch/tag: $(git branch --show-current || git describe --tags --exact-match 2>/dev/null || echo 'detached HEAD')"
+          
+          # If a specific ref was requested, verify we're on it
+          if [ -n "${{ inputs.ref }}" ]; then
+            REQUESTED_REF="${{ inputs.ref }}"
+            CURRENT_REF=$(git rev-parse HEAD)
+            REQUESTED_SHA=$(git rev-parse "$REQUESTED_REF" 2>/dev/null || echo "unknown")
+            
+            if [ "$CURRENT_REF" != "$REQUESTED_SHA" ]; then
+              echo "ERROR: Failed to checkout requested ref '$REQUESTED_REF'"
+              echo "Expected SHA: $REQUESTED_SHA"
+              echo "Current SHA: $CURRENT_REF"
+              exit 1
+            fi
+            echo "✓ Successfully verified checkout of ref: $REQUESTED_REF"
+          fi
 
       - name: Gather image info
         id: info
