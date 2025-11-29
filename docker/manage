@@ -251,6 +251,9 @@ configureEnvironment() {
   export MT_ACAPY_WALLET_ID=${MT_ACAPY_WALLET_ID}
   export MT_ACAPY_WALLET_KEY=${MT_ACAPY_WALLET_KEY}
 
+  export TRACTION_TENANT_ID=${TRACTION_TENANT_ID}
+  export TRACTION_TENANT_API_KEY=${TRACTION_TENANT_API_KEY}
+
   # keycloak-db
   export KEYCLOAK_DB_NAME="keycloak"
   export KEYCLOAK_DB_USER="keycloak"

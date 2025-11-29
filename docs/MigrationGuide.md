@@ -25,3 +25,11 @@ If you are running in Multi-Tenant mode (`ACAPY_TENANCY="multi"`), you **must** 
     environment:
       - CONTROLLER_WEB_HOOK_URL=https://<your-controller-domain>/webhooks
     ```
+
+### New Tenancy Mode: Traction
+
+A new mode has been added for integrating with Traction (or secured multi-tenant agents where Admin APIs are blocked).
+
+*   **Setting:** `ACAPY_TENANCY="traction"`
+*   **Requirements:** Requires `TRACTION_TENANT_ID` and `TRACTION_TENANT_API_KEY`.
+*   **Behavior:** Authenticates directly with the Tenant API and bypasses `multitenancy/wallet` Admin endpoints.

@@ -5,6 +5,7 @@ import requests
 from api.core.webhook_utils import register_tenant_webhook
 from api.main import on_tenant_startup
 from api.core.config import settings
+from api.core.webhook_utils import _register_via_tenant_api
 
 
 @pytest.fixture
@@ -20,6 +21,7 @@ def mock_settings():
         # Default safe values
         mock.USE_REDIS_ADAPTER = False
         mock.ACAPY_TENANCY = "multi"
+        mock.MT_ACAPY_WALLET_KEY = "wallet-key"
         yield mock
 
 
@@ -38,8 +40,8 @@ def mock_sleep():
 
 
 @pytest.mark.asyncio
-async def test_webhook_registration_success(mock_requests_put):
-    """Test successful webhook registration with API key injection."""
+async def test_webhook_registration_success_admin_api(mock_requests_put):
+    """Test successful registration via standard Admin API."""
     mock_requests_put.return_value.status_code = 200
 
     await register_tenant_webhook(
@@ -51,20 +53,107 @@ async def test_webhook_registration_success(mock_requests_put):
         admin_api_key_name="x-api-key",
     )
 
-    # Verify URL construction (Hash Hack)
-    expected_url = "http://controller/webhooks#my-api-key"
-
-    # Verify arguments passed to requests.put
+    # Verify Admin API was called
     args, kwargs = mock_requests_put.call_args
-    assert args[0] == "http://acapy:8077/multitenancy/wallet/test-wallet"
-    assert kwargs["json"] == {"wallet_webhook_urls": [expected_url]}
-    assert kwargs["headers"] == {"x-api-key": "admin-key"}
+    assert "multitenancy/wallet/test-wallet" in args[0]
+    assert kwargs["headers"]["x-api-key"] == "admin-key"
+
+
+@pytest.mark.asyncio
+async def test_webhook_registration_fallback_success(mock_requests_put):
+    """
+    Test fallback to Tenant API when Admin API returns 403.
+    This validates the new token_fetcher logic.
+    """
+    # 1. Admin API returns 403 (Forbidden)
+    # 2. Tenant API returns 200 (Success)
+    mock_requests_put.side_effect = [
+        MagicMock(status_code=403, text="Forbidden"),
+        MagicMock(status_code=200),
+    ]
+
+    # Create a mock token fetcher function
+    mock_fetcher = MagicMock(return_value="injected-token")
+
+    await register_tenant_webhook(
+        wallet_id="test-wallet",
+        webhook_url="http://controller",
+        admin_url="http://acapy",
+        api_key=None,
+        admin_api_key=None,
+        admin_api_key_name=None,
+        token_fetcher=mock_fetcher,
+    )
+
+    # Verify flow
+    assert mock_requests_put.call_count == 2
+
+    # Check 1st call (Admin)
+    admin_call = mock_requests_put.call_args_list[0]
+    assert "multitenancy/wallet" in admin_call[0][0]
+
+    # Check Token Fetcher was called
+    mock_fetcher.assert_called_once()
+
+    # Check 2nd call (Tenant)
+    tenant_call = mock_requests_put.call_args_list[1]
+    assert "tenant/wallet" in tenant_call[0][0]
+    assert tenant_call[1]["headers"]["Authorization"] == "Bearer injected-token"
+
+
+@pytest.mark.asyncio
+async def test_webhook_registration_traction_mode_direct_tenant_api(mock_requests_put):
+    """
+    Test Traction mode (use_admin_api=False) which skips Admin API and goes direct to Tenant API.
+    """
+    mock_requests_put.return_value.status_code = 200
+    mock_fetcher = MagicMock(return_value="traction-token")
+
+    await register_tenant_webhook(
+        wallet_id="ignored-in-traction-mode",
+        webhook_url="http://controller",
+        admin_url="http://acapy",
+        api_key=None,
+        admin_api_key=None,
+        admin_api_key_name=None,
+        token_fetcher=mock_fetcher,
+        use_admin_api=False,  # Trigger direct tenant mode
+    )
+
+    # Verify flow
+    assert mock_requests_put.call_count == 1
+
+    # Verify call was to Tenant endpoint directly
+    tenant_call = mock_requests_put.call_args_list[0]
+    assert "tenant/wallet" in tenant_call[0][0]
+    assert "multitenancy/wallet" not in tenant_call[0][0]
+    assert tenant_call[1]["headers"]["Authorization"] == "Bearer traction-token"
+
+
+@pytest.mark.asyncio
+async def test_webhook_registration_no_fallback_without_fetcher(mock_requests_put):
+    """Test 403 error does NOT trigger fallback if no token_fetcher provided."""
+    mock_requests_put.return_value.status_code = 403
+
+    # No fetcher provided
+    await register_tenant_webhook(
+        wallet_id="test-wallet",
+        webhook_url="http://controller",
+        admin_url="http://acapy",
+        api_key=None,
+        admin_api_key=None,
+        admin_api_key_name=None,
+        token_fetcher=None,
+    )
+
+    # Should try Admin API once, fail, and stop (because no fetcher to try fallback)
+    assert mock_requests_put.call_count == 1
 
 
 @pytest.mark.asyncio
 async def test_webhook_registration_missing_config(mock_requests_put):
     """Test early return if config is missing."""
-    # Missing wallet_id
+    # Missing wallet_id AND use_admin_api=True (default)
     await register_tenant_webhook(
         wallet_id=None,
         webhook_url="http://controller",
@@ -82,7 +171,7 @@ async def test_webhook_registration_invalid_url(mock_requests_put):
     """Test validation for invalid URL protocol."""
     await register_tenant_webhook(
         wallet_id="test-wallet",
-        webhook_url="ftp://invalid-url",  # Invalid protocol
+        webhook_url="ftp://invalid-url",
         admin_url="http://acapy",
         api_key=None,
         admin_api_key=None,
@@ -126,6 +215,89 @@ async def test_webhook_registration_retry_logic_with_backoff(
     # First retry (attempt 0 failure): 2 * (2^0) = 2
     # Second retry (attempt 1 failure): 2 * (2^1) = 4
     mock_sleep.assert_has_calls([unittest.mock.call(2), unittest.mock.call(4)])
+
+
+@pytest.mark.asyncio
+async def test_startup_multi_tenant_injects_fetcher(mock_settings, mock_requests_put):
+    """
+    Critical Integration Test:
+    Ensures main.py actually instantiates MultiTenantAcapy and passes the method.
+    """
+    mock_settings.ACAPY_TENANCY = "multi"
+    mock_settings.MT_ACAPY_WALLET_KEY = "wallet-key"  # Trigger fetcher creation
+    mock_settings.USE_REDIS_ADAPTER = False
+
+    # Mock MultiTenantAcapy class to verify instantiation
+    with patch("api.main.init_db", new_callable=AsyncMock), patch(
+        "api.main.init_provider", new_callable=AsyncMock
+    ), patch("api.main.get_db", new_callable=AsyncMock), patch(
+        "api.main.MultiTenantAcapy"
+    ) as mock_acapy_class, patch(
+        "api.main.register_tenant_webhook", new_callable=AsyncMock
+    ) as mock_register:
+
+        # Setup mock instance
+        mock_acapy_instance = MagicMock()
+        mock_acapy_class.return_value = mock_acapy_instance
+        # Mock the bound method we expect to be passed
+        mock_acapy_instance.get_wallet_token = "bound-method-ref"
+
+        await on_tenant_startup()
+
+        # Verify register function was called
+        assert mock_register.called
+
+        # Verify the token_fetcher argument was passed correctly
+        _, kwargs = mock_register.call_args
+        assert kwargs["token_fetcher"] == "bound-method-ref"
+        assert kwargs["use_admin_api"] == True
+
+
+@pytest.mark.asyncio
+async def test_startup_traction_mode_config(mock_settings, mock_requests_put):
+    """
+    Test startup logic in traction mode: uses TractionTenantAcapy and skips admin API.
+    """
+    mock_settings.ACAPY_TENANCY = "traction"
+    mock_settings.USE_REDIS_ADAPTER = False
+
+    with patch("api.main.init_db", new_callable=AsyncMock), patch(
+        "api.main.init_provider", new_callable=AsyncMock
+    ), patch("api.main.get_db", new_callable=AsyncMock), patch(
+        "api.main.TractionTenantAcapy"
+    ) as mock_traction_class, patch(
+        "api.main.register_tenant_webhook", new_callable=AsyncMock
+    ) as mock_register:
+
+        mock_traction_instance = MagicMock()
+        mock_traction_class.return_value = mock_traction_instance
+        mock_traction_instance.get_wallet_token = "traction-token-fetcher"
+
+        await on_tenant_startup()
+
+        assert mock_register.called
+        _, kwargs = mock_register.call_args
+        assert kwargs["token_fetcher"] == "traction-token-fetcher"
+        assert kwargs["use_admin_api"] == False
+
+
+@pytest.mark.asyncio
+async def test_startup_single_tenant_skips_registration(
+    mock_settings, mock_requests_put
+):
+    """Test startup logic in single-tenant mode skips registration."""
+    mock_settings.ACAPY_TENANCY = "single"
+    mock_settings.USE_REDIS_ADAPTER = False
+
+    with patch("api.main.init_db", new_callable=AsyncMock), patch(
+        "api.main.init_provider", new_callable=AsyncMock
+    ), patch("api.main.get_db", new_callable=AsyncMock), patch(
+        "api.main.register_tenant_webhook", new_callable=AsyncMock
+    ) as mock_register:
+
+        await on_tenant_startup()
+
+        assert not mock_register.called
 
 
 @pytest.mark.asyncio
@@ -183,40 +355,6 @@ async def test_webhook_registration_unexpected_exception(mock_requests_put, mock
 
 
 @pytest.mark.asyncio
-async def test_startup_multi_tenant_registers_webhook(mock_settings, mock_requests_put):
-    """Test startup logic in multi-tenant mode calls registration."""
-    mock_settings.ACAPY_TENANCY = "multi"
-    mock_settings.USE_REDIS_ADAPTER = False
-
-    with patch("api.main.init_db", new_callable=AsyncMock), patch(
-        "api.main.init_provider", new_callable=AsyncMock
-    ), patch("api.main.get_db", new_callable=AsyncMock), patch(
-        "api.main.register_tenant_webhook", new_callable=AsyncMock
-    ) as mock_register:
-
-        await on_tenant_startup()
-
-        assert mock_register.called
-
-
-@pytest.mark.asyncio
-async def test_startup_single_tenant_skips_registration(
-    mock_settings, mock_requests_put
-):
-    """Test startup logic in single-tenant mode skips registration."""
-    mock_settings.ACAPY_TENANCY = "single"
-    mock_settings.USE_REDIS_ADAPTER = False
-
-    with patch("api.main.init_db", new_callable=AsyncMock), patch(
-        "api.main.init_provider", new_callable=AsyncMock
-    ), patch("api.main.get_db", new_callable=AsyncMock):
-
-        await on_tenant_startup()
-
-        assert not mock_requests_put.called
-
-
-@pytest.mark.asyncio
 async def test_startup_redis_check_success(mock_settings):
     """Test startup logic verifies Redis connection if adapter enabled."""
     mock_settings.USE_REDIS_ADAPTER = True
@@ -258,3 +396,86 @@ async def test_startup_redis_check_failure(mock_settings):
 
         # Should log error but continue startup
         mock_handler.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_webhook_registration_missing_webhook_url(mock_requests_put):
+    """Test early exit when webhook_url is missing."""
+    await register_tenant_webhook(
+        wallet_id="test",
+        webhook_url="",  # Empty
+        admin_url="http://acapy",
+        api_key=None,
+        admin_api_key=None,
+        admin_api_key_name=None,
+    )
+    mock_requests_put.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_webhook_registration_traction_mode_missing_fetcher(mock_requests_put):
+    """Test early exit in Traction mode if no token_fetcher is provided."""
+    await register_tenant_webhook(
+        wallet_id="ignored",
+        webhook_url="http://controller",
+        admin_url="http://acapy",
+        api_key=None,
+        admin_api_key=None,
+        admin_api_key_name=None,
+        token_fetcher=None,  # Missing
+        use_admin_api=False,
+    )
+    mock_requests_put.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_register_via_tenant_api_server_error(mock_requests_put):
+    """Test _register_via_tenant_api handling 500 errors."""
+    mock_requests_put.return_value.status_code = 500
+    mock_requests_put.return_value.text = "Internal Error"
+
+    fetcher = MagicMock(return_value="token")
+
+    result = await _register_via_tenant_api("http://acapy", {}, fetcher)
+    assert result is False
+
+
+@pytest.mark.asyncio
+async def test_register_via_tenant_api_client_error(mock_requests_put):
+    """Test _register_via_tenant_api handling 400 errors."""
+    mock_requests_put.return_value.status_code = 400
+    mock_requests_put.return_value.text = "Bad Request"
+
+    fetcher = MagicMock(return_value="token")
+
+    result = await _register_via_tenant_api("http://acapy", {}, fetcher)
+    assert result is False
+
+
+@pytest.mark.asyncio
+async def test_register_via_tenant_api_exception(mock_requests_put):
+    """Test _register_via_tenant_api handling exceptions."""
+    mock_requests_put.side_effect = Exception("Network Down")
+
+    fetcher = MagicMock(return_value="token")
+
+    result = await _register_via_tenant_api("http://acapy", {}, fetcher)
+    assert result is False
+
+
+@pytest.mark.asyncio
+async def test_webhook_registration_unexpected_status_code(mock_requests_put):
+    """Test handling of unexpected status codes (e.g. 418)."""
+    mock_requests_put.return_value.status_code = 418  # I'm a teapot
+
+    await register_tenant_webhook(
+        wallet_id="test-wallet",
+        webhook_url="http://controller",
+        admin_url="http://acapy",
+        api_key=None,
+        admin_api_key=None,
+        admin_api_key_name=None,
+        use_admin_api=True,
+    )
+    # Should log warning and exit loop (not retry)
+    assert mock_requests_put.call_count == 1

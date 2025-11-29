@@ -199,9 +199,8 @@ class GlobalConfig(BaseSettings):
     if not ACAPY_AGENT_URL:
         logger.warning("ACAPY_AGENT_URL was not provided, agent will not be accessible")
 
-    ACAPY_TENANCY: str = os.environ.get(
-        "ACAPY_TENANCY", "single"
-    )  # valid options are "multi" and "single"
+    # valid options are "multi", "single", and "traction"
+    ACAPY_TENANCY: str = os.environ.get("ACAPY_TENANCY", "single")
 
     ACAPY_ADMIN_URL: str = os.environ.get("ACAPY_ADMIN_URL", "http://localhost:8031")
 
@@ -209,6 +208,10 @@ class GlobalConfig(BaseSettings):
 
     MT_ACAPY_WALLET_ID: str | None = os.environ.get("MT_ACAPY_WALLET_ID")
     MT_ACAPY_WALLET_KEY: str = os.environ.get("MT_ACAPY_WALLET_KEY", "random-key")
+
+    # Traction Configuration
+    TRACTION_TENANT_ID: str | None = os.environ.get("TRACTION_TENANT_ID")
+    TRACTION_TENANT_API_KEY: str | None = os.environ.get("TRACTION_TENANT_API_KEY")
 
     ST_ACAPY_ADMIN_API_KEY_NAME: str | None = os.environ.get(
         "ST_ACAPY_ADMIN_API_KEY_NAME"
@@ -312,9 +315,12 @@ if settings.ACAPY_PROOF_FORMAT not in ["indy", "anoncreds"]:
     )
 
 # Startup validation for CONTROLLER_WEB_HOOK_URL in Multi-Tenant mode
-if settings.ACAPY_TENANCY == "multi" and not settings.CONTROLLER_WEB_HOOK_URL:
+if (
+    settings.ACAPY_TENANCY in ["multi", "traction"]
+    and not settings.CONTROLLER_WEB_HOOK_URL
+):
     logger.warning(
-        "ACAPY_TENANCY is set to 'multi' but CONTROLLER_WEB_HOOK_URL is missing. "
+        f"ACAPY_TENANCY is set to '{settings.ACAPY_TENANCY}' but CONTROLLER_WEB_HOOK_URL is missing. "
         "The controller will not be able to register webhooks with the tenant wallet, "
         "which may cause verification flows to hang."
     )
