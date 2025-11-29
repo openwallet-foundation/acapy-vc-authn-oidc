@@ -7,6 +7,7 @@ from api.core.acapy.config import (
     TractionTenantAcapy,
 )
 from api.core.config import settings
+from requests.exceptions import RequestException
 
 
 @pytest.mark.asyncio
@@ -319,3 +320,84 @@ async def test_traction_tenant_all_auth_methods_fail(requests_mock):
         # Verify the exception came from the final fallback failure
         assert "404" in str(excinfo.value)
         assert "Wallet not found" in str(excinfo.value)
+
+
+@pytest.mark.asyncio
+async def test_traction_tenant_api_connection_error_triggers_fallback(requests_mock):
+    """Test that a connection error to Traction API triggers the wallet fallback."""
+    tenant_id = "test-tenant-id"
+    api_key = "test-api-key"
+    wallet_id = "test-wallet-id"
+    wallet_key = "test-wallet-key"
+
+    with mock.patch.object(
+        settings, "TRACTION_TENANT_ID", tenant_id
+    ), mock.patch.object(
+        settings, "TRACTION_TENANT_API_KEY", api_key
+    ), mock.patch.object(
+        settings, "MT_ACAPY_WALLET_ID", wallet_id
+    ), mock.patch.object(
+        settings, "MT_ACAPY_WALLET_KEY", wallet_key
+    ):
+
+        # Traction API raises exception
+        requests_mock.post(
+            settings.ACAPY_ADMIN_URL + f"/multitenancy/tenant/{tenant_id}/token",
+            exc=RequestException("Connection refused"),
+        )
+
+        # Wallet fallback succeeds
+        requests_mock.post(
+            settings.ACAPY_ADMIN_URL + f"/multitenancy/wallet/{wallet_id}/token",
+            json={"token": "fallback-token"},
+            status_code=200,
+        )
+
+        acapy = TractionTenantAcapy()
+        acapy.get_wallet_token.cache_clear()
+
+        token = acapy.get_wallet_token()
+        assert token == "fallback-token"
+
+
+@pytest.mark.asyncio
+async def test_traction_tenant_wallet_fallback_exception(requests_mock):
+    """Test exception handling when wallet fallback also raises an exception."""
+    wallet_id = "test-wallet-id"
+    wallet_key = "test-wallet-key"
+
+    # Only set wallet vars to go straight to fallback logic
+    with mock.patch.object(settings, "TRACTION_TENANT_ID", None), mock.patch.object(
+        settings, "TRACTION_TENANT_API_KEY", None
+    ), mock.patch.object(settings, "MT_ACAPY_WALLET_ID", wallet_id), mock.patch.object(
+        settings, "MT_ACAPY_WALLET_KEY", wallet_key
+    ):
+
+        # Wallet API raises exception
+        requests_mock.post(
+            settings.ACAPY_ADMIN_URL + f"/multitenancy/wallet/{wallet_id}/token",
+            exc=RequestException("Wallet DB down"),
+        )
+
+        acapy = TractionTenantAcapy()
+        acapy.get_wallet_token.cache_clear()
+
+        with pytest.raises(RequestException):
+            acapy.get_wallet_token()
+
+
+@pytest.mark.asyncio
+async def test_traction_tenant_no_credentials_configured():
+    """Test error when no credentials are provided at all."""
+    with mock.patch.object(settings, "TRACTION_TENANT_ID", None), mock.patch.object(
+        settings, "TRACTION_TENANT_API_KEY", None
+    ), mock.patch.object(settings, "MT_ACAPY_WALLET_ID", None), mock.patch.object(
+        settings, "MT_ACAPY_WALLET_KEY", None
+    ):
+
+        acapy = TractionTenantAcapy()
+        acapy.get_wallet_token.cache_clear()
+
+        with pytest.raises(Exception) as exc:
+            acapy.get_wallet_token()
+        assert "Could not acquire token" in str(exc.value)

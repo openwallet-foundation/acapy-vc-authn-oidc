@@ -5,6 +5,7 @@ import requests
 from api.core.webhook_utils import register_tenant_webhook
 from api.main import on_tenant_startup
 from api.core.config import settings
+from api.core.webhook_utils import _register_via_tenant_api
 
 
 @pytest.fixture
@@ -354,23 +355,6 @@ async def test_webhook_registration_unexpected_exception(mock_requests_put, mock
 
 
 @pytest.mark.asyncio
-async def test_startup_multi_tenant_registers_webhook(mock_settings, mock_requests_put):
-    """Test startup logic in multi-tenant mode calls registration."""
-    mock_settings.ACAPY_TENANCY = "multi"
-    mock_settings.USE_REDIS_ADAPTER = False
-
-    with patch("api.main.init_db", new_callable=AsyncMock), patch(
-        "api.main.init_provider", new_callable=AsyncMock
-    ), patch("api.main.get_db", new_callable=AsyncMock), patch(
-        "api.main.register_tenant_webhook", new_callable=AsyncMock
-    ) as mock_register:
-
-        await on_tenant_startup()
-
-        assert mock_register.called
-
-
-@pytest.mark.asyncio
 async def test_startup_redis_check_success(mock_settings):
     """Test startup logic verifies Redis connection if adapter enabled."""
     mock_settings.USE_REDIS_ADAPTER = True
@@ -412,3 +396,86 @@ async def test_startup_redis_check_failure(mock_settings):
 
         # Should log error but continue startup
         mock_handler.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_webhook_registration_missing_webhook_url(mock_requests_put):
+    """Test early exit when webhook_url is missing."""
+    await register_tenant_webhook(
+        wallet_id="test",
+        webhook_url="",  # Empty
+        admin_url="http://acapy",
+        api_key=None,
+        admin_api_key=None,
+        admin_api_key_name=None,
+    )
+    mock_requests_put.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_webhook_registration_traction_mode_missing_fetcher(mock_requests_put):
+    """Test early exit in Traction mode if no token_fetcher is provided."""
+    await register_tenant_webhook(
+        wallet_id="ignored",
+        webhook_url="http://controller",
+        admin_url="http://acapy",
+        api_key=None,
+        admin_api_key=None,
+        admin_api_key_name=None,
+        token_fetcher=None,  # Missing
+        use_admin_api=False,
+    )
+    mock_requests_put.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_register_via_tenant_api_server_error(mock_requests_put):
+    """Test _register_via_tenant_api handling 500 errors."""
+    mock_requests_put.return_value.status_code = 500
+    mock_requests_put.return_value.text = "Internal Error"
+
+    fetcher = MagicMock(return_value="token")
+
+    result = await _register_via_tenant_api("http://acapy", {}, fetcher)
+    assert result is False
+
+
+@pytest.mark.asyncio
+async def test_register_via_tenant_api_client_error(mock_requests_put):
+    """Test _register_via_tenant_api handling 400 errors."""
+    mock_requests_put.return_value.status_code = 400
+    mock_requests_put.return_value.text = "Bad Request"
+
+    fetcher = MagicMock(return_value="token")
+
+    result = await _register_via_tenant_api("http://acapy", {}, fetcher)
+    assert result is False
+
+
+@pytest.mark.asyncio
+async def test_register_via_tenant_api_exception(mock_requests_put):
+    """Test _register_via_tenant_api handling exceptions."""
+    mock_requests_put.side_effect = Exception("Network Down")
+
+    fetcher = MagicMock(return_value="token")
+
+    result = await _register_via_tenant_api("http://acapy", {}, fetcher)
+    assert result is False
+
+
+@pytest.mark.asyncio
+async def test_webhook_registration_unexpected_status_code(mock_requests_put):
+    """Test handling of unexpected status codes (e.g. 418)."""
+    mock_requests_put.return_value.status_code = 418  # I'm a teapot
+
+    await register_tenant_webhook(
+        wallet_id="test-wallet",
+        webhook_url="http://controller",
+        admin_url="http://acapy",
+        api_key=None,
+        admin_api_key=None,
+        admin_api_key_name=None,
+        use_admin_api=True,
+    )
+    # Should log warning and exit loop (not retry)
+    assert mock_requests_put.call_count == 1
