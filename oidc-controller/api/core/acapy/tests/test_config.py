@@ -330,34 +330,29 @@ async def test_traction_tenant_api_connection_error_triggers_fallback(requests_m
     wallet_id = "test-wallet-id"
     wallet_key = "test-wallet-key"
 
-    with mock.patch.object(
-        settings, "TRACTION_TENANT_ID", tenant_id
-    ), mock.patch.object(
-        settings, "TRACTION_TENANT_API_KEY", api_key
-    ), mock.patch.object(
-        settings, "MT_ACAPY_WALLET_ID", wallet_id
-    ), mock.patch.object(
-        settings, "MT_ACAPY_WALLET_KEY", wallet_key
-    ):
+    # Traction API raises exception
+    requests_mock.post(
+        settings.ACAPY_ADMIN_URL + f"/multitenancy/tenant/{tenant_id}/token",
+        exc=RequestException("Connection refused"),
+    )
 
-        # Traction API raises exception
-        requests_mock.post(
-            settings.ACAPY_ADMIN_URL + f"/multitenancy/tenant/{tenant_id}/token",
-            exc=RequestException("Connection refused"),
-        )
+    # Wallet fallback succeeds
+    requests_mock.post(
+        settings.ACAPY_ADMIN_URL + f"/multitenancy/wallet/{wallet_id}/token",
+        json={"token": "fallback-token"},
+        status_code=200,
+    )
 
-        # Wallet fallback succeeds
-        requests_mock.post(
-            settings.ACAPY_ADMIN_URL + f"/multitenancy/wallet/{wallet_id}/token",
-            json={"token": "fallback-token"},
-            status_code=200,
-        )
+    acapy = TractionTenantAcapy()
+    acapy.tenant_id = tenant_id
+    acapy.tenant_api_key = api_key
+    acapy.wallet_id = wallet_id
+    acapy.wallet_key = wallet_key
 
-        acapy = TractionTenantAcapy()
-        acapy.get_wallet_token.cache_clear()
+    acapy.get_wallet_token.cache_clear()
 
-        token = acapy.get_wallet_token()
-        assert token == "fallback-token"
+    token = acapy.get_wallet_token()
+    assert token == "fallback-token"
 
 
 @pytest.mark.asyncio
@@ -366,38 +361,36 @@ async def test_traction_tenant_wallet_fallback_exception(requests_mock):
     wallet_id = "test-wallet-id"
     wallet_key = "test-wallet-key"
 
-    # Only set wallet vars to go straight to fallback logic
-    with mock.patch.object(settings, "TRACTION_TENANT_ID", None), mock.patch.object(
-        settings, "TRACTION_TENANT_API_KEY", None
-    ), mock.patch.object(settings, "MT_ACAPY_WALLET_ID", wallet_id), mock.patch.object(
-        settings, "MT_ACAPY_WALLET_KEY", wallet_key
-    ):
+    # Wallet API raises exception
+    requests_mock.post(
+        settings.ACAPY_ADMIN_URL + f"/multitenancy/wallet/{wallet_id}/token",
+        exc=RequestException("Wallet DB down"),
+    )
 
-        # Wallet API raises exception
-        requests_mock.post(
-            settings.ACAPY_ADMIN_URL + f"/multitenancy/wallet/{wallet_id}/token",
-            exc=RequestException("Wallet DB down"),
-        )
+    acapy = TractionTenantAcapy()
+    acapy.tenant_id = None
+    acapy.tenant_api_key = None
+    acapy.wallet_id = wallet_id
+    acapy.wallet_key = wallet_key
 
-        acapy = TractionTenantAcapy()
-        acapy.get_wallet_token.cache_clear()
+    acapy.get_wallet_token.cache_clear()
 
-        with pytest.raises(RequestException):
-            acapy.get_wallet_token()
+    with pytest.raises(RequestException):
+        acapy.get_wallet_token()
 
 
 @pytest.mark.asyncio
 async def test_traction_tenant_no_credentials_configured():
     """Test error when no credentials are provided at all."""
-    with mock.patch.object(settings, "TRACTION_TENANT_ID", None), mock.patch.object(
-        settings, "TRACTION_TENANT_API_KEY", None
-    ), mock.patch.object(settings, "MT_ACAPY_WALLET_ID", None), mock.patch.object(
-        settings, "MT_ACAPY_WALLET_KEY", None
-    ):
 
-        acapy = TractionTenantAcapy()
-        acapy.get_wallet_token.cache_clear()
+    acapy = TractionTenantAcapy()
+    acapy.tenant_id = None
+    acapy.tenant_api_key = None
+    acapy.wallet_id = None
+    acapy.wallet_key = None
 
-        with pytest.raises(Exception) as exc:
-            acapy.get_wallet_token()
-        assert "Could not acquire token" in str(exc.value)
+    acapy.get_wallet_token.cache_clear()
+
+    with pytest.raises(Exception) as exc:
+        acapy.get_wallet_token()
+    assert "Could not acquire token" in str(exc.value)
