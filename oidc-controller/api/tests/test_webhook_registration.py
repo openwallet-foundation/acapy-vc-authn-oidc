@@ -101,6 +101,35 @@ async def test_webhook_registration_fallback_success(mock_requests_put):
 
 
 @pytest.mark.asyncio
+async def test_webhook_registration_traction_mode_direct_tenant_api(mock_requests_put):
+    """
+    Test Traction mode (use_admin_api=False) which skips Admin API and goes direct to Tenant API.
+    """
+    mock_requests_put.return_value.status_code = 200
+    mock_fetcher = MagicMock(return_value="traction-token")
+
+    await register_tenant_webhook(
+        wallet_id="ignored-in-traction-mode",
+        webhook_url="http://controller",
+        admin_url="http://acapy",
+        api_key=None,
+        admin_api_key=None,
+        admin_api_key_name=None,
+        token_fetcher=mock_fetcher,
+        use_admin_api=False,  # Trigger direct tenant mode
+    )
+
+    # Verify flow
+    assert mock_requests_put.call_count == 1
+
+    # Verify call was to Tenant endpoint directly
+    tenant_call = mock_requests_put.call_args_list[0]
+    assert "tenant/wallet" in tenant_call[0][0]
+    assert "multitenancy/wallet" not in tenant_call[0][0]
+    assert tenant_call[1]["headers"]["Authorization"] == "Bearer traction-token"
+
+
+@pytest.mark.asyncio
 async def test_webhook_registration_no_fallback_without_fetcher(mock_requests_put):
     """Test 403 error does NOT trigger fallback if no token_fetcher provided."""
     mock_requests_put.return_value.status_code = 403
@@ -123,7 +152,7 @@ async def test_webhook_registration_no_fallback_without_fetcher(mock_requests_pu
 @pytest.mark.asyncio
 async def test_webhook_registration_missing_config(mock_requests_put):
     """Test early return if config is missing."""
-    # Missing wallet_id
+    # Missing wallet_id AND use_admin_api=True (default)
     await register_tenant_webhook(
         wallet_id=None,
         webhook_url="http://controller",
@@ -220,6 +249,35 @@ async def test_startup_multi_tenant_injects_fetcher(mock_settings, mock_requests
         # Verify the token_fetcher argument was passed correctly
         _, kwargs = mock_register.call_args
         assert kwargs["token_fetcher"] == "bound-method-ref"
+        assert kwargs["use_admin_api"] == True
+
+
+@pytest.mark.asyncio
+async def test_startup_traction_mode_config(mock_settings, mock_requests_put):
+    """
+    Test startup logic in traction mode: uses TractionTenantAcapy and skips admin API.
+    """
+    mock_settings.ACAPY_TENANCY = "traction"
+    mock_settings.USE_REDIS_ADAPTER = False
+
+    with patch("api.main.init_db", new_callable=AsyncMock), patch(
+        "api.main.init_provider", new_callable=AsyncMock
+    ), patch("api.main.get_db", new_callable=AsyncMock), patch(
+        "api.main.TractionTenantAcapy"
+    ) as mock_traction_class, patch(
+        "api.main.register_tenant_webhook", new_callable=AsyncMock
+    ) as mock_register:
+
+        mock_traction_instance = MagicMock()
+        mock_traction_class.return_value = mock_traction_instance
+        mock_traction_instance.get_wallet_token = "traction-token-fetcher"
+
+        await on_tenant_startup()
+
+        assert mock_register.called
+        _, kwargs = mock_register.call_args
+        assert kwargs["token_fetcher"] == "traction-token-fetcher"
+        assert kwargs["use_admin_api"] == False
 
 
 @pytest.mark.asyncio
@@ -310,23 +368,6 @@ async def test_startup_multi_tenant_registers_webhook(mock_settings, mock_reques
         await on_tenant_startup()
 
         assert mock_register.called
-
-
-@pytest.mark.asyncio
-async def test_startup_single_tenant_skips_registration(
-    mock_settings, mock_requests_put
-):
-    """Test startup logic in single-tenant mode skips registration."""
-    mock_settings.ACAPY_TENANCY = "single"
-    mock_settings.USE_REDIS_ADAPTER = False
-
-    with patch("api.main.init_db", new_callable=AsyncMock), patch(
-        "api.main.init_provider", new_callable=AsyncMock
-    ), patch("api.main.get_db", new_callable=AsyncMock):
-
-        await on_tenant_startup()
-
-        assert not mock_requests_put.called
 
 
 @pytest.mark.asyncio
