@@ -224,11 +224,9 @@ class TestPostTokenSubjectReplacement:
                         assert "vc_presented_attributes" in stored_claims
                         # Critical: no duplicate sub
                         assert "sub" not in stored_claims
-
+                        
                         # Verify authz_info["user_info"] was updated for StatelessWrapper
-                        authz_codes = (
-                            mock_provider.provider.authz_state.authorization_codes
-                        )
+                        authz_codes = mock_provider.provider.authz_state.authorization_codes
                         pack_call_args = authz_codes.pack.call_args[0][0]
                         assert "user_info" in pack_call_args
                         assert pack_call_args["user_info"] == stored_claims
@@ -545,23 +543,21 @@ class TestPostTokenStatelessWrapper:
                         await post_token(mock_request, mock_db)
 
                         # Verify authz_info was packed with user_info field
-                        authz_codes = (
-                            mock_provider.provider.authz_state.authorization_codes
-                        )
+                        authz_codes = mock_provider.provider.authz_state.authorization_codes
                         authz_codes.pack.assert_called_once()
-
+                        
                         packed_authz_info = authz_codes.pack.call_args[0][0]
-
+                        
                         # Critical: user_info field must be present and contain claims
                         assert "user_info" in packed_authz_info
                         user_info = packed_authz_info["user_info"]
-
+                        
                         # Verify user_info contains the presentation claims
                         assert "pres_req_conf_id" in user_info
                         assert user_info["pres_req_conf_id"] == "showcase-person"
                         assert "vc_presented_attributes" in user_info
                         assert "acr" in user_info
-
+                        
                         # Verify sub is NOT in user_info (it goes in authz_info["sub"])
                         assert "sub" not in user_info
 
@@ -607,11 +603,9 @@ class TestPostTokenStatelessWrapper:
                         await post_token(mock_request, mock_db)
 
                         # Verify authz_info["sub"] was updated before packing
-                        authz_codes = (
-                            mock_provider.provider.authz_state.authorization_codes
-                        )
+                        authz_codes = mock_provider.provider.authz_state.authorization_codes
                         packed_authz_info = authz_codes.pack.call_args[0][0]
-
+                        
                         assert packed_authz_info["sub"] == "John@showcase-person"
 
     @pytest.mark.asyncio
@@ -656,12 +650,10 @@ class TestPostTokenStatelessWrapper:
                         await post_token(mock_request, mock_db)
 
                         # Get the user_info that was packed into authz_info
-                        authz_codes = (
-                            mock_provider.provider.authz_state.authorization_codes
-                        )
+                        authz_codes = mock_provider.provider.authz_state.authorization_codes
                         packed_authz_info = authz_codes.pack.call_args[0][0]
                         user_info = packed_authz_info["user_info"]
-
+                        
                         # Verify all expected attributes are present
                         expected_keys = [
                             "pres_req_conf_id",
@@ -670,7 +662,7 @@ class TestPostTokenStatelessWrapper:
                         ]
                         for key in expected_keys:
                             assert key in user_info, f"Missing expected key: {key}"
-
+                        
                         # Verify values
                         assert user_info["pres_req_conf_id"] == "showcase-person"
                         assert user_info["acr"] == "vc_authn"
