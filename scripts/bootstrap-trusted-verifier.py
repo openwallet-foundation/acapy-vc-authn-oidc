@@ -31,7 +31,7 @@ ISSUER_ADMIN_URL = os.getenv("ISSUER_ADMIN_URL", "http://localhost:8078")
 VERIFIER_ADMIN_URL = os.getenv("VERIFIER_ADMIN_URL", "http://localhost:8077")
 VERIFIER_ADMIN_API_KEY = os.getenv("VERIFIER_ADMIN_API_KEY", "")
 
-SCHEMA_NAME = os.getenv("VERIFIER_SCHEMA_NAME", generate_random_string())
+SCHEMA_NAME = os.getenv("VERIFIER_SCHEMA_NAME", "verifier_schema")
 SCHEMA_VERSION = os.getenv("VERIFIER_SCHEMA_VERSION", "1.0")
 SCHEMA_ATTRIBUTES = os.getenv(
     "VERIFIER_SCHEMA_ATTRIBUTES",
@@ -209,14 +209,17 @@ def find_existing_cred_def(schema_id: str) -> Optional[str]:
     """Check if cred def already exists for schema."""
     log(f"Checking for existing cred def for schema: {schema_id}")
     try:
+        # Use schema_id query parameter to filter results
         result = make_request(
-            "GET", f"{ISSUER_ADMIN_URL}/credential-definitions/created"
+            "GET",
+            f"{ISSUER_ADMIN_URL}/credential-definitions/created",
+            params={"schema_id": schema_id},
         )
         cred_def_ids = result.get("credential_definition_ids", [])
 
-        # Match by schema_id in the cred_def_id
+        # Return first cred def with "default" tag
         for cred_def_id in cred_def_ids:
-            if schema_id in cred_def_id and ":default" in cred_def_id:
+            if ":default" in cred_def_id:
                 log(f"Found existing cred def: {cred_def_id}")
                 return cred_def_id
     except Exception as e:
