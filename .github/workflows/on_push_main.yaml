@@ -1,6 +1,11 @@
 name: Build latest development image
 on:
   workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Branch or full SHA to build'
+        required: false
+        default: 'main'
   push:
     branches:
       - main
@@ -16,5 +21,5 @@ jobs:
     if: github.repository_owner == 'openwallet-foundation'
     uses: ./.github/workflows/publish.yml
     with:
-      ref: "main"
+      ref: ${{ inputs.ref }}
       platforms: "linux/amd64,linux/arm64"
