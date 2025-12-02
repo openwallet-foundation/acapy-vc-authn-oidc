@@ -11,6 +11,7 @@ services:
       - ACAPY_AUTO_ACCEPT_INVITES=true
       - ACAPY_AUTO_ACCEPT_REQUESTS=true
       - ACAPY_AUTO_PING_CONNECTION=true
+      - ACAPY_AUTO_RESPOND_PRESENTATION_REQUEST=true
       - ACAPY_WALLET_STORAGE_TYPE=postgres_storage
       - ACAPY_GENESIS_TRANSACTIONS_LIST=/tmp/ledgers.yaml
       - ACAPY_LOG_LEVEL=info

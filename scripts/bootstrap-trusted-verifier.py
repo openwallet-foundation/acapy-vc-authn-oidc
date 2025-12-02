@@ -9,6 +9,8 @@ This script:
 
 Usage:
     cd docker && LEDGER_URL=http://test.bcovrin.vonx.io ... ./manage bootstrap
+For Testing Credential:
+    cd docker && TEST_PROVER_ROLE=true LEDGER_URL=http://test.bcovrin.vonx.io ... ./manage bootstrap
 """
 
 import os
