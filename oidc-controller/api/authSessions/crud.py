@@ -138,3 +138,19 @@ class AuthSessionCRUD:
             {"_id": PyObjectId(id)}, {"$set": {"pyop_auth_code": pyop_auth_code}}
         )
         return result.modified_count > 0
+
+    async def update_pyop_user_id(
+        self, id: str | PyObjectId, pyop_user_id: str
+    ) -> bool:
+        """Update the pyop_user_id field when subject is replaced."""
+        if not PyObjectId.is_valid(id):
+            raise HTTPException(
+                status_code=http_status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid id: {id}",
+            )
+        col = self._db.get_collection(COLLECTION_NAMES.AUTH_SESSION)
+        result = col.update_one(
+            {"_id": PyObjectId(id)},
+            {"$set": {"pyop_user_id": pyop_user_id}},
+        )
+        return result.modified_count > 0

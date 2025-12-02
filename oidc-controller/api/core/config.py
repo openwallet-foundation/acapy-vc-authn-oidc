@@ -160,6 +160,7 @@ class GlobalConfig(BaseSettings):
     )
 
     CONTROLLER_URL: str | None = os.environ.get("CONTROLLER_URL")
+    CONTROLLER_WEB_HOOK_URL: str | None = os.environ.get("CONTROLLER_WEB_HOOK_URL")
     # Where to send users when trying to scan with their mobile camera (not a wallet)
     CONTROLLER_CAMERA_REDIRECT_URL: str | None = os.environ.get(
         "CONTROLLER_CAMERA_REDIRECT_URL"
@@ -304,8 +305,16 @@ def get_configuration() -> GlobalConfig:
 
 settings = get_configuration()
 
-# Add startup validation for ACAPY_PROOF_FORMAT
+# Startup validation for ACAPY_PROOF_FORMAT
 if settings.ACAPY_PROOF_FORMAT not in ["indy", "anoncreds"]:
     raise ValueError(
         f"ACAPY_PROOF_FORMAT must be 'indy' or 'anoncreds', got '{settings.ACAPY_PROOF_FORMAT}'"
+    )
+
+# Startup validation for CONTROLLER_WEB_HOOK_URL in Multi-Tenant mode
+if settings.ACAPY_TENANCY == "multi" and not settings.CONTROLLER_WEB_HOOK_URL:
+    logger.warning(
+        "ACAPY_TENANCY is set to 'multi' but CONTROLLER_WEB_HOOK_URL is missing. "
+        "The controller will not be able to register webhooks with the tenant wallet, "
+        "which may cause verification flows to hang."
     )

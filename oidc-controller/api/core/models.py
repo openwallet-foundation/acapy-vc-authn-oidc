@@ -1,10 +1,13 @@
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from typing import TypedDict
 
+import structlog
 from bson import ObjectId
 from pydantic import BaseModel, ConfigDict, Field, field_serializer
-from pyop.userinfo import Userinfo
 from pydantic_core import core_schema
+from pyop.userinfo import Userinfo
+
+logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
 
 
 class PyObjectId(ObjectId):
@@ -68,18 +71,119 @@ class VCUserinfo(Userinfo):
     User database for VC-based Identity provider: since no users are
     known ahead of time, a new user is created with
     every authentication request.
+
+    This implementation stores custom claims (from VC presentations)
+    using a configurable storage backend that supports both:
+    - In-memory dictionary for single-pod deployments
+    - Redis storage for multi-pod deployments
     """
+
+    def __init__(self, db, claims_storage=None):
+        """
+        Initialize VCUserinfo with a storage backend.
+
+        Args:
+            db: Database connection (passed to parent Userinfo class)
+            claims_storage: Storage backend for claims. Can be:
+                - dict: In-memory storage for single-pod
+                - RedisWrapperWithPack: Redis storage for multi-pod
+                If None, defaults to empty dict (single-pod)
+        """
+        super().__init__(db)
+        self._claims_storage = claims_storage if claims_storage is not None else {}
+
+    def set_claims_for_user(self, user_id, claims):
+        """
+        Store claims for a specific user_id so they can be retrieved
+        later when PyOP generates the ID token.
+
+        Args:
+            user_id: The user identifier (should match what PyOP uses)
+            claims: Dictionary of claims to store (pres_req_conf_id,
+                    vc_presented_attributes, etc.)
+        """
+        try:
+            if user_id is None:
+                raise ValueError("user_id cannot be None when storing claims")
+            self._claims_storage[user_id] = claims
+            logger.debug(
+                f"VCUserinfo: Stored claims for user_id: {user_id}, "
+                f"claims keys: {list(claims.keys())}"
+            )
+        except Exception as e:
+            logger.error(f"VCUserinfo.set_claims_for_user ERROR: {e}")
+            raise
 
     def __getitem__(self, item):
         """
-        There is no user info database, we always return an empty dictionary
+        Return stored claims for the given user_id.
+        PyOP may call this method to retrieve user info.
         """
-        return {}
+        try:
+            if item is None:
+                raise ValueError("user_id (item) cannot be None when retrieving claims")
+            # RedisWrapper doesn't support .get(), use [] with KeyError
+            try:
+                claims = self._claims_storage[item]
+            except KeyError:
+                claims = {}
+            logger.debug(
+                f"VCUserinfo.__getitem__ called for item: {item}, "
+                f"returning claims keys: {list(claims.keys())}"
+            )
+            return claims
+        except ValueError:
+            raise
+        except Exception as e:
+            logger.error(f"VCUserinfo.__getitem__ ERROR: {e}")
+            raise
 
     def get_claims_for(self, user_id, requested_claims, userinfo=None):
-        # type: (str, Mapping[str, Optional[Mapping[str, Union[str, List[str]]]])
-        # -> Dict[str, Union[str, List[str]]]
         """
-        There is no user info database, we always return an empty dictionary
+        Return stored claims for the given user_id.
+        PyOP calls this method when generating ID tokens.
+
+        For StatelessWrapper (in-memory): PyOP passes user_id=None and
+        userinfo contains the claims from the authorization code.
+
+        For RedisWrapper (multi-pod): PyOP passes user_id and userinfo=None,
+        and we look up claims from Redis storage.
+
+        Args:
+            user_id: The user identifier to look up (None for StatelessWrapper)
+            requested_claims: Claims requested by the client (ignored)
+            userinfo: Claims dict from authz code (for StatelessWrapper only)
+
+        Returns:
+            Dictionary of claims for this user, including custom claims
+            from VC presentation
         """
-        return {}
+        try:
+            # StatelessWrapper case: claims are passed in userinfo parameter
+            if user_id is None:
+                claims = userinfo or {}
+                logger.debug(
+                    "VCUserinfo.get_claims_for called with user_id=None (StatelessWrapper mode)",
+                    storage_type="stateless",
+                    claims_keys=list(claims.keys()),
+                )
+                return claims
+
+            # RedisWrapper case: look up claims from storage
+            try:
+                claims = self._claims_storage[user_id]
+            except KeyError:
+                claims = {}
+
+            logger.debug(f"VCUserinfo.get_claims_for called for " f"user_id: {user_id}")
+            logger.debug(f"  Storage type: " f"{type(self._claims_storage).__name__}")
+            if isinstance(self._claims_storage, dict):
+                logger.debug(
+                    f"  Cached user_ids: " f"{list(self._claims_storage.keys())}"
+                )
+            logger.debug(f"  Returning claims keys: {list(claims.keys())}")
+
+            return claims
+        except Exception as e:
+            logger.error(f"VCUserinfo.get_claims_for ERROR: {e}")
+            raise

@@ -1,11 +1,11 @@
 import base64
 import io
-import json
 import uuid
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from typing import cast
 from urllib.parse import urlencode
 
+import jwt
 import qrcode
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -17,13 +17,8 @@ from pymongo.database import Database
 from pyop.exceptions import InvalidAuthenticationRequest
 
 from ..authSessions.crud import AuthSessionCreate, AuthSessionCRUD
-from ..authSessions.models import AuthSessionPatch, AuthSessionState, AuthSession
+from ..authSessions.models import AuthSession, AuthSessionPatch, AuthSessionState
 from ..core.acapy.client import AcapyClient
-from ..core.acapy import (
-    PresentationRequestMessage,
-    PresentProofv20Attachment,
-    ServiceDecorator,
-)
 from ..core.config import settings
 from ..core.logger_util import log_debug
 from ..core.oidc import provider
@@ -31,12 +26,10 @@ from ..core.oidc.issue_token_service import Token
 from ..db.session import get_db
 
 # Access to the websocket
-from ..routers.socketio import get_socket_id_for_pid, sio, safe_emit
-
+from ..routers.socketio import get_socket_id_for_pid, safe_emit
 from ..verificationConfigs.crud import VerificationConfigCRUD
 from ..verificationConfigs.helpers import VariableSubstitutionError
 from ..verificationConfigs.models import MetaData
-
 
 ChallengePollUri = "/poll"
 AuthorizeCallbackUri = "/callback"
@@ -73,7 +66,7 @@ async def poll_pres_exch_complete(pid: str, db: Database = Depends(get_db)):
         now = datetime.now(UTC)
 
     if expired_time < now and auth_session.proof_status == AuthSessionState.NOT_STARTED:
-        logger.info("PROOF EXPIRED")
+        logger.warning("PROOF EXPIRED")
         auth_session.proof_status = AuthSessionState.EXPIRED
         await AuthSessionCRUD(db).patch(
             str(auth_session.id), AuthSessionPatch(**auth_session.model_dump())
@@ -367,72 +360,150 @@ async def post_token(request: Request, db: Database = Depends(get_db)):
         auth_session = await AuthSessionCRUD(db).get_by_pyop_auth_code(
             form_dict["code"]
         )
+
         ver_config = await VerificationConfigCRUD(db).get(auth_session.ver_config_id)
         claims = Token.get_claims(auth_session, ver_config)
 
+        # Get the user_id early - needed for both subject identifier and
+        # claims storage
+        user_id = auth_session.pyop_user_id
+        if user_id is None:
+            raise HTTPException(
+                status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=(
+                    "Missing pyop_user_id in AuthSession; "
+                    "cannot process token request"
+                ),
+            )
+
         # Replace auto-generated sub with one coming from proof, if available
-        # The Redis storage uses a shared data store, so a new item can be added and
-        # the reference in the form needs to be updated with the new key value
+        # The Redis storage uses a shared data store, so a new item can be
+        # added and the reference in the form needs to be updated with the
+        # new key value
         if claims.get("sub"):
             authz_info = provider.provider.authz_state.authorization_codes[
                 form_dict["code"]
             ]
-            if authz_info is None:
-                # Authorization code invalid in PyOP storage - regenerate using stored user_id
-                await generate_auth_code(claims, auth_session, form_dict, db)
-                # After regenerating, retrieve the new authz_info and update it with the presentation subject
-                authz_info = provider.provider.authz_state.authorization_codes[
-                    form_dict["code"]
-                ]
 
             # Update the subject with the one from the presentation
             presentation_sub = claims.pop("sub")
+
+            logger.info(
+                "About to update authorization info with presentation subject",
+                operation="update_authz_sub",
+                auth_session_id=str(auth_session.id),
+                original_authz_sub=authz_info.get("sub"),
+                presentation_sub=presentation_sub,
+            )
+
             authz_info["sub"] = presentation_sub
 
-            # Create subject identifier mapping: subject -> user_id
-            # This is needed because PyOP will look up the user_id for this subject
-            # Handle legacy sessions without pyop_user_id (from before migration)
-            user_id = auth_session.pyop_user_id
-            is_legacy_session = user_id is None
-            if is_legacy_session:
-                user_id = str(uuid.uuid4())
-                logger.warning(
-                    "Legacy AuthSession missing pyop_user_id, generated new UUID for subject mapping",
-                    operation="create_subject_mapping",
-                    auth_session_id=str(auth_session.id),
-                    generated_user_id=user_id,
-                    presentation_sub=presentation_sub,
-                    legacy_session=True,
-                )
+            # CRITICAL: Update AuthSession.pyop_user_id to match the
+            # presentation subject. This ensures consistency throughout
+            # the system - PyOP will use this subject as the user_id for
+            # all subsequent operations including userinfo lookups.
+            await AuthSessionCRUD(db).update_pyop_user_id(
+                str(auth_session.id), presentation_sub
+            )
+            # Update our local reference to the new user_id
+            user_id = presentation_sub
 
-            # Store the public subject identifier with Redis-aware persistence
+            # CRITICAL: For StatelessWrapper (in-memory storage), claims are
+            # stored INSIDE the authorization code in authz_info["user_info"].
+            # We must update this with the actual claims before repacking,
+            # otherwise PyOP will retrieve empty claims when generating the ID token.
+            # For RedisWrapper, this field is not used (claims are in Redis).
+            authz_info["user_info"] = claims
+
+            # Create subject identifier mapping: subject -> user_id
+            # This is needed because PyOP will look up the user_id for this
+            # subject. Store the public subject identifier with Redis-aware
+            # persistence
             store_subject_identifier(user_id, "public", presentation_sub)
 
             new_code = provider.provider.authz_state.authorization_codes.pack(
                 authz_info
             )
-            old_code_prefix = (
-                form_dict["code"][:8]
-                if len(form_dict["code"]) >= 8
-                else form_dict["code"]
-            )
-            new_code_prefix = new_code[:8] if len(new_code) >= 8 else new_code
             form_dict["code"] = new_code
+
+            # NOTE: Do NOT add sub back to claims dict. PyOP will get the
+            # sub from authz_info["sub"] when generating the ID token.
+            # If we include sub in claims as well, PyOP will receive it
+            # twice and raise: "TypeError: IdToken() got multiple values
+            # for keyword argument 'sub'"
+
             logger.info(
                 "Replaced authorization code with presentation subject",
                 operation="update_auth_code_subject",
                 auth_session_id=str(auth_session.id),
-                user_id=user_id,
-                presentation_sub=presentation_sub,
-                old_code_prefix=old_code_prefix,
-                new_code_prefix=new_code_prefix,
-                legacy_session=is_legacy_session,
+                original_user_id=auth_session.pyop_user_id,
+                new_user_id=presentation_sub,
+                updated_auth_session=True,
+                updated_user_info_in_code=True,
             )
 
-        # convert form data to what library expects, Flask.app.request.get_data()
+        # Store claims in VCUserinfo so PyOP can retrieve them when
+        # generating the ID token. This is critical - without this,
+        # get_claims_for will return empty dict.
+        # Now user_id is guaranteed to match what PyOP will use for lookup
+        try:
+            provider.provider.userinfo.set_claims_for_user(user_id, claims)
+            logger.info(
+                "Stored claims in VCUserinfo for ID token generation",
+                operation="store_claims",
+                auth_session_id=str(auth_session.id),
+                user_id=user_id,
+                claims_keys=list(claims.keys()),
+            )
+        except Exception as e:
+            logger.error(
+                "Failed to store claims in VCUserinfo",
+                operation="store_claims",
+                auth_session_id=str(auth_session.id),
+                user_id=user_id,
+                error=str(e),
+                error_type=type(e).__name__,
+            )
+            raise HTTPException(
+                status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to store claims: {str(e)}",
+            )
+
+        # convert form data to what library expects,
+        # Flask.app.request.get_data()
         data = urlencode(form_dict)
+
+        logger.info(
+            "About to call PyOP handle_token_request",
+            operation="handle_token_request",
+            auth_session_id=str(auth_session.id),
+            user_id=user_id,
+            code_prefix=(
+                form_dict["code"][:16] + "..."
+                if len(form_dict["code"]) > 16
+                else form_dict["code"]
+            ),
+        )
+
         token_response = provider.provider.handle_token_request(
             data, request.headers, claims
         )
         logger.debug(f"Token response: {token_response.to_dict()}")
+
+        # Log the actual sub in the ID token for debugging
+        if "id_token" in token_response.to_dict():
+
+            # Decode without verification to inspect the token
+            decoded = jwt.decode(
+                token_response.to_dict()["id_token"],
+                options={"verify_signature": False},
+            )
+            logger.debug(
+                "ID token generated",
+                operation="id_token_generated",
+                auth_session_id=str(auth_session.id),
+                sub_in_token=decoded.get("sub"),
+                all_claims=list(decoded.keys()),
+            )
+
         return token_response.to_dict()

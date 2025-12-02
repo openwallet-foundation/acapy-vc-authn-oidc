@@ -59,7 +59,7 @@ export default {
     },
   },
   actions: {
-    login({ commit, getters }, idpHint = undefined) {
+    async login({ commit, getters }, idpHint = undefined) {
       if (getters.keycloakReady) {
         // Use existing redirect uri if available
         if (!getters.redirectUri)
@@ -73,20 +73,20 @@ export default {
         if (idpHint && typeof idpHint === 'string') options.idpHint = idpHint;
 
         // Redirect to Keycloak
+        const loginUrl = await getters.createLoginUrl(options);
         window.location.replace(
-          getters.createLoginUrl(options) +
+          loginUrl +
             '&pres_req_conf_id=' +
             getters.presReqConfId,
         );
       }
     },
-    logout({ getters }) {
+    async logout({ getters }) {
       if (getters.keycloakReady) {
-        window.location.replace(
-          getters.createLogoutUrl({
-            redirectUri: `${location.origin}/${Vue.prototype.$config.basePath}`,
-          }),
-        );
+        const logoutUrl = await getters.createLogoutUrl({
+          redirectUri: `${location.origin}/${Vue.prototype.$config.basePath}`,
+        });
+        window.location.replace(logoutUrl);
       }
     },
   },

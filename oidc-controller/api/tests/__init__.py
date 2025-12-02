@@ -1,1 +1,1 @@
-"""Integration tests package."""
+"""API integration tests package."""

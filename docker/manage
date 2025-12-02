@@ -521,6 +521,7 @@ single-pod)
 
   configureEnvironment $@
   export CONTROLLER_REPLICAS=1
+  export USE_REDIS_ADAPTER=false
   echo "Running single pod setup..."
   docker-compose up -d ${DEFAULT_CONTAINERS} ${ACAPY_CONTAINERS} ${PROD_CONTAINERS}
   docker-compose logs -f
@@ -529,7 +530,7 @@ bootstrap)
   configureEnvironment $@
 
   echoInfo "Starting issuer agent and dependencies..."
-  docker-compose up -d issuer-aca-py issuer-wallet-db
+  docker-compose -f docker-compose-issuer.yaml up -d
 
   echoInfo "Waiting for agents to be ready..."
   sleep 10
