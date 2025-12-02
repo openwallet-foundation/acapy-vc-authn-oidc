@@ -33,7 +33,9 @@ ISSUER_ADMIN_URL = os.getenv("ISSUER_ADMIN_URL", "http://localhost:8078")
 VERIFIER_ADMIN_URL = os.getenv("VERIFIER_ADMIN_URL", "http://localhost:8077")
 VERIFIER_ADMIN_API_KEY = os.getenv("VERIFIER_ADMIN_API_KEY", "")
 
-SCHEMA_NAME = os.getenv("VERIFIER_SCHEMA_NAME", "verifier_schema")
+SCHEMA_NAME = os.getenv(
+    "VERIFIER_SCHEMA_NAME", "verifier_schema" + generate_random_string()
+)
 SCHEMA_VERSION = os.getenv("VERIFIER_SCHEMA_VERSION", "1.0")
 SCHEMA_ATTRIBUTES = os.getenv(
     "VERIFIER_SCHEMA_ATTRIBUTES",
