@@ -237,6 +237,29 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
             webhook_body = await _parse_webhook_body(request)
             logger.info(f">>>> pres_exch_id: {webhook_body['pres_ex_id']}")
             # logger.info(f">>>> web hook: {webhook_body}")
+
+            # Check for prover-role (issue #898)
+            role = webhook_body.get("role")
+
+            if role == "prover":
+                # Handle prover-role separately - VC-AuthN is responding to a proof request
+                pres_ex_id = webhook_body.get("pres_ex_id")
+                connection_id = webhook_body.get("connection_id")
+                state = webhook_body.get("state")
+
+                logger.info(
+                    f"Prover-role webhook received: {state}",
+                    pres_ex_id=pres_ex_id,
+                    connection_id=connection_id,
+                    role=role,
+                    state=state,
+                    timestamp=datetime.now(UTC).isoformat(),
+                )
+
+                # Return early - do NOT trigger verifier-role logic or cleanup
+                return {"status": "prover-role event logged"}
+
+            # Existing verifier-role code continues below...
             auth_session: AuthSession = await AuthSessionCRUD(db).get_by_pres_exch_id(
                 webhook_body["pres_ex_id"]
             )

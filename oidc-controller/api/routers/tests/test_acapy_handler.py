@@ -1046,3 +1046,201 @@ class TestAcapyHandlerCleanupFunctions:
         mock_safe_emit.assert_called_once_with(
             "status", {"status": "verified"}, to="test-socket-id"
         )
+
+
+class TestProverRoleWebhooks:
+    """Test prover-role webhook handling (issue #898)."""
+
+    @pytest.mark.asyncio
+    @patch("api.routers.acapy_handler.AuthSessionCRUD")
+    async def test_present_proof_webhook_logs_prover_role_and_returns_early(
+        self,
+        mock_auth_session_crud,
+        mock_request,
+        mock_db,
+    ):
+        """Test that prover-role webhooks are logged and return early without triggering verifier logic."""
+        # Setup mocks
+        webhook_body = {
+            "pres_ex_id": "test-pres-ex-id",
+            "connection_id": "test-connection-id",
+            "state": "presentation-sent",
+            "role": "prover",  # VC-AuthN acting as prover
+        }
+
+        mock_request.body.return_value = json.dumps(webhook_body).encode("ascii")
+
+        # Execute
+        result = await post_topic(mock_request, "present_proof_v2_0", mock_db)
+
+        # Verify
+        assert result == {"status": "prover-role event logged"}
+
+        # Verify that verifier logic was NOT triggered (early return)
+        mock_auth_session_crud.assert_not_called()
+
+    @pytest.mark.asyncio
+    @patch("api.routers.acapy_handler.AuthSessionCRUD")
+    async def test_present_proof_webhook_prover_role_different_states(
+        self,
+        mock_auth_session_crud,
+        mock_request,
+        mock_db,
+    ):
+        """Test prover-role logging across different presentation states."""
+        states_to_test = ["request-sent", "presentation-sent", "done", "abandoned"]
+
+        for state in states_to_test:
+            webhook_body = {
+                "pres_ex_id": f"test-pres-ex-{state}",
+                "connection_id": "test-connection-id",
+                "state": state,
+                "role": "prover",
+            }
+
+            mock_request.body.return_value = json.dumps(webhook_body).encode("ascii")
+
+            # Execute
+            result = await post_topic(mock_request, "present_proof_v2_0", mock_db)
+
+            # Verify
+            assert result == {"status": "prover-role event logged"}
+            mock_auth_session_crud.assert_not_called()
+
+            # Reset mock for next iteration
+            mock_auth_session_crud.reset_mock()
+
+    @pytest.mark.asyncio
+    @patch("api.routers.acapy_handler.AuthSessionCRUD")
+    @patch("api.routers.acapy_handler.AcapyClient")
+    async def test_present_proof_webhook_verifier_role_not_affected(
+        self,
+        mock_acapy_client,
+        mock_auth_session_crud,
+        mock_request,
+        mock_db,
+        mock_auth_session,
+    ):
+        """Test that verifier-role webhooks (no role field) still trigger normal verifier logic."""
+        # Setup mocks for verifier role (no "role" field in webhook)
+        webhook_body = {
+            "pres_ex_id": "test-pres-ex-id",
+            "state": "done",
+            "verified": "true",
+            "by_format": {"test": "presentation"},
+            # No "role" field = verifier role (default behavior)
+        }
+
+        mock_request.body.return_value = json.dumps(webhook_body).encode("ascii")
+
+        mock_auth_session_crud.return_value.get_by_pres_exch_id = AsyncMock(
+            return_value=mock_auth_session
+        )
+        mock_auth_session_crud.return_value.patch = AsyncMock()
+
+        mock_client_instance = MagicMock()
+        mock_client_instance.get_presentation_request.return_value = {
+            "by_format": {"test": "presentation"}
+        }
+        mock_client_instance.delete_presentation_record_and_connection.return_value = (
+            True,
+            True,
+            [],
+        )
+        mock_acapy_client.return_value = mock_client_instance
+
+        # Execute
+        result = await post_topic(mock_request, "present_proof_v2_0", mock_db)
+
+        # Verify that normal verifier logic was triggered (NOT early return)
+        assert result == {}  # Not the prover-role response
+        mock_auth_session_crud.return_value.get_by_pres_exch_id.assert_called_once_with(
+            "test-pres-ex-id"
+        )
+
+    @pytest.mark.asyncio
+    @patch("api.routers.acapy_handler.AuthSessionCRUD")
+    async def test_present_proof_webhook_prover_role_with_missing_fields(
+        self,
+        mock_auth_session_crud,
+        mock_request,
+        mock_db,
+    ):
+        """Test graceful handling when optional fields are missing in prover-role webhook."""
+        # Test with missing connection_id
+        webhook_body_no_connection = {
+            "pres_ex_id": "test-pres-ex-id",
+            "state": "presentation-sent",
+            "role": "prover",
+            # No connection_id
+        }
+
+        mock_request.body.return_value = json.dumps(webhook_body_no_connection).encode(
+            "ascii"
+        )
+
+        result = await post_topic(mock_request, "present_proof_v2_0", mock_db)
+        assert result == {"status": "prover-role event logged"}
+        mock_auth_session_crud.assert_not_called()
+
+        # Test with missing state
+        webhook_body_no_state = {
+            "pres_ex_id": "test-pres-ex-id",
+            "connection_id": "test-connection-id",
+            "role": "prover",
+            # No state
+        }
+
+        mock_request.body.return_value = json.dumps(webhook_body_no_state).encode(
+            "ascii"
+        )
+
+        result = await post_topic(mock_request, "present_proof_v2_0", mock_db)
+        assert result == {"status": "prover-role event logged"}
+        mock_auth_session_crud.assert_not_called()
+
+    @pytest.mark.asyncio
+    @patch("api.routers.acapy_handler.AuthSessionCRUD")
+    @patch("api.routers.acapy_handler.AcapyClient")
+    async def test_present_proof_webhook_explicit_verifier_role(
+        self,
+        mock_acapy_client,
+        mock_auth_session_crud,
+        mock_request,
+        mock_db,
+        mock_auth_session,
+    ):
+        """Test that explicit role='verifier' triggers normal verifier logic."""
+        webhook_body = {
+            "pres_ex_id": "test-pres-ex-id",
+            "state": "done",
+            "verified": "true",
+            "role": "verifier",  # Explicit verifier role
+            "by_format": {"test": "presentation"},
+        }
+
+        mock_request.body.return_value = json.dumps(webhook_body).encode("ascii")
+
+        mock_auth_session_crud.return_value.get_by_pres_exch_id = AsyncMock(
+            return_value=mock_auth_session
+        )
+        mock_auth_session_crud.return_value.patch = AsyncMock()
+
+        mock_client_instance = MagicMock()
+        mock_client_instance.get_presentation_request.return_value = {
+            "by_format": {"test": "presentation"}
+        }
+        mock_client_instance.delete_presentation_record_and_connection.return_value = (
+            True,
+            True,
+            [],
+        )
+        mock_acapy_client.return_value = mock_client_instance
+
+        # Execute
+        await post_topic(mock_request, "present_proof_v2_0", mock_db)
+
+        # Verify that verifier logic was triggered (NOT early return)
+        mock_auth_session_crud.return_value.get_by_pres_exch_id.assert_called_once_with(
+            "test-pres-ex-id"
+        )
