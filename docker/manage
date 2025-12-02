@@ -530,7 +530,7 @@ bootstrap)
   configureEnvironment $@
 
   echoInfo "Starting issuer agent and dependencies..."
-  docker-compose up -d issuer-aca-py issuer-wallet-db
+  docker-compose -f docker-compose-issuer.yaml up -d
 
   echoInfo "Waiting for agents to be ready..."
   sleep 10
