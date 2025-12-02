@@ -206,12 +206,17 @@ class GlobalConfig(BaseSettings):
 
     ACAPY_PROOF_FORMAT: str = os.environ.get("ACAPY_PROOF_FORMAT", "indy")
 
-    MT_ACAPY_WALLET_ID: str | None = os.environ.get("MT_ACAPY_WALLET_ID")
-    MT_ACAPY_WALLET_KEY: str = os.environ.get("MT_ACAPY_WALLET_KEY", "random-key")
+    # Unified Tenant Configuration with Legacy Fallback
+    # 1. Try unified variable
+    # 2. Fallback to legacy MT_ variable
+    # 3. Default to None
+    ACAPY_TENANT_WALLET_ID: str | None = os.environ.get(
+        "ACAPY_TENANT_WALLET_ID", os.environ.get("MT_ACAPY_WALLET_ID")
+    )
 
-    # Traction Configuration
-    TRACTION_TENANT_ID: str | None = os.environ.get("TRACTION_TENANT_ID")
-    TRACTION_TENANT_API_KEY: str | None = os.environ.get("TRACTION_TENANT_API_KEY")
+    ACAPY_TENANT_WALLET_KEY: str | None = os.environ.get(
+        "ACAPY_TENANT_WALLET_KEY", os.environ.get("MT_ACAPY_WALLET_KEY", "random-key")
+    )
 
     ST_ACAPY_ADMIN_API_KEY_NAME: str | None = os.environ.get(
         "ST_ACAPY_ADMIN_API_KEY_NAME"

@@ -248,11 +248,12 @@ configureEnvironment() {
     AGENT_ADMIN_MODE="admin-api-key ${AGENT_ADMIN_API_KEY}"
   fi
   export AGENT_WALLET_SEED=${AGENT_WALLET_SEED}
+  # Unified Tenant / Wallet Config
+  export ACAPY_TENANT_WALLET_ID=${ACAPY_TENANT_WALLET_ID}
+  export ACAPY_TENANT_WALLET_KEY=${ACAPY_TENANT_WALLET_KEY}
+  # Legacy Config
   export MT_ACAPY_WALLET_ID=${MT_ACAPY_WALLET_ID}
   export MT_ACAPY_WALLET_KEY=${MT_ACAPY_WALLET_KEY}
-
-  export TRACTION_TENANT_ID=${TRACTION_TENANT_ID}
-  export TRACTION_TENANT_API_KEY=${TRACTION_TENANT_API_KEY}
 
   # keycloak-db
   export KEYCLOAK_DB_NAME="keycloak"

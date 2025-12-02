@@ -77,9 +77,9 @@ Several functions in ACAPy VC-AuthN can be tweaked by using the following enviro
 | Variable                  | Type                                   | What it does                                                                                                                                                                                                                                                                                                                                                                                                                                           | NOTES                                                                                                                                   |
 | ------------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
 | ACAPY_PROOF_FORMAT        | string ("indy" or "anoncreds")         | Sets the proof format for ACA-Py presentation requests. Use `anoncreds` for modern AnonCreds support or `indy` for legacy Indy-based ecosystems.                                                                                                                                                                                                                                                                                                          | Defaults to `indy` for backward compatibility with existing deployments.                                                                |
-| ACAPY_TENANCY         | string ("single", "multi", "traction") | Determines how the controller authenticates with the ACA-Py agent. <br> - `single`: No special auth headers (or just admin key). <br> - `multi`: Uses `MT_ACAPY_WALLET_ID` and Admin API to fetch token. <br> - `traction`: Uses Traction-specific authentication and Tenant APIs (bypassing Admin endpoints).                                                                                                                                         | Defaults to `single`. Use `traction` when integrating with a secured Traction tenant where Admin APIs are blocked.                      |
-| TRACTION_TENANT_ID        | string                                 | **Required for Traction Mode.** The Tenant ID assigned by Traction.                                                                                                                                                                                                                                                                                                                                                                                    | Used to acquire authentication token from `/multitenancy/tenant/{id}/token`.                                                            |
-| TRACTION_TENANT_API_KEY   | string                                 | **Required for Traction Mode.** The Tenant API Key provided by Traction.                                                                                                                                                                                                                                                                                                                                                                               | Used as the payload `{ "api_key": "..." }` when fetching the token.                                                                     |
+| AGENT_TENANT_MODE         | string ("single", "multi", "traction") | **single**: Standard single-tenant agent. <br> **multi**: Standard ACA-Py Multi-tenancy (authenticates via Admin API using Wallet ID/Key). <br> **traction**: Traction Multi-tenancy (authenticates via Tenant API using Tenant ID/API Key).                                                                                                                                                                                                                           |
+| ACAPY_TENANT_WALLET_ID    | string                                 | **If Mode=multi**: The `wallet_id` of the sub-wallet. <br> **If Mode=traction**: The `tenant_id` provided by Traction.                                                                                                                                                                                                                                                                                                                                                 |
+| ACAPY_TENANT_WALLET_KEY   | string                                 | **If Mode=multi**: The `wallet_key` used to unlock the sub-wallet. <br> **If Mode=traction**: The Tenant `api_key` provided by Traction.                                                                                                                                                                                                                                                                                                                               |
 | CONTROLLER_WEB_HOOK_URL   | string (URL)                           | **Required for Multi-Tenant Mode.** The public or internal URL where the ACA-Py Agent can reach this Controller to send webhooks (e.g. `http://controller:5000/webhooks`).                                                                                                                                                                                                                                                                             | The controller will automatically register this URL with the specific tenant wallet on startup.                                         |
 | SET_NON_REVOKED           | bool                                   | if True, the `non_revoked` attributed will be added to each of the present-proof request `requested_attribute` and `requested_predicate` with 'from=0' and'to=`int(time.time())`                                                                                                                                                                                                                                                                     |                                                                                                                                         |
 | USE_OOB_LOCAL_DID_SERVICE | bool                                   | Instructs ACAPy VC-AuthN to use a local DID, it must be used when the agent service is not registered on the ledger with a public DID                                                                                                                                                                                                                                                                                                                  | Use this when `ACAPY_WALLET_LOCAL_DID` is set to `true` in the agent.                                                                   |
@@ -88,35 +88,57 @@ Several functions in ACAPy VC-AuthN can be tweaked by using the following enviro
 | LOG_TIMESTAMP_FORMAT      | string                                 | determines the timestamp formatting used in logs                                                                                                                                                                                                                                                                                                                                                                                                       | Default is "iso"                                                                                                                        |
 | LOG_LEVEL                 | "DEBUG", "INFO", "WARNING", or "ERROR" | sets the minimum log level that will be printed to standard out                                                                                                                                                                                                                                                                                                                                                                                        | Defaults to DEBUG                                                                                                                       |
 
+### Legacy Variable Support
+
+For backward compatibility with version 2.x deployments, the legacy `MT_` variables are still supported in `multi` mode. However, `ACAPY_TENANT_` variables take precedence if both are set.
+
+| Legacy Variable      | Mapped to                | Status     |
+| -------------------- | ------------------------ | ---------- |
+| MT_ACAPY_WALLET_ID   | ACAPY_TENANT_WALLET_ID   | Deprecated |
+| MT_ACAPY_WALLET_KEY  | ACAPY_TENANT_WALLET_KEY  | Deprecated |
+
+### Deployment Examples
+
+**Standard Multi-Tenant (ACA-Py):**
+```yaml
+environment:
+  - AGENT_TENANT_MODE=multi
+  - ACAPY_TENANT_WALLET_ID=3ffd2cf2-5fee-434a-859b-c84f1677e647
+  - ACAPY_TENANT_WALLET_KEY=my-secure-wallet-key
+  - CONTROLLER_WEB_HOOK_URL=http://controller:5000/webhooks
+```
+
 ### Traction Tenancy Mode
 
-The `traction` mode (`ACAPY_TENANCY="traction"`) is designed specifically for environments where the ACA-Py Admin API endpoints (e.g., `/multitenancy/wallet/...`) are restricted or blocked for security reasons.
+The `traction` mode (`AGENT_TENANT_MODE="traction"`) is designed specifically for environments where the ACA-Py Admin API endpoints (e.g., `/multitenancy/wallet/...`) are restricted or blocked for security reasons, which is true of many `traction` environments.
 
 In this mode:
-1.  **Authentication:** The controller authenticates directly as the tenant using `TRACTION_TENANT_ID` and `TRACTION_TENANT_API_KEY` to obtain a Bearer token.
-2.  **Fallback:** If Traction keys are not provided, it falls back to trying to authenticate using the `MT_ACAPY_WALLET_ID` and `MT_ACAPY_WALLET_KEY` via the wallet token endpoint (though this may fail if that endpoint is also blocked).
+1.  **Authentication:** The controller authenticates directly as the tenant using `ACAPY_TENANT_WALLET_ID` (as the Tenant ID) and `ACAPY_TENANT_WALLET_KEY` (as the Tenant API Key) to obtain a Bearer token.
+2.  **Fallback:** If these keys are not provided, it falls back to trying to authenticate using the legacy `MT_ACAPY_WALLET_ID` and `MT_ACAPY_WALLET_KEY` via the wallet token endpoint (though this may fail if that endpoint is also blocked).
 3.  **Webhook Registration:** The controller bypasses the Admin API and uses the authenticated Tenant API (`PUT /tenant/wallet`) to register the `CONTROLLER_WEB_HOOK_URL`.
 
 **Example Docker Configuration for Traction:**
 
 ```yaml
 environment:
-  - ACAPY_TENANCY=traction
-  - TRACTION_TENANT_ID=00000000-0000-0000-0000-000000000000
-  - TRACTION_TENANT_API_KEY=your-traction-api-key
+  - AGENT_TENANT_MODE=traction
+  - ACAPY_TENANT_WALLET_ID=00000000-0000-0000-0000-000000000000
+  - ACAPY_TENANT_WALLET_KEY=your-traction-api-key
   - CONTROLLER_WEB_HOOK_URL=https://your-controller-url.com/webhooks
   - ACAPY_ADMIN_URL=https://traction-tenant-proxy-url
 ```
 
-### Multi-Tenant Webhook Registration
+### Multi-Tenant and Traction Webhook Registration
 
-When running in Multi-Tenant mode (`ACAPY_TENANCY="multi"`), the ACA-Py Agent may not automatically know where to send verification success notifications for specific tenant wallets.
+When running in Multi-Tenant (`AGENT_TENANT_MODE="multi"`) or Traction (`AGENT_TENANT_MODE="traction"`) modes, the ACA-Py Agent may not automatically know where to send verification success notifications for specific tenant wallets.
 
 To address this, the VC-AuthN Controller performs an automatic handshake on startup:
 
 1. It checks if `CONTROLLER_WEB_HOOK_URL` is defined.
 2. If the Controller is protected by `CONTROLLER_API_KEY`, it appends the key to the URL using the `#<key>` syntax. This instructs ACA-Py to parse the hash and send it as an `x-api-key` header in the webhook request.
-3. It attempts to connect to the ACA-Py Admin API using the `ST_ACAPY_ADMIN_API_KEY` to update the specific Tenant Wallet configuration.
+3. It attempts to connect to the ACA-Py Agent to update the specific Tenant Wallet configuration.
+    - **Multi Mode:** Uses the Admin API (`/multitenancy/wallet/{id}`) authenticated with `ST_ACAPY_ADMIN_API_KEY`.
+    - **Traction Mode:** Uses the Tenant API (`/tenant/wallet`) authenticated with the Tenant Token acquired via `ACAPY_TENANT_WALLET_KEY`.
 4. If the Agent is not yet ready, the Controller will retry the registration up to 5 times before logging an error.
 
 This ensures that even in complex Docker/Kubernetes network topologies, the Agent sends verification signals to the correct Controller instance.

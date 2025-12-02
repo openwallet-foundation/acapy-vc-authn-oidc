@@ -163,11 +163,11 @@ async def on_tenant_startup():
     if settings.ACAPY_TENANCY == "multi":
         logger.info("Starting up in Multi-Tenant Admin Mode")
         token_fetcher = None
-        if settings.MT_ACAPY_WALLET_KEY:
+        if settings.ACAPY_TENANT_WALLET_KEY:
             token_fetcher = MultiTenantAcapy().get_wallet_token
 
         await register_tenant_webhook(
-            wallet_id=settings.MT_ACAPY_WALLET_ID,
+            wallet_id=settings.ACAPY_TENANT_WALLET_ID,
             webhook_url=settings.CONTROLLER_WEB_HOOK_URL,
             admin_url=settings.ACAPY_ADMIN_URL,
             api_key=settings.CONTROLLER_API_KEY,
@@ -183,7 +183,7 @@ async def on_tenant_startup():
         token_fetcher = TractionTenantAcapy().get_wallet_token
 
         await register_tenant_webhook(
-            wallet_id=settings.MT_ACAPY_WALLET_ID,  # Optional/Unused for traction mode registration
+            wallet_id=settings.ACAPY_TENANT_WALLET_ID,  # Optional/Unused for traction mode registration
             webhook_url=settings.CONTROLLER_WEB_HOOK_URL,
             admin_url=settings.ACAPY_ADMIN_URL,
             api_key=settings.CONTROLLER_API_KEY,
