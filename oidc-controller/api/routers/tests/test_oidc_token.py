@@ -682,12 +682,12 @@ class TestPostTokenStatelessWrapper:
         self, mock_db, mock_auth_session, mock_provider
     ):
         """Test claims are stored in authz_info when no sub field exists.
-        
+
         This covers the scenario where:
         - generate_consistent_identifier = False (no hash-based sub)
         - subject_identifier is empty or doesn't match (no attribute-based sub)
         Result: Token.get_claims() returns claims WITHOUT a "sub" field
-        
+
         Bug fix: authz_info["user_info"] must be set BEFORE checking if sub exists,
         otherwise claims are lost in StatelessWrapper mode.
         """
@@ -718,9 +718,9 @@ class TestPostTokenStatelessWrapper:
                             "pres_req_conf_id": "showcase-person",
                             "vc_presented_attributes": {
                                 "given_names": "John",
-                                "family_name": "Doe"
+                                "family_name": "Doe",
                             },
-                            "acr": "vc_authn"
+                            "acr": "vc_authn",
                             # NOTE: NO "sub" field - this is the critical test case
                         }
 
@@ -741,12 +741,14 @@ class TestPostTokenStatelessWrapper:
                         await post_token(mock_request, mock_db)
 
                         # Verify authz_info["user_info"] was populated despite no sub
-                        pack_call = mock_provider.provider.authz_state.authorization_codes.pack
+                        pack_call = (
+                            mock_provider.provider.authz_state.authorization_codes.pack
+                        )
                         assert pack_call.called
-                        
+
                         authz_info = pack_call.call_args[0][0]
                         assert "user_info" in authz_info
-                        
+
                         user_info = authz_info["user_info"]
                         assert user_info["pres_req_conf_id"] == "showcase-person"
                         assert user_info["acr"] == "vc_authn"
@@ -754,6 +756,6 @@ class TestPostTokenStatelessWrapper:
                         assert "family_name" in user_info["vc_presented_attributes"]
                         # Verify no sub was added
                         assert "sub" not in user_info
-                        
+
                         # Verify pyop_user_id was NOT updated (no sub to replace it with)
                         mock_update.assert_not_called()
