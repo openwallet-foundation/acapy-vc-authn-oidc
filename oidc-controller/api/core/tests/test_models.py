@@ -304,10 +304,10 @@ class TestVCUserinfo:
             "acr": "vc_authn",
             "nonce": "test_nonce_123",
         }
-        
+
         # Simulate StatelessWrapper calling get_claims_for
         result = userinfo.get_claims_for(None, {}, userinfo=vc_claims)
-        
+
         assert result == vc_claims
         assert result["pres_req_conf_id"] == "showcase-person"
         assert "vc_presented_attributes" in result
@@ -317,20 +317,19 @@ class TestVCUserinfo:
     def test_redis_mode_vs_stateless_mode(self, dict_storage):
         """Test that Redis mode and StatelessWrapper mode work correctly."""
         userinfo = VCUserinfo({}, claims_storage=dict_storage)
-        
+
         # Redis mode: store claims with user_id
         redis_claims = {"redis_claim": "redis_value"}
         userinfo.set_claims_for_user("redis_user_id", redis_claims)
-        
+
         # Redis mode: retrieve with user_id, userinfo=None
         result_redis = userinfo.get_claims_for("redis_user_id", {}, None)
         assert result_redis == redis_claims
-        
+
         # StatelessWrapper mode: retrieve with user_id=None, claims in userinfo
         stateless_claims = {"stateless_claim": "stateless_value"}
         result_stateless = userinfo.get_claims_for(None, {}, userinfo=stateless_claims)
         assert result_stateless == stateless_claims
-        
+
         # Verify they're independent
         assert result_redis != result_stateless
-

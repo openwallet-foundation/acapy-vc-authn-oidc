@@ -376,15 +376,21 @@ async def post_token(request: Request, db: Database = Depends(get_db)):
                 ),
             )
 
+        # CRITICAL: For StatelessWrapper (in-memory storage), claims MUST be
+        # stored INSIDE the authorization code in authz_info["user_info"] before
+        # packing, otherwise PyOP will retrieve empty claims when generating the
+        # ID token. This must happen regardless of whether claims contain a "sub"
+        # field. For RedisWrapper, this field is not used (claims are in Redis).
+        authz_info = provider.provider.authz_state.authorization_codes[
+            form_dict["code"]
+        ]
+        authz_info["user_info"] = claims
+
         # Replace auto-generated sub with one coming from proof, if available
         # The Redis storage uses a shared data store, so a new item can be
         # added and the reference in the form needs to be updated with the
         # new key value
         if claims.get("sub"):
-            authz_info = provider.provider.authz_state.authorization_codes[
-                form_dict["code"]
-            ]
-
             # Update the subject with the one from the presentation
             presentation_sub = claims.pop("sub")
 
@@ -408,29 +414,14 @@ async def post_token(request: Request, db: Database = Depends(get_db)):
             # Update our local reference to the new user_id
             user_id = presentation_sub
 
-            # CRITICAL: For StatelessWrapper (in-memory storage), claims are
-            # stored INSIDE the authorization code in authz_info["user_info"].
-            # We must update this with the actual claims before repacking,
-            # otherwise PyOP will retrieve empty claims when generating the ID token.
-            # For RedisWrapper, this field is not used (claims are in Redis).
-            authz_info["user_info"] = claims
-
             # Create subject identifier mapping: subject -> user_id
             # This is needed because PyOP will look up the user_id for this
             # subject. Store the public subject identifier with Redis-aware
             # persistence
             store_subject_identifier(user_id, "public", presentation_sub)
 
-            new_code = provider.provider.authz_state.authorization_codes.pack(
-                authz_info
-            )
-            form_dict["code"] = new_code
-
-            # NOTE: Do NOT add sub back to claims dict. PyOP will get the
-            # sub from authz_info["sub"] when generating the ID token.
-            # If we include sub in claims as well, PyOP will receive it
-            # twice and raise: "TypeError: IdToken() got multiple values
-            # for keyword argument 'sub'"
+            # Need to update user_info again after removing "sub" from claims
+            authz_info["user_info"] = claims
 
             logger.info(
                 "Replaced authorization code with presentation subject",
@@ -441,6 +432,24 @@ async def post_token(request: Request, db: Database = Depends(get_db)):
                 updated_auth_session=True,
                 updated_user_info_in_code=True,
             )
+
+        # Pack the authorization code with updated authz_info
+        new_code = provider.provider.authz_state.authorization_codes.pack(authz_info)
+        form_dict["code"] = new_code
+
+        # NOTE: Do NOT add sub back to claims dict. PyOP will get the
+        # sub from authz_info["sub"] when generating the ID token.
+        # If we include sub in claims as well, PyOP will receive it
+        # twice and raise: "TypeError: IdToken() got multiple values
+        # for keyword argument 'sub'"
+
+        logger.info(
+            "Updated authorization code with claims for StatelessWrapper",
+            operation="update_auth_code_claims",
+            auth_session_id=str(auth_session.id),
+            user_id=user_id,
+            claims_keys=list(claims.keys()),
+        )
 
         # Store claims in VCUserinfo so PyOP can retrieve them when
         # generating the ID token. This is critical - without this,
