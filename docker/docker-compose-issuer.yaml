@@ -1,0 +1,56 @@
+services:
+  issuer-aca-py:
+    image: ghcr.io/openwallet-foundation/acapy-agent:py3.12-1.4.0
+    environment:
+      - ACAPY_LABEL=${ISSUER_AGENT_NAME:-Trusted Verifier Issuer}
+      - ACAPY_ENDPOINT=${ISSUER_AGENT_ENDPOINT:-http://issuer-aca-py:8031}
+      - ACAPY_WALLET_NAME=issuer_agent_wallet
+      - ACAPY_WALLET_TYPE=askar
+      - ACAPY_WALLET_KEY=${ISSUER_WALLET_ENCRYPTION_KEY:-issuer_wallet_key_change_me}
+      - ACAPY_WALLET_SEED=${ISSUER_AGENT_WALLET_SEED:-000000000000000000000000Issuer01}
+      - ACAPY_AUTO_ACCEPT_INVITES=true
+      - ACAPY_AUTO_ACCEPT_REQUESTS=true
+      - ACAPY_AUTO_PING_CONNECTION=true
+      - ACAPY_WALLET_STORAGE_TYPE=postgres_storage
+      - ACAPY_GENESIS_TRANSACTIONS_LIST=/tmp/ledgers.yaml
+      - ACAPY_LOG_LEVEL=info
+      - ACAPY_AUTO_PROVISION=true
+      - POSTGRESQL_WALLET_HOST=issuer-wallet-db
+      - POSTGRESQL_WALLET_PORT=5432
+      - POSTGRESQL_WALLET_USER=${ISSUER_POSTGRESQL_WALLET_USER:-issuer_wallet_user}
+      - POSTGRESQL_WALLET_PASSWORD=${ISSUER_POSTGRESQL_WALLET_PASSWORD:-issuer_wallet_password}
+    ports:
+      - ${ISSUER_AGENT_ADMIN_PORT:-8078}:8078
+      - ${ISSUER_AGENT_HTTP_PORT:-8031}:8031
+    networks:
+      - vc_auth
+    volumes:
+      - ./agent/config/ledgers.yaml:/tmp/ledgers.yaml
+    depends_on:
+      - issuer-wallet-db
+    entrypoint: /bin/bash
+    command:
+      [
+        "-c",
+        'sleep 15; aca-py start --inbound-transport http ''0.0.0.0'' 8031 --outbound-transport http --wallet-storage-config ''{"url":"issuer-wallet-db:5432","max_connections":5}'' --wallet-storage-creds ''{"account":"${ISSUER_POSTGRESQL_WALLET_USER:-issuer_wallet_user}","password":"${ISSUER_POSTGRESQL_WALLET_PASSWORD:-issuer_wallet_password}","admin_account":"${ISSUER_POSTGRESQL_WALLET_USER:-issuer_wallet_user}","admin_password":"${ISSUER_POSTGRESQL_WALLET_PASSWORD:-issuer_wallet_password}"}'' --admin ''0.0.0.0'' 8078 --admin-insecure-mode',
+      ]
+
+  issuer-wallet-db:
+    image: postgres:15.1-alpine
+    environment:
+      - POSTGRES_USER=${ISSUER_POSTGRESQL_WALLET_USER:-issuer_wallet_user}
+      - POSTGRES_PASSWORD=${ISSUER_POSTGRESQL_WALLET_PASSWORD:-issuer_wallet_password}
+      - POSTGRES_DB=${ISSUER_POSTGRESQL_WALLET_DATABASE:-issuer_wallet}
+    networks:
+      - vc_auth
+    ports:
+      - 5434:5432
+    volumes:
+      - issuer-wallet-db:/var/lib/pgsql/data
+
+networks:
+  vc_auth:
+    driver: bridge
+
+volumes:
+  issuer-wallet-db:
