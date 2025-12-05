@@ -16,8 +16,21 @@ The functionality has mostly remained unchanged, however there are some details 
 
 ## For versions after 2.3.2
 
-### Multi-Tenant Webhook Configuration
-If you are running in Multi-Tenant mode (`ACAPY_TENANCY="multi"`), you **must** now define the `CONTROLLER_WEB_HOOK_URL` environment variable.
+### Configuration Unification (Multi-Tenant & Traction)
+
+To simplify configuration and support new integration patterns, the environment variables for multi-tenant identification have been unified.
+
+**New Variables:**
+*   `ACAPY_TENANT_WALLET_ID`: Replaces `MT_ACAPY_WALLET_ID`.
+*   `ACAPY_TENANT_WALLET_KEY`: Replaces `MT_ACAPY_WALLET_KEY`.
+
+**Impact on Existing Deployments:**
+*   **No Action Required:** Existing deployments using `MT_ACAPY_WALLET_ID` and `MT_ACAPY_WALLET_KEY` will continue to work. The system automatically falls back to these variables if the new ones are not present.
+*   **Recommended Action:** We recommend updating your `docker-compose` or Kubernetes configuration to use the new `ACAPY_TENANT_` variables to ensure future compatibility.
+
+### Multi-Tenant and Traction Webhook Configuration
+
+If you are running in Multi-Tenant (`AGENT_TENANT_MODE="multi"`) or Traction (`AGENT_TENANT_MODE="traction"`) mode, you **must** now define the `CONTROLLER_WEB_HOOK_URL` environment variable.
 
 *   **Why:** The controller now explicitly registers this URL with the specific ACA-Py tenant wallet on startup. This fixes issues where OIDC authentication flows would hang because the agent sent verifications to the wrong location or failed authentication.
 *   **Action Required:** Update your `docker-compose` or Kubernetes config:
@@ -25,3 +38,11 @@ If you are running in Multi-Tenant mode (`ACAPY_TENANCY="multi"`), you **must** 
     environment:
       - CONTROLLER_WEB_HOOK_URL=https://<your-controller-domain>/webhooks
     ```
+
+### New Tenancy Mode: Traction
+
+A new mode has been added for integrating with Traction (or secured multi-tenant agents where Admin APIs are blocked).
+
+*   **Setting:** `AGENT_TENANT_MODE="traction"`
+*   **Requirements:** Requires `ACAPY_TENANT_WALLET_ID` (as the Traction Tenant ID) and `ACAPY_TENANT_WALLET_KEY` (as the Traction Tenant API Key).
+*   **Behavior:** Authenticates directly with the Tenant API (`/multitenancy/tenant/{id}/token`) using the provided API Key and bypasses `multitenancy/wallet` Admin endpoints used in standard multi-tenant mode.
