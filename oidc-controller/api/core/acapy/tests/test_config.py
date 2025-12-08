@@ -151,7 +151,7 @@ async def test_multi_tenant_caching_behavior(requests_mock):
         )
 
         acapy = MultiTenantAcapy()
-        
+
         # First call hits API
         token1 = acapy.get_wallet_token()
         assert token1 == "cached-token"
@@ -179,14 +179,14 @@ async def test_multi_tenant_token_expiry(requests_mock):
         )
 
         acapy = MultiTenantAcapy()
-        
+
         # Inject an expired token directly
         MultiTenantAcapy._token = "stale-token"
-        MultiTenantAcapy._token_expiry = time.time() - 100 # Expired 100s ago
+        MultiTenantAcapy._token_expiry = time.time() - 100  # Expired 100s ago
 
         # Call should trigger fetch
         token = acapy.get_wallet_token()
-        
+
         assert token == "fresh-token"
         assert requests_mock.call_count == 1
 

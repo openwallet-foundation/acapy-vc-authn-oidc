@@ -69,7 +69,7 @@ class MultiTenantAcapy:
             raise Exception(f"{resp_raw.status_code}::{error_detail}")
 
         resp = json.loads(resp_raw.content)
-        
+
         # Update class-level cache
         MultiTenantAcapy._token = resp["token"]
         MultiTenantAcapy._token_expiry = time.time() + self.TOKEN_TTL
@@ -127,11 +127,11 @@ class TractionTenantAcapy:
 
             if resp_raw.status_code == 200:
                 resp = json.loads(resp_raw.content)
-                
+
                 # Update class-level cache
                 TractionTenantAcapy._token = resp["token"]
                 TractionTenantAcapy._token_expiry = time.time() + self.TOKEN_TTL
-                
+
                 logger.debug("<<< get_wallet_token (Success via Traction API)")
                 return TractionTenantAcapy._token
             else:
