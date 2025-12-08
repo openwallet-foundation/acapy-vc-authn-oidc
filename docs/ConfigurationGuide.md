@@ -92,10 +92,10 @@ Several functions in ACAPy VC-AuthN can be tweaked by using the following enviro
 
 For backward compatibility with version 2.x deployments, the legacy `MT_` variables are still supported in `multi` mode. However, `ACAPY_TENANT_` variables take precedence if both are set.
 
-| Legacy Variable      | Mapped to                | Status     |
-| -------------------- | ------------------------ | ---------- |
-| MT_ACAPY_WALLET_ID   | ACAPY_TENANT_WALLET_ID   | Deprecated |
-| MT_ACAPY_WALLET_KEY  | ACAPY_TENANT_WALLET_KEY  | Deprecated |
+| Legacy Variable      | Mapped to                | Status                 |
+| -------------------- | ------------------------ | ---------------------- |
+| MT_ACAPY_WALLET_ID   | ACAPY_TENANT_WALLET_ID   | **Deprecated**         |
+| MT_ACAPY_WALLET_KEY  | ACAPY_TENANT_WALLET_KEY  | **Deprecated**         |
 
 ### Deployment Examples
 

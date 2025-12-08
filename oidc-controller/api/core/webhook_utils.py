@@ -121,11 +121,11 @@ async def register_tenant_webhook(
                     )
                     return
 
-            # STRATEGY 2: Direct Tenant API (Traction Mode)
+            # STRATEGY 2: Tenant API via Proxy (Traction Mode)
             else:
                 if not token_fetcher:
                     logger.error(
-                        "Direct Tenant API registration requested but no token_fetcher provided."
+                        "Registration via Tenant API proxy requested but no token_fetcher provided."
                     )
                     return
 

@@ -1,5 +1,6 @@
 import mock
 import pytest
+import time
 from requests.exceptions import RequestException
 from api.core.acapy.config import (
     MultiTenantAcapy,
@@ -7,6 +8,22 @@ from api.core.acapy.config import (
     TractionTenantAcapy,
 )
 from api.core.config import settings
+
+
+# Helper to reset class level cache
+def reset_acapy_cache(cls):
+    cls._token = None
+    cls._token_expiry = 0.0
+
+
+@pytest.fixture(autouse=True)
+def clean_cache():
+    """Ensure cache is clean before each test."""
+    reset_acapy_cache(MultiTenantAcapy)
+    reset_acapy_cache(TractionTenantAcapy)
+    yield
+    reset_acapy_cache(MultiTenantAcapy)
+    reset_acapy_cache(TractionTenantAcapy)
 
 
 # ==========================================
@@ -67,7 +84,6 @@ async def test_multi_tenant_uses_unified_variables(requests_mock):
         )
 
         acapy = MultiTenantAcapy()
-        acapy.get_wallet_token.cache_clear()
 
         token = acapy.get_wallet_token()
         assert token == "token"
@@ -81,7 +97,6 @@ async def test_multi_tenant_missing_id_raises_error():
     """Test error validation if ACAPY_TENANT_WALLET_ID is missing in multi-tenant mode."""
     with mock.patch.object(MultiTenantAcapy, "wallet_id", None):
         acapy = MultiTenantAcapy()
-        acapy.get_wallet_token.cache_clear()
 
         with pytest.raises(ValueError) as exc:
             acapy.get_wallet_token()
@@ -105,7 +120,6 @@ async def test_multi_tenant_includes_admin_api_key_headers(requests_mock):
     ):
 
         acapy = MultiTenantAcapy()
-        acapy.get_wallet_token.cache_clear()
 
         requests_mock.post(
             settings.ACAPY_ADMIN_URL + f"/multitenancy/wallet/{wallet_id}/token",
@@ -122,6 +136,62 @@ async def test_multi_tenant_includes_admin_api_key_headers(requests_mock):
 
 
 @pytest.mark.asyncio
+async def test_multi_tenant_caching_behavior(requests_mock):
+    """Test that tokens are cached and not fetched repeatedly."""
+    wallet_id = "cache-test-id"
+    wallet_key = "cache-test-key"
+
+    with mock.patch.object(MultiTenantAcapy, "wallet_id", wallet_id), mock.patch.object(
+        MultiTenantAcapy, "wallet_key", wallet_key
+    ):
+        requests_mock.post(
+            settings.ACAPY_ADMIN_URL + f"/multitenancy/wallet/{wallet_id}/token",
+            json={"token": "cached-token"},
+            status_code=200,
+        )
+
+        acapy = MultiTenantAcapy()
+        
+        # First call hits API
+        token1 = acapy.get_wallet_token()
+        assert token1 == "cached-token"
+        assert requests_mock.call_count == 1
+
+        # Second call hits cache
+        token2 = acapy.get_wallet_token()
+        assert token2 == "cached-token"
+        assert requests_mock.call_count == 1  # Count should NOT increase
+
+
+@pytest.mark.asyncio
+async def test_multi_tenant_token_expiry(requests_mock):
+    """Test that expired tokens trigger a re-fetch."""
+    wallet_id = "expiry-test-id"
+    wallet_key = "expiry-test-key"
+
+    with mock.patch.object(MultiTenantAcapy, "wallet_id", wallet_id), mock.patch.object(
+        MultiTenantAcapy, "wallet_key", wallet_key
+    ):
+        requests_mock.post(
+            settings.ACAPY_ADMIN_URL + f"/multitenancy/wallet/{wallet_id}/token",
+            json={"token": "fresh-token"},
+            status_code=200,
+        )
+
+        acapy = MultiTenantAcapy()
+        
+        # Inject an expired token directly
+        MultiTenantAcapy._token = "stale-token"
+        MultiTenantAcapy._token_expiry = time.time() - 100 # Expired 100s ago
+
+        # Call should trigger fetch
+        token = acapy.get_wallet_token()
+        
+        assert token == "fresh-token"
+        assert requests_mock.call_count == 1
+
+
+@pytest.mark.asyncio
 async def test_multi_tenant_throws_exception_for_401(requests_mock):
     """Test error handling for 401 Unauthorized in multi-tenant mode."""
     wallet_id = "test-wallet-id"
@@ -131,15 +201,13 @@ async def test_multi_tenant_throws_exception_for_401(requests_mock):
         MultiTenantAcapy, "wallet_key", wallet_key
     ):
 
-        acapy = MultiTenantAcapy()
-        acapy.get_wallet_token.cache_clear()
-
         requests_mock.post(
             settings.ACAPY_ADMIN_URL + f"/multitenancy/wallet/{wallet_id}/token",
             json={"error": "unauthorized"},
             status_code=401,
         )
 
+        acapy = MultiTenantAcapy()
         with pytest.raises(Exception) as excinfo:
             acapy.get_wallet_token()
 
@@ -174,7 +242,6 @@ async def test_traction_mode_uses_unified_variables_as_tenant_creds(requests_moc
         )
 
         acapy = TractionTenantAcapy()
-        acapy.get_wallet_token.cache_clear()
 
         token = acapy.get_wallet_token()
         assert token == "traction-token"
@@ -182,6 +249,43 @@ async def test_traction_mode_uses_unified_variables_as_tenant_creds(requests_moc
         # Verify payload uses "api_key" (Traction style) instead of "wallet_key"
         last_request = requests_mock.last_request
         assert last_request.json() == {"api_key": api_key}
+
+
+@pytest.mark.asyncio
+async def test_traction_caching_and_expiry(requests_mock):
+    """Test Traction token caching logic."""
+    tenant_id = "traction-cache-id"
+    api_key = "traction-cache-key"
+
+    with mock.patch.object(
+        TractionTenantAcapy, "tenant_id", tenant_id
+    ), mock.patch.object(TractionTenantAcapy, "api_key", api_key):
+
+        requests_mock.post(
+            settings.ACAPY_ADMIN_URL + f"/multitenancy/tenant/{tenant_id}/token",
+            json={"token": "traction-token"},
+            status_code=200,
+        )
+
+        acapy = TractionTenantAcapy()
+
+        # 1. First fetch
+        t1 = acapy.get_wallet_token()
+        assert t1 == "traction-token"
+        assert requests_mock.call_count == 1
+
+        # 2. Second fetch (Cached)
+        t2 = acapy.get_wallet_token()
+        assert t2 == "traction-token"
+        assert requests_mock.call_count == 1
+
+        # 3. Simulate Expiry
+        TractionTenantAcapy._token_expiry = time.time() - 1
+
+        # 4. Third fetch (Refresh)
+        t3 = acapy.get_wallet_token()
+        assert t3 == "traction-token"
+        assert requests_mock.call_count == 2
 
 
 @pytest.mark.asyncio
@@ -193,7 +297,6 @@ async def test_traction_mode_missing_credentials_raises_error():
     ):
 
         acapy = TractionTenantAcapy()
-        acapy.get_wallet_token.cache_clear()
 
         with pytest.raises(ValueError) as exc:
             acapy.get_wallet_token()
@@ -219,7 +322,6 @@ async def test_traction_mode_api_failure_raises_exception(requests_mock):
         )
 
         acapy = TractionTenantAcapy()
-        acapy.get_wallet_token.cache_clear()
 
         with pytest.raises(Exception) as exc:
             acapy.get_wallet_token()
@@ -243,7 +345,6 @@ async def test_traction_mode_connection_error_raises_exception(requests_mock):
         )
 
         acapy = TractionTenantAcapy()
-        acapy.get_wallet_token.cache_clear()
 
         with pytest.raises(RequestException):
             acapy.get_wallet_token()

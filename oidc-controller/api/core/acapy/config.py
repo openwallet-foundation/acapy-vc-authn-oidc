@@ -1,8 +1,8 @@
 import requests
 import structlog
 import json
+import time
 
-from functools import cache
 from typing import Protocol
 
 from ..config import settings
@@ -18,9 +18,19 @@ class MultiTenantAcapy:
     wallet_id = settings.ACAPY_TENANT_WALLET_ID
     wallet_key = settings.ACAPY_TENANT_WALLET_KEY
 
-    @cache
+    # Class-level cache to share token across instances and manage expiry
+    _token: str | None = None
+    _token_expiry: float = 0.0
+    # Refresh token every hour (safe for default 1-day expiry)
+    TOKEN_TTL: int = 3600
+
     def get_wallet_token(self):
-        logger.debug(">>> get_wallet_token (Multi-Tenant Mode)")
+        # Check if valid token exists in cache
+        now = time.time()
+        if self._token and now < self._token_expiry:
+            return self._token
+
+        logger.debug(">>> get_wallet_token (Multi-Tenant Mode) - Fetching new token")
 
         if not self.wallet_id:
             raise ValueError("ACAPY_TENANT_WALLET_ID is required for multi-tenant mode")
@@ -59,10 +69,13 @@ class MultiTenantAcapy:
             raise Exception(f"{resp_raw.status_code}::{error_detail}")
 
         resp = json.loads(resp_raw.content)
-        wallet_token = resp["token"]
+        
+        # Update class-level cache
+        MultiTenantAcapy._token = resp["token"]
+        MultiTenantAcapy._token_expiry = time.time() + self.TOKEN_TTL
 
-        logger.debug("<<< get_wallet_token")
-        return wallet_token
+        logger.debug("<<< get_wallet_token - Cached new token")
+        return MultiTenantAcapy._token
 
     def get_headers(self) -> dict[str, str]:
         return {"Authorization": "Bearer " + self.get_wallet_token()}
@@ -78,9 +91,18 @@ class TractionTenantAcapy:
     tenant_id = settings.ACAPY_TENANT_WALLET_ID
     api_key = settings.ACAPY_TENANT_WALLET_KEY
 
-    @cache
+    # Class-level cache
+    _token: str | None = None
+    _token_expiry: float = 0.0
+    TOKEN_TTL: int = 3600
+
     def get_wallet_token(self):
-        logger.debug(">>> get_wallet_token (Traction Mode)")
+        # Check if valid token exists in cache
+        now = time.time()
+        if self._token and now < self._token_expiry:
+            return self._token
+
+        logger.debug(">>> get_wallet_token (Traction Mode) - Fetching new token")
 
         if not self.tenant_id or not self.api_key:
             error_msg = (
@@ -105,8 +127,13 @@ class TractionTenantAcapy:
 
             if resp_raw.status_code == 200:
                 resp = json.loads(resp_raw.content)
+                
+                # Update class-level cache
+                TractionTenantAcapy._token = resp["token"]
+                TractionTenantAcapy._token_expiry = time.time() + self.TOKEN_TTL
+                
                 logger.debug("<<< get_wallet_token (Success via Traction API)")
-                return resp["token"]
+                return TractionTenantAcapy._token
             else:
                 error_detail = resp_raw.content.decode()
                 logger.error(
