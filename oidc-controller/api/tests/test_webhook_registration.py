@@ -22,6 +22,8 @@ def mock_settings():
         mock.USE_REDIS_ADAPTER = False
         mock.ACAPY_TENANCY = "multi"
         mock.MT_ACAPY_WALLET_KEY = "wallet-key"
+        mock.ACAPY_TENANT_WALLET_KEY = "wallet-key"
+        mock.ACAPY_TENANT_WALLET_ID = "test-wallet-id"
         yield mock
 
 
@@ -224,7 +226,7 @@ async def test_startup_multi_tenant_injects_fetcher(mock_settings, mock_requests
     Ensures main.py actually instantiates MultiTenantAcapy and passes the method.
     """
     mock_settings.ACAPY_TENANCY = "multi"
-    mock_settings.MT_ACAPY_WALLET_KEY = "wallet-key"  # Trigger fetcher creation
+    mock_settings.ACAPY_TENANT_WALLET_KEY = "wallet-key"
     mock_settings.USE_REDIS_ADAPTER = False
 
     # Mock MultiTenantAcapy class to verify instantiation
@@ -301,8 +303,10 @@ async def test_startup_single_tenant_skips_registration(
 
 
 @pytest.mark.asyncio
-async def test_webhook_registration_fatal_auth_error(mock_requests_put, mock_sleep):
-    """Test that 401/403 errors stop retries immediately."""
+async def test_webhook_registration_401_stops_immediately(
+    mock_requests_put, mock_sleep
+):
+    """Test that 401 errors (Unauthorized) stop retries immediately."""
     mock_requests_put.return_value.status_code = 401  # Unauthorized
 
     await register_tenant_webhook(
@@ -466,7 +470,7 @@ async def test_register_via_tenant_api_exception(mock_requests_put):
 @pytest.mark.asyncio
 async def test_webhook_registration_unexpected_status_code(mock_requests_put):
     """Test handling of unexpected status codes (e.g. 418)."""
-    mock_requests_put.return_value.status_code = 418  # I'm a teapot
+    mock_requests_put.return_value.status_code = 418
 
     await register_tenant_webhook(
         wallet_id="test-wallet",
@@ -479,3 +483,37 @@ async def test_webhook_registration_unexpected_status_code(mock_requests_put):
     )
     # Should log warning and exit loop (not retry)
     assert mock_requests_put.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_webhook_registration_masks_api_key_in_logs(mock_requests_put):
+    """Test that the API key fragment in webhook URL is masked in logs."""
+    mock_requests_put.return_value.status_code = 200
+
+    # Use a fresh mock for the logger to inspect calls specifically for this test
+    with patch("api.core.webhook_utils.logger") as mock_logger:
+        secret_key = "super-secret-key"
+        base_url = "http://controller/webhooks"
+
+        await register_tenant_webhook(
+            wallet_id="test-wallet",
+            webhook_url=base_url,
+            admin_url="http://acapy",
+            api_key=secret_key,  # This gets appended as #secret-key
+            admin_api_key=None,
+            admin_api_key_name=None,
+        )
+
+        # Get all arguments passed to info calls
+        info_calls = [args[0] for args, _ in mock_logger.info.call_args_list]
+
+        # Assert masking happened
+        expected_log_fragment = f"{base_url}#*****"
+        assert any(
+            expected_log_fragment in call for call in info_calls
+        ), f"Expected masked URL '{expected_log_fragment}' not found in logs: {info_calls}"
+
+        # Assert secret is NOT present
+        assert not any(
+            secret_key in call for call in info_calls
+        ), "SECRET KEY LEAKED IN LOGS!"

@@ -113,9 +113,8 @@ environment:
 The `traction` mode (`AGENT_TENANT_MODE="traction"`) is designed specifically for environments where the ACA-Py Admin API endpoints (e.g., `/multitenancy/wallet/...`) are restricted or blocked for security reasons, which is true of many `traction` environments.
 
 In this mode:
-1.  **Authentication:** The controller authenticates directly as the tenant using `ACAPY_TENANT_WALLET_ID` (as the Tenant ID) and `ACAPY_TENANT_WALLET_KEY` (as the Tenant API Key) to obtain a Bearer token.
-2.  **Fallback:** If these keys are not provided, it falls back to trying to authenticate using the legacy `MT_ACAPY_WALLET_ID` and `MT_ACAPY_WALLET_KEY` via the wallet token endpoint (though this may fail if that endpoint is also blocked).
-3.  **Webhook Registration:** The controller bypasses the Admin API and uses the authenticated Tenant API (`PUT /tenant/wallet`) to register the `CONTROLLER_WEB_HOOK_URL`.
+1.  **Authentication:** The controller authenticates directly as the tenant using `ACAPY_TENANT_WALLET_ID` (as the Tenant ID) and `ACAPY_TENANT_WALLET_KEY` (as the Tenant API Key) to obtain a Bearer token.  **Both values must be provided; there is no fallback to legacy keys.**
+2.  **Webhook Registration:** The controller bypasses the Admin API and uses the authenticated Tenant API (`PUT /tenant/wallet`) to register the `CONTROLLER_WEB_HOOK_URL`.
 
 **Example Docker Configuration for Traction:**
 
@@ -136,6 +135,7 @@ To address this, the VC-AuthN Controller performs an automatic handshake on star
 
 1. It checks if `CONTROLLER_WEB_HOOK_URL` is defined.
 2. If the Controller is protected by `CONTROLLER_API_KEY`, it appends the key to the URL using the `#<key>` syntax. This instructs ACA-Py to parse the hash and send it as an `x-api-key` header in the webhook request.
+   * **Important:** The full webhook URL with the fragment (`#<CONTROLLER_API_KEY>`) is sensitive and should be treated as secret data. Do **not** log, expose, or share the full URL with the fragment, as it can be used to access protected endpoints. Always mask or redact the API key in logs and documentation.
 3. It attempts to connect to the ACA-Py Agent to update the specific Tenant Wallet configuration.
     - **Multi Mode:** Uses the Admin API (`/multitenancy/wallet/{id}`) authenticated with `ST_ACAPY_ADMIN_API_KEY`.
     - **Traction Mode:** Uses the Tenant API (`/tenant/wallet`) authenticated with the Tenant Token acquired via `ACAPY_TENANT_WALLET_KEY`.

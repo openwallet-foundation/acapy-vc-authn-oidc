@@ -53,12 +53,22 @@ async def register_tenant_webhook(
     if api_key and "#" not in webhook_url:
         webhook_url = f"{webhook_url}#{api_key}"
 
+    # Security: Mask the API key in logs
+    log_safe_url = webhook_url
+    if "#" in webhook_url:
+        try:
+            base, secret = webhook_url.split("#", 1)
+            if secret:
+                log_safe_url = f"{base}#*****"
+        except ValueError:
+            pass
+
     payload = {"wallet_webhook_urls": [webhook_url]}
 
     max_retries = 5
     base_delay = 2  # seconds
 
-    logger.info(f"Attempting to register webhook: {webhook_url}")
+    logger.info(f"Attempting to register webhook: {log_safe_url}")
 
     for attempt in range(0, max_retries):
         try:
