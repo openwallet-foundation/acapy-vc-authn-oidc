@@ -99,6 +99,9 @@ usage() {
                Automatically fixes formatting issues.
 
                $0 format
+      bootstrap - Bootstrap trusted verifier credential (requires issuer agent running).
+
+              $0 bootstrap
 
       logs - Display the logs from the docker compose run (ctrl-c to exit).
 
@@ -435,6 +438,20 @@ single-pod)
   echo "Running single pod setup..."
   docker-compose up -d ${DEFAULT_CONTAINERS} ${ACAPY_CONTAINERS} ${PROD_CONTAINERS}
   docker-compose logs -f
+  ;;
+bootstrap)
+  configureEnvironment $@
+
+  echoInfo "Starting issuer agent and dependencies..."
+  docker-compose -f docker-compose-issuer.yaml up -d
+
+  echoInfo "Waiting for agents to be ready..."
+  sleep 10
+
+  echoInfo "Running bootstrap script..."
+  poetry run ../scripts/bootstrap-trusted-verifier.py
+
+  echoSuccess "Bootstrap complete!"
   ;;
 *)
   usage
