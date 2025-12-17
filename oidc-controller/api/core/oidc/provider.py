@@ -354,7 +354,7 @@ if settings.USE_REDIS_ADAPTER:
     subject_identifier_storage = RedisWrapperWithPack(
         db_uri=redis_url,
         collection="pyop_subject_identifiers",
-        ttl=None,  # No expiration
+        ttl=3600,  # 1 hour - matches access token lifetime
     )
 
     userinfo_claims_storage = RedisWrapperWithPack(
