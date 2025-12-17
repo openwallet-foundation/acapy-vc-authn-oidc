@@ -105,6 +105,52 @@ class RedisWrapperWithPack(RedisWrapper):
             )
             raise
 
+    def items(self):
+        """
+        Return iterator of (key, value) tuples from Redis collection.
+
+        Uses Redis SCAN to efficiently iterate without blocking.
+        Skips internal reverse mapping keys.
+        """
+        pattern = f"{self._collection}:*"
+        prefix = f"{self._collection}:"
+        cursor = 0
+
+        while True:
+            cursor, partial_keys = self._db.scan(cursor, match=pattern, count=100)
+
+            for redis_key in partial_keys:
+                # Normalize to string and strip collection prefix
+                key = (
+                    redis_key.decode("utf-8")
+                    if isinstance(redis_key, bytes)
+                    else redis_key
+                ).removeprefix(prefix)
+
+                # Skip internal bookkeeping keys
+                if key.startswith("reverse:"):
+                    continue
+
+                # Fetch value, skip if expired
+                try:
+                    yield (key, self[key])
+                except KeyError:
+                    logger.debug(
+                        "Key expired during iteration",
+                        operation="items",
+                        collection=self._collection,
+                        key=key,
+                    )
+
+            if cursor == 0:
+                break
+
+        logger.debug(
+            "Completed iteration over Redis collection",
+            operation="items",
+            collection=self._collection,
+        )
+
 
 if settings.TESTING:
     # Test pem file location /vc-authn-oidc/test-signing-keys.

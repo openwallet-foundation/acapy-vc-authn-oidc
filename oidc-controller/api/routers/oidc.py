@@ -239,11 +239,14 @@ async def get_authorize_callback(pid: str, db: Database = Depends(get_db)):
 
 def store_subject_identifier(user_id: str, subject_type: str, identifier: str) -> bool:
     """
-    Store subject identifier with Redis-aware persistence.
+    Store subject identifier with Redis-aware persistence and stale mapping cleanup.
 
     This function properly handles storage to Redis by explicitly reading,
     modifying, and writing back the subject identifier mapping. This is
     necessary because RedisWrapper doesn't auto-persist dict modifications.
+
+    CRITICAL: Uses reverse mapping to clean up stale entries when the same
+    identifier is reused across multiple logins (same user logging in repeatedly).
 
     Args:
         user_id: The PyOP internal user ID
@@ -257,6 +260,38 @@ def store_subject_identifier(user_id: str, subject_type: str, identifier: str) -
         This function preserves existing subject identifier types when adding
         new ones (e.g., adding "public" won't overwrite existing "pairwise").
     """
+    from api.core.config import settings
+
+    # CRITICAL: Clean up stale mappings using reverse mapping
+    # When same user logs in multiple times, ensure only ONE user_id → identifier mapping
+    if settings.USE_REDIS_ADAPTER:
+        # Use reverse mapping: reverse:{identifier} → old_user_id
+        reverse_key = f"reverse:{identifier}"
+        subject_id_storage = provider.provider.authz_state.subject_identifiers
+
+        # Check if this identifier is already mapped to a different user_id
+        try:
+            stale_user_id = subject_id_storage[reverse_key]
+            if stale_user_id != user_id:
+                # Remove the stale mapping
+                del subject_id_storage[stale_user_id]
+                logger.info(
+                    "Removed stale subject identifier mapping via reverse lookup",
+                    operation="cleanup_stale_mapping",
+                    stale_user_id=stale_user_id,
+                    current_user_id=user_id,
+                    subject_type=subject_type,
+                    identifier_prefix=(
+                        identifier[:8] if len(identifier) >= 8 else identifier
+                    ),
+                )
+        except KeyError:
+            # No existing mapping - this is a new identifier
+            pass
+
+        # Store the reverse mapping for future cleanups
+        subject_id_storage[reverse_key] = user_id
+
     # Get existing subject identifiers for this user (or empty dict)
     if user_id in provider.provider.authz_state.subject_identifiers:
         subject_ids = provider.provider.authz_state.subject_identifiers[user_id]
@@ -395,13 +430,17 @@ async def post_token(request: Request, db: Database = Depends(get_db)):
             presentation_sub = claims.pop("sub")
 
             logger.info(
-                "About to update authorization info with presentation subject",
-                operation="update_authz_sub",
+                "Processing presentation subject for OIDC compliance",
+                operation="process_presentation_sub",
                 auth_session_id=str(auth_session.id),
+                original_user_id=user_id,
                 original_authz_sub=authz_info.get("sub"),
                 presentation_sub=presentation_sub,
+                storage_backend="redis" if settings.USE_REDIS_ADAPTER else "stateless",
             )
 
+            # Replace the subject with presentation_sub for OIDC compliance
+            # This ensures the same user gets the same subject across logins
             authz_info["sub"] = presentation_sub
 
             # CRITICAL: Update AuthSession.pyop_user_id to match the
@@ -411,27 +450,29 @@ async def post_token(request: Request, db: Database = Depends(get_db)):
             await AuthSessionCRUD(db).update_pyop_user_id(
                 str(auth_session.id), presentation_sub
             )
+
             # Update our local reference to the new user_id
+            original_user_id = user_id
             user_id = presentation_sub
 
             # Create subject identifier mapping: subject -> user_id
             # This is needed because PyOP will look up the user_id for this
             # subject. Store the public subject identifier with Redis-aware
-            # persistence
+            # persistence and reverse mapping cleanup to prevent stale entries.
             store_subject_identifier(user_id, "public", presentation_sub)
-
-            # Need to update user_info again after removing "sub" from claims
-            authz_info["user_info"] = claims
 
             logger.info(
                 "Replaced authorization code with presentation subject",
                 operation="update_auth_code_subject",
                 auth_session_id=str(auth_session.id),
-                original_user_id=auth_session.pyop_user_id,
-                new_user_id=presentation_sub,
+                original_user_id=original_user_id,  # Still has UUID (not refreshed from DB)
+                new_user_id=user_id,
                 updated_auth_session=True,
                 updated_user_info_in_code=True,
             )
+
+            # Update user_info with modified claims
+            authz_info["user_info"] = claims
 
         # Pack the authorization code with updated authz_info
         new_code = provider.provider.authz_state.authorization_codes.pack(authz_info)
