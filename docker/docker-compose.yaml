@@ -150,12 +150,15 @@ services:
       - vc_auth
 
   aca-py:
-    image: ghcr.io/openwallet-foundation/acapy-agent:py3.12-1.3.2
+    build:
+      context: ./aca-py
+      dockerfile: Dockerfile
+    image: vc-authn-oidc-acapy:1.3.2-webvh
     environment:
       - ACAPY_LABEL=${AGENT_NAME}
       - ACAPY_ENDPOINT=${AGENT_ENDPOINT}
       - ACAPY_WALLET_NAME=oidc_agent_wallet
-      - ACAPY_WALLET_TYPE=askar
+      - ACAPY_WALLET_TYPE=askar-anoncreds
       - ACAPY_WALLET_KEY=${WALLET_ENCRYPTION_KEY}
       - ACAPY_WALLET_SEED=${AGENT_WALLET_SEED}
       - ACAPY_WALLET_LOCAL_DID=true
@@ -186,7 +189,7 @@ services:
     command:
       [
         "-c",
-        'sleep 15; aca-py start --inbound-transport http ''0.0.0.0'' ${AGENT_HTTP_PORT} --outbound-transport http --wallet-storage-config ''{"url":"${POSTGRESQL_WALLET_HOST}:${POSTGRESQL_WALLET_PORT}","max_connections":5}'' --wallet-storage-creds ''{"account":"${POSTGRESQL_WALLET_USER}","password":"${POSTGRESQL_WALLET_PASSWORD}","admin_account":"${POSTGRESQL_WALLET_USER}","admin_password":"${POSTGRESQL_WALLET_PASSWORD}"}'' --admin ''0.0.0.0'' ${AGENT_ADMIN_PORT} --${AGENT_ADMIN_MODE}',
+        'sleep 15; aca-py start --plugin webvh --inbound-transport http ''0.0.0.0'' ${AGENT_HTTP_PORT} --outbound-transport http --wallet-storage-config ''{"url":"${POSTGRESQL_WALLET_HOST}:${POSTGRESQL_WALLET_PORT}","max_connections":5}'' --wallet-storage-creds ''{"account":"${POSTGRESQL_WALLET_USER}","password":"${POSTGRESQL_WALLET_PASSWORD}","admin_account":"${POSTGRESQL_WALLET_USER}","admin_password":"${POSTGRESQL_WALLET_PASSWORD}"}'' --admin ''0.0.0.0'' ${AGENT_ADMIN_PORT} --${AGENT_ADMIN_MODE}',
       ]
 
   wallet-db:
