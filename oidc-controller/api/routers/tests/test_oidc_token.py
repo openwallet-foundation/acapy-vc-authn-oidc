@@ -676,3 +676,86 @@ class TestPostTokenStatelessWrapper:
                         assert user_info["acr"] == "vc_authn"
                         assert "given_names" in user_info["vc_presented_attributes"]
                         assert "family_name" in user_info["vc_presented_attributes"]
+
+    @pytest.mark.asyncio
+    async def test_claims_stored_without_sub_field(
+        self, mock_db, mock_auth_session, mock_provider
+    ):
+        """Test claims are stored in authz_info when no sub field exists.
+
+        This covers the scenario where:
+        - generate_consistent_identifier = False (no hash-based sub)
+        - subject_identifier is empty or doesn't match (no attribute-based sub)
+        Result: Token.get_claims() returns claims WITHOUT a "sub" field
+
+        Bug fix: authz_info["user_info"] must be set BEFORE checking if sub exists,
+        otherwise claims are lost in StatelessWrapper mode.
+        """
+        from api.authSessions.crud import AuthSessionCRUD
+        from api.routers.oidc import post_token
+        from api.verificationConfigs.crud import VerificationConfigCRUD
+
+        # Config that won't generate a sub
+        mock_config = MagicMock()
+        mock_config.subject_identifier = ""  # Empty - won't create sub from attribute
+        mock_config.generate_consistent_identifier = False  # Won't create hash sub
+        mock_config.include_v1_attributes = False
+
+        with patch.object(
+            AuthSessionCRUD,
+            "get_by_pyop_auth_code",
+            return_value=mock_auth_session,
+        ):
+            with patch.object(VerificationConfigCRUD, "get", return_value=mock_config):
+                with patch.object(
+                    AuthSessionCRUD,
+                    "update_pyop_user_id",
+                    new_callable=AsyncMock,
+                ) as mock_update:
+                    # Mock jwt.decode - return claims WITHOUT sub field
+                    with patch("jwt.decode") as mock_decode:
+                        mock_decode.return_value = {
+                            "pres_req_conf_id": "showcase-person",
+                            "vc_presented_attributes": {
+                                "given_names": "John",
+                                "family_name": "Doe",
+                            },
+                            "acr": "vc_authn",
+                            # NOTE: NO "sub" field - this is the critical test case
+                        }
+
+                        mock_request = MagicMock()
+                        mock_form = MagicMock()
+                        mock_form._dict = {
+                            "code": "test-auth-code",
+                            "grant_type": "authorization_code",
+                        }
+                        mock_request.form = MagicMock(
+                            return_value=MagicMock(
+                                __aenter__=AsyncMock(return_value=mock_form),
+                                __aexit__=AsyncMock(return_value=None),
+                            )
+                        )
+                        mock_request.headers = {}
+
+                        await post_token(mock_request, mock_db)
+
+                        # Verify authz_info["user_info"] was populated despite no sub
+                        pack_call = (
+                            mock_provider.provider.authz_state.authorization_codes.pack
+                        )
+                        assert pack_call.called
+
+                        authz_info = pack_call.call_args[0][0]
+                        assert "user_info" in authz_info
+
+                        user_info = authz_info["user_info"]
+                        assert user_info["pres_req_conf_id"] == "showcase-person"
+                        assert user_info["acr"] == "vc_authn"
+                        assert "given_names" in user_info["vc_presented_attributes"]
+                        assert "family_name" in user_info["vc_presented_attributes"]
+                        # Verify no sub was added
+                        assert "sub" not in user_info
+
+                        # Verify pyop_user_id was NOT updated (no sub to replace it with)
+                        mock_update.assert_not_called()
