@@ -332,3 +332,9 @@ if (
         "The controller will not be able to register webhooks with the tenant wallet, "
         "which may cause verification flows to hang."
     )
+
+# Startup validation for ACAPY_TOKEN_CACHE_TTL
+if settings.ACAPY_TOKEN_CACHE_TTL <= 0:
+    raise ValueError(
+        f"ACAPY_TOKEN_CACHE_TTL must be a positive integer, got '{settings.ACAPY_TOKEN_CACHE_TTL}'"
+    )

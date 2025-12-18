@@ -94,3 +94,17 @@ class TestConfigEdgeCases:
 
                 for call in mock_logger.warning.call_args_list:
                     assert "ACAPY_TENANCY is set to 'multi'" not in call[0][0]
+
+    def test_token_ttl_validation_failure(self):
+        """
+        Test that ValueError is raised when ACAPY_TOKEN_CACHE_TTL is invalid (<= 0).
+        """
+        with patch.dict(os.environ, {"ACAPY_TOKEN_CACHE_TTL": "0"}):
+            with pytest.raises(ValueError) as exc:
+                self.reload_config()
+            assert "ACAPY_TOKEN_CACHE_TTL must be a positive integer" in str(exc.value)
+
+        with patch.dict(os.environ, {"ACAPY_TOKEN_CACHE_TTL": "-10"}):
+            with pytest.raises(ValueError) as exc:
+                self.reload_config()
+            assert "ACAPY_TOKEN_CACHE_TTL must be a positive integer" in str(exc.value)
