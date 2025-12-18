@@ -5,6 +5,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from api.authSessions.models import AuthSession
 from bson import ObjectId
+from api.routers.oidc import store_subject_identifier
+from api.routers.oidc import post_token
 
 
 class TestStoreSubjectIdentifier:
@@ -12,7 +14,6 @@ class TestStoreSubjectIdentifier:
 
     def test_stores_new_subject_identifier_without_cleanup(self):
         """Test storing a new subject identifier when no previous mapping exists."""
-        from api.routers import oidc
 
         # Create mock provider structure
         mock_storage = MagicMock()
@@ -25,11 +26,15 @@ class TestStoreSubjectIdentifier:
         mock_provider_obj = MagicMock()
         mock_provider_obj.authz_state.subject_identifiers = mock_storage
 
-        with patch.object(oidc.settings, "USE_REDIS_ADAPTER", True), patch.object(
-            oidc.provider, "provider", mock_provider_obj
-        ):
+        # Patch settings where store_subject_identifier imports it (inside the function)
+        with patch("api.core.config.settings") as mock_settings, patch(
+            "api.routers.oidc.provider"
+        ) as mock_provider:
+            mock_settings.USE_REDIS_ADAPTER = True
+            mock_provider.provider = mock_provider_obj
+
             # Execute
-            is_new = oidc.store_subject_identifier(
+            is_new = store_subject_identifier(
                 "alice@example.com@showcase-person",
                 "public",
                 "alice@example.com@showcase-person",
@@ -49,7 +54,6 @@ class TestStoreSubjectIdentifier:
 
     def test_cleans_up_stale_subject_identifier_on_relogin(self):
         """Test that stale subject identifiers are cleaned up when same user logs in again."""
-        from api.routers import oidc
 
         # Simulate existing reverse mapping pointing to old UUID
         old_user_id = "old-uuid-12345"
@@ -72,13 +76,15 @@ class TestStoreSubjectIdentifier:
         mock_provider_obj = MagicMock()
         mock_provider_obj.authz_state.subject_identifiers = mock_storage
 
-        with patch.object(oidc.settings, "USE_REDIS_ADAPTER", True), patch.object(
-            oidc.provider, "provider", mock_provider_obj
-        ):
+        # Patch settings where store_subject_identifier imports it (inside the function)
+        with patch("api.core.config.settings") as mock_settings, patch(
+            "api.routers.oidc.provider"
+        ) as mock_provider:
+            mock_settings.USE_REDIS_ADAPTER = True
+            mock_provider.provider = mock_provider_obj
+
             # Execute - user logs in again with same presentation_sub
-            is_new = oidc.store_subject_identifier(
-                new_user_id, "public", presentation_sub
-            )
+            is_new = store_subject_identifier(new_user_id, "public", presentation_sub)
 
             # Verify
             assert is_new is True
@@ -117,8 +123,6 @@ class TestStoreSubjectIdentifier:
             mock_storage.__delitem__ = MagicMock()
             mock_storage.__setitem__ = MagicMock()
 
-            from api.routers.oidc import store_subject_identifier
-
             # Execute
             is_new = store_subject_identifier(user_id, "public", presentation_sub)
 
@@ -140,8 +144,6 @@ class TestStoreSubjectIdentifier:
             mock_storage.__contains__ = MagicMock(return_value=False)
             mock_storage.__getitem__ = MagicMock(side_effect=KeyError())
             mock_storage.__setitem__ = MagicMock()
-
-            from api.routers.oidc import store_subject_identifier
 
             # Execute
             store_subject_identifier(
@@ -264,8 +266,6 @@ class TestPostTokenAuthSessionUpdate:
 
             mock_db = MagicMock()
 
-            from api.routers.oidc import post_token
-
             # Execute
             await post_token(mock_request, mock_db)
 
@@ -376,8 +376,6 @@ class TestPostTokenAuthSessionUpdate:
             mock_request.form = MagicMock(return_value=mock_form_context)
 
             mock_db = MagicMock()
-
-            from api.routers.oidc import post_token
 
             # Execute
             await post_token(mock_request, mock_db)
