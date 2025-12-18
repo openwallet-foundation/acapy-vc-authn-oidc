@@ -22,7 +22,7 @@ class MultiTenantAcapy:
     _token: str | None = None
     _token_expiry: float = 0.0
     # Refresh token every hour (safe for default 1-day expiry)
-    TOKEN_TTL: int = 3600
+    TOKEN_TTL: int = settings.ACAPY_TOKEN_CACHE_TTL
 
     def get_wallet_token(self):
         # Check if valid token exists in cache
@@ -94,7 +94,7 @@ class TractionTenantAcapy:
     # Class-level cache
     _token: str | None = None
     _token_expiry: float = 0.0
-    TOKEN_TTL: int = 3600
+    TOKEN_TTL: int = settings.ACAPY_TOKEN_CACHE_TTL
 
     def get_wallet_token(self):
         # Check if valid token exists in cache

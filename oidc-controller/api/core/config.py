@@ -218,6 +218,9 @@ class GlobalConfig(BaseSettings):
         "ACAPY_TENANT_WALLET_KEY", os.environ.get("MT_ACAPY_WALLET_KEY", "random-key")
     )
 
+    # Token Cache Configuration (seconds) - Default 1 hour
+    ACAPY_TOKEN_CACHE_TTL: int = int(os.environ.get("ACAPY_TOKEN_CACHE_TTL", 3600))
+
     ST_ACAPY_ADMIN_API_KEY_NAME: str | None = os.environ.get(
         "ST_ACAPY_ADMIN_API_KEY_NAME"
     )

@@ -52,6 +52,7 @@ services:
       # Unified Tenant / Wallet Configuration
       - ACAPY_TENANT_WALLET_ID=${ACAPY_TENANT_WALLET_ID}
       - ACAPY_TENANT_WALLET_KEY=${ACAPY_TENANT_WALLET_KEY}
+      - ACAPY_TOKEN_CACHE_TTL=3600
       # Legacy variables (passed for backward compatibility)
       - MT_ACAPY_WALLET_ID=${MT_ACAPY_WALLET_ID}
       - MT_ACAPY_WALLET_KEY=${MT_ACAPY_WALLET_KEY}
