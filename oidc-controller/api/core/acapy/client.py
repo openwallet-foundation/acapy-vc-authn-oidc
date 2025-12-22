@@ -5,7 +5,12 @@ import requests
 import structlog
 
 from ..config import settings
-from .config import AgentConfig, MultiTenantAcapy, SingleTenantAcapy
+from .config import (
+    AgentConfig,
+    MultiTenantAcapy,
+    SingleTenantAcapy,
+    TractionTenantAcapy,
+)
 from .models import CreatePresentationResponse, OobCreateInvitationResponse, WalletDid
 
 # HTTP timeout for all ACA-Py API calls (seconds)
@@ -36,6 +41,8 @@ class AcapyClient:
     def __init__(self):
         if settings.ACAPY_TENANCY == "multi":
             self.agent_config = MultiTenantAcapy()
+        elif settings.ACAPY_TENANCY == "traction":
+            self.agent_config = TractionTenantAcapy()
         elif settings.ACAPY_TENANCY == "single":
             self.agent_config = SingleTenantAcapy()
         else:
