@@ -555,3 +555,29 @@ class TestInitProvider:
         assert provider_module.provider is not None
         assert hasattr(provider_module.provider, "authz_state")
         assert hasattr(provider_module.provider, "clients")
+
+
+class TestProviderConfiguration:
+    """Test provider module configuration constants and dicts."""
+
+    def test_endpoints_constants(self):
+        """Test that endpoint constants are defined and correct."""
+        from api.core.oidc import provider as provider_module
+
+        assert hasattr(provider_module, "AuthorizeUriEndpoint")
+        assert hasattr(provider_module, "TokenUriEndpoint")
+        assert hasattr(provider_module, "UserInfoUriEndpoint")
+        assert provider_module.UserInfoUriEndpoint == "userinfo"
+
+    def test_configuration_information_has_userinfo(self):
+        """Test that OIDC configuration dict includes userinfo_endpoint."""
+        from api.core.oidc import provider as provider_module
+
+        config = provider_module.configuration_information
+        assert "userinfo_endpoint" in config
+
+        # Verify it's constructed correctly relative to issuer
+        # The issuer is set during import based on settings, so we read what was set
+        issuer = config["issuer"]
+        expected_endpoint = f"{issuer}/{provider_module.UserInfoUriEndpoint}"
+        assert config["userinfo_endpoint"] == expected_endpoint
