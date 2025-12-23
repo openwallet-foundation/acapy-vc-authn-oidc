@@ -58,3 +58,18 @@ class TestUserInfoEndpoint:
         response = client.get("/userinfo")
 
         assert response.status_code == 401
+
+    @patch("api.routers.oidc.provider.provider")
+    def test_userinfo_unexpected_error(self, mock_provider, client):
+        """Test userinfo handles unexpected exceptions with 500."""
+        # Mock generic exception
+        mock_provider.handle_userinfo_request.side_effect = RuntimeError(
+            "Unexpected db failure"
+        )
+
+        response = client.get(
+            "/userinfo", headers={"Authorization": "Bearer valid_token"}
+        )
+
+        assert response.status_code == 500
+        assert response.json()["detail"] == "Failed to retrieve user info"
