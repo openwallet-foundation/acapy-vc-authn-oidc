@@ -256,12 +256,14 @@ class DynamicClientDatabase(dict):
 # Define constants so that they can be imported for route definition in routers/oidc.py
 AuthorizeUriEndpoint = "authorize"
 TokenUriEndpoint = "token"
+UserInfoUriEndpoint = "userinfo"
 
 # TODO validate the correctness of this? either change config or add capabilities
 configuration_information = {
     "issuer": issuer_url,
     "authorization_endpoint": f"{issuer_url}/{AuthorizeUriEndpoint}",
     "token_endpoint": f"{issuer_url}/{TokenUriEndpoint}",
+    "userinfo_endpoint": f"{issuer_url}/{UserInfoUriEndpoint}",
     "jwks_uri": f"{issuer_url}/.well-known/openid-configuration/jwks",
     "response_types_supported": ["code", "id_token", "token"],
     "id_token_signing_alg_values_supported": [signing_key.alg],
