@@ -49,6 +49,11 @@ services:
       - ACAPY_TENANCY=${AGENT_TENANT_MODE}
       - ACAPY_AGENT_URL=${AGENT_ENDPOINT}
       - ACAPY_ADMIN_URL=${AGENT_ADMIN_URL}
+      # Unified Tenant / Wallet Configuration
+      - ACAPY_TENANT_WALLET_ID=${ACAPY_TENANT_WALLET_ID}
+      - ACAPY_TENANT_WALLET_KEY=${ACAPY_TENANT_WALLET_KEY}
+      - ACAPY_TOKEN_CACHE_TTL=3600
+      # Legacy variables (passed for backward compatibility)
       - MT_ACAPY_WALLET_ID=${MT_ACAPY_WALLET_ID}
       - MT_ACAPY_WALLET_KEY=${MT_ACAPY_WALLET_KEY}
       - ST_ACAPY_ADMIN_API_KEY=${AGENT_ADMIN_API_KEY}
