@@ -23,7 +23,7 @@ To input settings manually, or review them:
 
 - **Token URL**: this must be set to `{PUBLIC_VC_AUTHN_URL}/token`
 
-- **Disable User Info**: it is recommended to disable the user info endpoint, since VC Authn does not store/provide user information.
+- **User Info URL**: this must be set to `{PUBLIC_VC_AUTHN_URL}/userinfo`. VC Authn supports this endpoint via ephemeral session caching. It is required for RPs like Firebase, but optional for others that rely solely on ID Tokens.
 
 - **Client ID/Client Secret**: these settings will be used to identify and secure the IdP integration between Keycloak and VC Authn. Make sure the **client secret** parameter is unique to your VC Authn instance. ACAPy VC-AuthN supports two methods of client authentication: `Client secret sent as basic auth` and `Client secret sent as post`.
 

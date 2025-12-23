@@ -339,7 +339,12 @@ When an OP is performing VC-AuthN, and the request has reached the point where t
 
 #### UserInfo Endpoint
 
-As defined in the [OpenID Connect Spec](https://openid.net/specs/openid-connect-core-1_0.html#UserInfo), the purpose of this endpoint is to return claims about the authenticated end user. The RP, can use the `access_token` obtained during the OpenID Connect Authentication to fetch these claims. With a VC-Authn based OP, this endpoint is non-functional/implemented since the OP does not store a database of user attributes.
+As defined in the [OpenID Connect Spec](https://openid.net/specs/openid-connect-core-1_0.html#UserInfo), the purpose of this endpoint is to return claims about the authenticated end user. The RP, can use the `access_token` obtained during the OpenID Connect Authentication to fetch these claims.
+
+Since the VC-AuthN OP does not maintain a permanent user database, this endpoint is backed by ephemeral storage mechanisms to provide compatibility with RPs that require it (e.g., Firebase Authentication):
+
+1. **Stateless Mode**: Claims are encrypted within the Access Token itself.
+2. **Redis Mode**: Claims are cached in Redis for a short duration (default 10 minutes) linked to the Access Token.
 
 ## IAM Solution Integration
 
