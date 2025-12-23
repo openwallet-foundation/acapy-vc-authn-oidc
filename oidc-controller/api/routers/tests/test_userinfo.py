@@ -6,6 +6,7 @@ from pyop.exceptions import InvalidAccessToken, BearerTokenError
 
 from api.routers.oidc import router
 
+
 class TestUserInfoEndpoint:
     @pytest.fixture
     def client(self):
@@ -20,31 +21,28 @@ class TestUserInfoEndpoint:
         mock_response = MagicMock()
         mock_response.to_dict.return_value = {
             "sub": "test_user",
-            "email": "test@example.com"
+            "email": "test@example.com",
         }
         mock_provider.handle_userinfo_request.return_value = mock_response
 
         # Make request with bearer token
         response = client.get(
-            "/userinfo",
-            headers={"Authorization": "Bearer valid_token"}
+            "/userinfo", headers={"Authorization": "Bearer valid_token"}
         )
 
         assert response.status_code == 200
-        assert response.json() == {
-            "sub": "test_user",
-            "email": "test@example.com"
-        }
+        assert response.json() == {"sub": "test_user", "email": "test@example.com"}
 
     @patch("api.routers.oidc.provider.provider")
     def test_userinfo_invalid_token(self, mock_provider, client):
         """Test userinfo with invalid token returns 401."""
         # Mock exception from pyop
-        mock_provider.handle_userinfo_request.side_effect = InvalidAccessToken("Invalid token")
+        mock_provider.handle_userinfo_request.side_effect = InvalidAccessToken(
+            "Invalid token"
+        )
 
         response = client.get(
-            "/userinfo",
-            headers={"Authorization": "Bearer invalid_token"}
+            "/userinfo", headers={"Authorization": "Bearer invalid_token"}
         )
 
         assert response.status_code == 401
@@ -53,7 +51,9 @@ class TestUserInfoEndpoint:
     @patch("api.routers.oidc.provider.provider")
     def test_userinfo_missing_token(self, mock_provider, client):
         """Test userinfo without token returns 401."""
-        mock_provider.handle_userinfo_request.side_effect = BearerTokenError("Missing token")
+        mock_provider.handle_userinfo_request.side_effect = BearerTokenError(
+            "Missing token"
+        )
 
         response = client.get("/userinfo")
 

@@ -14,7 +14,11 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from jinja2 import Template
 from oic.oic.message import AuthorizationRequest
 from pymongo.database import Database
-from pyop.exceptions import InvalidAuthenticationRequest, InvalidAccessToken, BearerTokenError
+from pyop.exceptions import (
+    InvalidAuthenticationRequest,
+    InvalidAccessToken,
+    BearerTokenError,
+)
 
 from ..authSessions.crud import AuthSessionCreate, AuthSessionCRUD
 from ..authSessions.models import AuthSession, AuthSessionPatch, AuthSessionState
@@ -530,13 +534,13 @@ async def get_userinfo(request: Request):
         # We need to read the body for POST requests, though standard GETs won't have one.
         # pyop expects the body as a string if it exists.
         body = (await request.body()).decode("utf-8")
-        
+
         # Parse and process the request using pyop
         # This validates the Bearer token and looks up claims in VCUserinfo
         userinfo_response = provider.provider.handle_userinfo_request(
             body, request.headers
         )
-        
+
         return userinfo_response.to_dict()
 
     except (BearerTokenError, InvalidAccessToken) as e:
