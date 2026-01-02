@@ -9,7 +9,7 @@ from api.core.config import (
     FactoryConfig,
     EnvironmentEnum,
 )
-from pydantic import ValidationError 
+from pydantic import ValidationError
 
 
 def test_strtobool():

@@ -529,7 +529,13 @@ async def post_token(request: Request, db: Database = Depends(get_db)):
 async def get_userinfo(request: Request):
     """
     Called by RPs (like Firebase) to retrieve user claims using the Access Token.
+    Only available if CONTROLLER_ENABLE_USERINFO_ENDPOINT is True.
     """
+    if not settings.CONTROLLER_ENABLE_USERINFO_ENDPOINT:
+        raise HTTPException(
+            status_code=http_status.HTTP_404_NOT_FOUND,
+            detail="UserInfo endpoint is disabled",
+        )
     try:
         # We need to read the body for POST requests, though standard GETs won't have one.
         # pyop expects the body as a string if it exists.

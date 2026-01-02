@@ -263,7 +263,6 @@ configuration_information = {
     "issuer": issuer_url,
     "authorization_endpoint": f"{issuer_url}/{AuthorizeUriEndpoint}",
     "token_endpoint": f"{issuer_url}/{TokenUriEndpoint}",
-    "userinfo_endpoint": f"{issuer_url}/{UserInfoUriEndpoint}",
     "jwks_uri": f"{issuer_url}/.well-known/openid-configuration/jwks",
     "response_types_supported": ["code", "id_token", "token"],
     "id_token_signing_alg_values_supported": [signing_key.alg],
@@ -281,6 +280,16 @@ configuration_information = {
     "backchannel_logout_supported": True,
     "backchannel_logout_session_supported": True,
 }
+
+# Conditionally add UserInfo endpoint to discovery
+if settings.CONTROLLER_ENABLE_USERINFO_ENDPOINT:
+    configuration_information["userinfo_endpoint"] = (
+        f"{issuer_url}/{UserInfoUriEndpoint}"
+    )
+    logger.info("OIDC UserInfo endpoint enabled in discovery document")
+else:
+    logger.info("OIDC UserInfo endpoint disabled in discovery document")
+
 
 subject_id_factory = HashBasedSubjectIdentifierFactory(settings.SUBJECT_ID_HASH_SALT)
 

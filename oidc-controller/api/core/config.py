@@ -195,6 +195,13 @@ class GlobalConfig(BaseSettings):
     CONTROLLER_SESSION_TIMEOUT_CONFIG_FILE: str | None = os.environ.get(
         "CONTROLLER_SESSION_TIMEOUT_CONFIG_FILE"
     )
+
+    # Feature Flags
+    # Enable OIDC UserInfo endpoint (Ephemeral/Compatibility Mode). Defaults to False.
+    CONTROLLER_ENABLE_USERINFO_ENDPOINT: bool = strtobool(
+        os.environ.get("CONTROLLER_ENABLE_USERINFO_ENDPOINT", False)
+    )
+
     ACAPY_AGENT_URL: str | None = os.environ.get("ACAPY_AGENT_URL")
     if not ACAPY_AGENT_URL:
         logger.warning("ACAPY_AGENT_URL was not provided, agent will not be accessible")
