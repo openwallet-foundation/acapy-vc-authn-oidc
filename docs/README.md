@@ -343,8 +343,21 @@ As defined in the [OpenID Connect Spec](https://openid.net/specs/openid-connect-
 
 Since the VC-AuthN OP does not maintain a permanent user database, this endpoint is backed by ephemeral storage mechanisms to provide compatibility with RPs that require it (e.g., Firebase Authentication):
 
-1. **Stateless Mode**: Claims are encrypted within the Access Token itself.
-2. **Redis Mode**: Claims are cached in Redis for a short duration (default 10 minutes) linked to the Access Token.
+**Architecture Modes:**
+
+1.  **Stateless Mode (`USE_REDIS_ADAPTER=false`)**:
+    User claims are serialized, encrypted, and embedded directly inside the Access Token.
+    *   **Data Availability**: Guaranteed. The data exists exactly as long as the token exists.
+    *   **Pros**: Simple, no external dependencies.
+    *   **Cons**: Larger token sizes.
+
+2.  **Redis Mode (`USE_REDIS_ADAPTER=true`)**:
+    User claims are cached in Redis and referenced by the Access Token.
+    *   **Data Availability**: The system automatically synchronizes the Redis data Time-To-Live (TTL) with the Access Token's expiration (configured via `OIDC_ACCESS_TOKEN_TTL`). A small safety buffer (+60s) is added to the database entry to prevent race conditions where a valid token hits a missing database record due to clock skew.
+    *   **Pros**: Smaller tokens, faster processing.
+    *   **Cons**: Requires Redis infrastructure.
+
+**Note:** This endpoint is strictly for retrieving the *current session's* claims. It is not a persistent profile store. Once the Access Token expires, the data is evicted or becomes inaccessible.
 
 ## IAM Solution Integration
 
