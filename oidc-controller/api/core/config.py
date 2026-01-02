@@ -7,7 +7,7 @@ from enum import Enum
 from functools import lru_cache
 from pathlib import Path
 from pydantic_settings import BaseSettings
-from pydantic import ConfigDict
+from pydantic import ConfigDict, field_validator
 from typing import Any
 
 import structlog
@@ -237,6 +237,18 @@ class GlobalConfig(BaseSettings):
     SUBJECT_ID_HASH_SALT: str = os.environ.get("SUBJECT_ID_HASH_SALT", "test_hash_salt")
 
     # OIDC Client Settings
+    # Duration in seconds for Access Tokens (Default: 1 hour)
+    OIDC_ACCESS_TOKEN_TTL: int = int(os.environ.get("OIDC_ACCESS_TOKEN_TTL", 3600))
+
+    @field_validator("OIDC_ACCESS_TOKEN_TTL")
+    @classmethod
+    def validate_token_ttl(cls, v: int) -> int:
+        if v <= 0:
+            raise ValueError("OIDC_ACCESS_TOKEN_TTL must be a positive integer")
+        return v
+
+    model_config = ConfigDict(case_sensitive=True)
+
     OIDC_CLIENT_ID: str = os.environ.get("OIDC_CLIENT_ID", "keycloak")
     OIDC_CLIENT_NAME: str = os.environ.get("OIDC_CLIENT_NAME", "keycloak")
     OIDC_CLIENT_REDIRECT_URI: str = os.environ.get(

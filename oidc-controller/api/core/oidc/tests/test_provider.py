@@ -1,8 +1,10 @@
+import importlib
 import pytest
 import secrets
 from unittest.mock import Mock, patch, MagicMock
 from pyop.storage import StatelessWrapper, RedisWrapper
 from api.core.oidc.provider import RedisWrapperWithPack, DynamicClientDatabase
+from api.core.oidc import provider
 
 
 class TestRedisWrapperWithPack:
@@ -581,3 +583,46 @@ class TestProviderConfiguration:
         issuer = config["issuer"]
         expected_endpoint = f"{issuer}/{provider_module.UserInfoUriEndpoint}"
         assert config["userinfo_endpoint"] == expected_endpoint
+
+
+class TestProviderRedisConfiguration:
+    """Test Redis configuration logic in provider module."""
+
+    @patch("api.core.oidc.provider.settings")
+    @patch("api.core.oidc.provider.RedisWrapperWithPack")
+    @patch("api.core.oidc.provider._build_redis_url")
+    def test_redis_ttl_synchronization(self, mock_build_url, mock_redis_wrapper, mock_settings):
+        """
+        Verify that UserInfo Redis TTL is synchronized with Access Token TTL 
+        plus a safety buffer.
+        """
+        # Setup settings
+        mock_settings.USE_REDIS_ADAPTER = True
+        mock_settings.REDIS_HOST = "localhost"
+        mock_settings.REDIS_PORT = 6379
+        mock_settings.REDIS_PASSWORD = None
+        mock_settings.REDIS_DB = 0
+        mock_settings.SUBJECT_ID_HASH_SALT = "test_salt"
+        
+        # Set a specific TTL to test math
+        TEST_TTL = 1000
+        mock_settings.OIDC_ACCESS_TOKEN_TTL = TEST_TTL
+
+        mock_build_url.return_value = "redis://localhost:6379/0"
+
+        # Reload provider to trigger the top-level conditional logic
+        importlib.reload(provider)
+
+        # 1. Verify Access Token Storage gets exact TTL
+        access_token_call = next(
+            call for call in mock_redis_wrapper.call_args_list 
+            if call.kwargs.get("collection") == "pyop_access_tokens"
+        )
+        assert access_token_call.kwargs["ttl"] == TEST_TTL
+
+        # 2. Verify UserInfo Storage gets TTL + 60 buffer
+        userinfo_call = next(
+            call for call in mock_redis_wrapper.call_args_list 
+            if call.kwargs.get("collection") == "pyop_userinfo_claims"
+        )
+        assert userinfo_call.kwargs["ttl"] == TEST_TTL + 60

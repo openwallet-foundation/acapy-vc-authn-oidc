@@ -298,7 +298,7 @@ if settings.USE_REDIS_ADAPTER:
     access_token_storage = RedisWrapperWithPack(
         db_uri=redis_url,
         collection="pyop_access_tokens",
-        ttl=3600,  # 1 hour
+        ttl=settings.OIDC_ACCESS_TOKEN_TTL,
     )
 
     refresh_token_storage = RedisWrapperWithPack(
@@ -316,7 +316,10 @@ if settings.USE_REDIS_ADAPTER:
     userinfo_claims_storage = RedisWrapperWithPack(
         db_uri=redis_url,
         collection="pyop_userinfo_claims",
-        ttl=600,  # 10 minutes - same as auth codes
+        # Set TTL to match Token TTL.
+        # We add a 60 second buffer to ensure the data strictly outlives the token
+        # preventing race conditions at the exact second of expiry.
+        ttl=settings.OIDC_ACCESS_TOKEN_TTL + 60,
     )
 
     logger.info(
