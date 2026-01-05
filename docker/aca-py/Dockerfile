@@ -1,4 +1,4 @@
-FROM ghcr.io/openwallet-foundation/acapy-agent:py3.12-1.3.2
+FROM ghcr.io/openwallet-foundation/acapy-agent:py3.13-1.3.2 AS base
 
 # Install webvh plugin from acapy-plugins repository
 # Using the same approach as Traction

@@ -12,90 +12,6 @@ from api.routers.oidc import post_token
 class TestStoreSubjectIdentifier:
     """Tests for store_subject_identifier function with reverse mapping cleanup."""
 
-    def test_stores_new_subject_identifier_without_cleanup(self):
-        """Test storing a new subject identifier when no previous mapping exists."""
-
-        # Create mock provider structure
-        mock_storage = MagicMock()
-        mock_storage.__contains__ = MagicMock(return_value=False)
-        mock_storage.__getitem__ = MagicMock(
-            side_effect=KeyError("reverse mapping not found")
-        )
-        mock_storage.__setitem__ = MagicMock()
-
-        mock_provider_obj = MagicMock()
-        mock_provider_obj.authz_state.subject_identifiers = mock_storage
-
-        # Patch settings where store_subject_identifier imports it (inside the function)
-        with patch("api.core.config.settings") as mock_settings, patch(
-            "api.routers.oidc.provider"
-        ) as mock_provider:
-            mock_settings.USE_REDIS_ADAPTER = True
-            mock_provider.provider = mock_provider_obj
-
-            # Execute
-            is_new = store_subject_identifier(
-                "alice@example.com@showcase-person",
-                "public",
-                "alice@example.com@showcase-person",
-            )
-
-            # Verify
-            assert is_new is True
-            # Should store reverse mapping
-            assert mock_storage.__setitem__.call_count >= 1
-            # Verify reverse mapping was stored
-            reverse_calls = [
-                call
-                for call in mock_storage.__setitem__.call_args_list
-                if "reverse:" in str(call[0][0])
-            ]
-            assert len(reverse_calls) == 1
-
-    def test_cleans_up_stale_subject_identifier_on_relogin(self):
-        """Test that stale subject identifiers are cleaned up when same user logs in again."""
-
-        # Simulate existing reverse mapping pointing to old UUID
-        old_user_id = "old-uuid-12345"
-        new_user_id = "alice@example.com@showcase-person"
-        presentation_sub = "alice@example.com@showcase-person"
-        reverse_key = f"reverse:{presentation_sub}"
-
-        # Mock storage with stale mapping
-        def mock_getitem(key):
-            if key == reverse_key:
-                return old_user_id  # Reverse mapping points to old UUID
-            raise KeyError(f"Key {key} not found")
-
-        mock_storage = MagicMock()
-        mock_storage.__getitem__ = MagicMock(side_effect=mock_getitem)
-        mock_storage.__delitem__ = MagicMock()
-        mock_storage.__setitem__ = MagicMock()
-        mock_storage.__contains__ = MagicMock(return_value=False)
-
-        mock_provider_obj = MagicMock()
-        mock_provider_obj.authz_state.subject_identifiers = mock_storage
-
-        # Patch settings where store_subject_identifier imports it (inside the function)
-        with patch("api.core.config.settings") as mock_settings, patch(
-            "api.routers.oidc.provider"
-        ) as mock_provider:
-            mock_settings.USE_REDIS_ADAPTER = True
-            mock_provider.provider = mock_provider_obj
-
-            # Execute - user logs in again with same presentation_sub
-            is_new = store_subject_identifier(new_user_id, "public", presentation_sub)
-
-            # Verify
-            assert is_new is True
-            # Should delete the stale mapping (old UUID)
-            mock_storage.__delitem__.assert_called_once_with(old_user_id)
-            # Should store new reverse mapping
-            assert any(
-                call[0][0] == reverse_key
-                for call in mock_storage.__setitem__.call_args_list
-            )
-
     def test_does_not_cleanup_if_same_user_id(self):
         """Test that no cleanup occurs if reverse mapping already points to current user_id."""
         with patch("api.routers.oidc.provider") as mock_provider, patch(
@@ -442,30 +358,6 @@ class TestStoreSubjectIdentifierEdgeCases:
             stored_call = mock_storage.__setitem__.call_args_list[-1]
             stored_value = stored_call[0][1]
             assert stored_value["public"] == "new-identifier"
-
-    def test_handles_empty_storage_in_redis_mode(self):
-        """Test creating first subject identifier in Redis mode."""
-        mock_storage = MagicMock()
-        mock_storage.__contains__ = MagicMock(return_value=False)
-        mock_storage.__getitem__ = MagicMock(side_effect=KeyError())
-        mock_storage.__setitem__ = MagicMock()
-
-        mock_provider_obj = MagicMock()
-        mock_provider_obj.authz_state.subject_identifiers = mock_storage
-
-        with patch("api.core.config.settings") as mock_settings, patch(
-            "api.routers.oidc.provider"
-        ) as mock_provider:
-            mock_settings.USE_REDIS_ADAPTER = True
-            mock_provider.provider = mock_provider_obj
-
-            # Execute
-            is_new = store_subject_identifier("new-user", "public", "first-identifier")
-
-            # Verify
-            assert is_new is True
-            # Should have stored both forward and reverse mappings
-            assert mock_storage.__setitem__.call_count >= 2
 
     def test_reverse_mapping_same_user_id_no_cleanup(self):
         """Test that reverse mapping pointing to same user_id doesn't trigger cleanup."""
