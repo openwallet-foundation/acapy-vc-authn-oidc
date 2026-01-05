@@ -1,4 +1,4 @@
-"""Tests for subject identifier management and reverse mapping cleanup."""
+"""Tests for subject identifier management."""
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -7,70 +7,6 @@ from api.authSessions.models import AuthSession
 from bson import ObjectId
 from api.routers.oidc import store_subject_identifier
 from api.routers.oidc import post_token
-
-
-class TestStoreSubjectIdentifier:
-    """Tests for store_subject_identifier function with reverse mapping cleanup."""
-
-    def test_does_not_cleanup_if_same_user_id(self):
-        """Test that no cleanup occurs if reverse mapping already points to current user_id."""
-        with patch("api.routers.oidc.provider") as mock_provider, patch(
-            "api.routers.oidc.settings"
-        ) as mock_settings:
-            # Setup
-            mock_settings.USE_REDIS_ADAPTER = True
-            mock_storage = MagicMock()
-            mock_provider.provider.authz_state.subject_identifiers = mock_storage
-
-            user_id = "alice@example.com@showcase-person"
-            presentation_sub = "alice@example.com@showcase-person"
-            reverse_key = f"reverse:{presentation_sub}"
-
-            # Reverse mapping already points to current user_id
-            def mock_getitem(key):
-                if key == reverse_key:
-                    return user_id  # Already correct
-                if key == user_id:
-                    return {"public": presentation_sub}
-                raise KeyError(f"Key {key} not found")
-
-            mock_storage.__getitem__ = MagicMock(side_effect=mock_getitem)
-            mock_storage.__contains__ = MagicMock(return_value=True)
-            mock_storage.__delitem__ = MagicMock()
-            mock_storage.__setitem__ = MagicMock()
-
-            # Execute
-            is_new = store_subject_identifier(user_id, "public", presentation_sub)
-
-            # Verify
-            assert is_new is False
-            # Should NOT delete anything (reverse mapping already correct)
-            mock_storage.__delitem__.assert_not_called()
-
-    def test_skips_cleanup_in_stateless_mode(self):
-        """Test that reverse mapping cleanup is skipped when using StatelessWrapper."""
-        with patch("api.routers.oidc.provider") as mock_provider, patch(
-            "api.routers.oidc.settings"
-        ) as mock_settings:
-            # Setup - StatelessWrapper mode (no Redis)
-            mock_settings.USE_REDIS_ADAPTER = False
-            mock_storage = MagicMock()
-            mock_provider.provider.authz_state.subject_identifiers = mock_storage
-
-            mock_storage.__contains__ = MagicMock(return_value=False)
-            mock_storage.__getitem__ = MagicMock(side_effect=KeyError())
-            mock_storage.__setitem__ = MagicMock()
-
-            # Execute
-            store_subject_identifier(
-                "user-123", "public", "alice@example.com@showcase-person"
-            )
-
-            # Verify - should NOT attempt reverse mapping operations
-            # Only stores the forward mapping
-            calls = mock_storage.__setitem__.call_args_list
-            reverse_calls = [call for call in calls if "reverse:" in str(call)]
-            assert len(reverse_calls) == 0
 
 
 class TestPostTokenAuthSessionUpdate:
@@ -358,42 +294,6 @@ class TestStoreSubjectIdentifierEdgeCases:
             stored_call = mock_storage.__setitem__.call_args_list[-1]
             stored_value = stored_call[0][1]
             assert stored_value["public"] == "new-identifier"
-
-    def test_reverse_mapping_same_user_id_no_cleanup(self):
-        """Test that reverse mapping pointing to same user_id doesn't trigger cleanup."""
-        mock_storage = MagicMock()
-        user_id = "user-123"
-        identifier = "alice@example.com"
-        reverse_key = f"reverse:{identifier}"
-
-        def mock_getitem(key):
-            if key == reverse_key:
-                return user_id  # Already points to current user
-            if key == user_id:
-                return {"public": identifier}
-            raise KeyError(f"Key {key} not found")
-
-        mock_storage.__contains__ = MagicMock(return_value=True)
-        mock_storage.__getitem__ = MagicMock(side_effect=mock_getitem)
-        mock_storage.__setitem__ = MagicMock()
-        mock_storage.__delitem__ = MagicMock()
-
-        mock_provider_obj = MagicMock()
-        mock_provider_obj.authz_state.subject_identifiers = mock_storage
-
-        with patch("api.core.config.settings") as mock_settings, patch(
-            "api.routers.oidc.provider"
-        ) as mock_provider:
-            mock_settings.USE_REDIS_ADAPTER = True
-            mock_provider.provider = mock_provider_obj
-
-            # Execute
-            is_new = store_subject_identifier(user_id, "public", identifier)
-
-            # Verify
-            assert is_new is False
-            # Should NOT delete anything
-            mock_storage.__delitem__.assert_not_called()
 
     def test_multiple_subject_types_stored_correctly(self):
         """Test storing multiple subject types for same user."""
