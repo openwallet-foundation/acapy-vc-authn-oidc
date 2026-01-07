@@ -180,112 +180,25 @@ configureEnvironment() {
     esac
   done
 
-  ## global
-  export COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-vc-authn}"
-  export LOG_LEVEL=${LOG_LEVEL:-"DEBUG"}
-
-  # controller-db
-  export MONGODB_HOST="controller-db"
-  export MONGODB_PORT="27017"
-  export MONGODB_NAME="oidccontroller"
-  export OIDC_CONTROLLER_DB_USER="oidccontrolleruser"
-  export OIDC_CONTROLLER_DB_USER_PWD="oidccontrollerpass"
-
-
-  # controller
-  export CONTROLLER_SERVICE_PORT=${CONTROLLER_SERVICE_PORT:-5000}
-  export CONTROLLER_URL="${CONTROLLER_URL:-http://controller:5000}"
-  export CONTROLLER_WEB_HOOK_URL=${CONTROLLER_WEB_HOOK_URL:-${CONTROLLER_URL}/webhooks}
-  if [ ! -z "${CONTROLLER_API_KEY}" ]; then
-    CONTROLLER_WEB_HOOK_URL="${CONTROLLER_WEB_HOOK_URL}#${CONTROLLER_API_KEY}"
+  # Controller Webhook URL: Append API Key if present
+  if [ ! -z "${CONTROLLER_API_KEY}" ] && [[ "${CONTROLLER_WEB_HOOK_URL}" != *"#"* ]]; then
+    export CONTROLLER_WEB_HOOK_URL="${CONTROLLER_WEB_HOOK_URL}#${CONTROLLER_API_KEY}"
   fi
-  export ST_ACAPY_ADMIN_API_KEY_NAME="x-api-key"
 
-  # The redirect url can be a web link or the name of a template
-  export CONTROLLER_CAMERA_REDIRECT_URL="wallet_howto"
-
-  # The number of time in seconds a proof request will be valid for
-  export CONTROLLER_PRESENTATION_EXPIRE_TIME=10
-
-  # How long auth_sessions with matching the states in
-  # CONTROLLER_SESSION_TIMEOUT_CONFIG_FILE are stored for in seconds
-  export CONTROLLER_PRESENTATION_CLEANUP_TIME=86400
-
-  # Presentation record cleanup configuration
-  # How long to retain presentation records in hours (default: 24 hours)
-  export CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS=1
-
-  # Resource limits for cleanup operations to prevent excessive processing
-  # Maximum presentation records to process per cleanup cycle (default: 1000)
-  export CONTROLLER_CLEANUP_MAX_PRESENTATION_RECORDS=1000
-  # Maximum connections to process per cleanup cycle (default: 2000)
-  export CONTROLLER_CLEANUP_MAX_CONNECTIONS=2000
-
-  # The path to the auth_session timeouts config file
-  export CONTROLLER_SESSION_TIMEOUT_CONFIG_FILE="/app/controller-config/sessiontimeout.json"
-
-  # Extend Variable Substitutions
-  export CONTROLLER_VARIABLE_SUBSTITUTION_OVERRIDE="/app/controller-config/user_variable_substitution.py"
-
-  # template configuration
-  export CONTROLLER_TEMPLATE_DIR="/app/controller-config/templates"
-
-  #controller app settings
-  export INVITATION_LABEL=${INVITATION_LABEL:-"VC-AuthN"}
-  export SET_NON_REVOKED="True"
-  export ACAPY_PROOF_FORMAT=${ACAPY_PROOF_FORMAT:-"anoncreds"}
-  export USE_OOB_LOCAL_DID_SERVICE=${USE_OOB_LOCAL_DID_SERVICE:-"true"}
-  export USE_CONNECTION_BASED_VERIFICATION=${USE_CONNECTION_BASED_VERIFICATION:-"true"}
-  export WALLET_DEEP_LINK_PREFIX=${WALLET_DEEP_LINK_PREFIX:-"bcwallet://aries_proof-request"}
-
-  # Multi-pod configuration
-  export CONTROLLER_REPLICAS=${CONTROLLER_REPLICAS:-3}
-
-  # Redis Configuration (required for multi-pod)
-  export REDIS_HOST=${REDIS_HOST:-"redis"}
-  export REDIS_PORT=${REDIS_PORT:-"6379"}
-  export REDIS_PASSWORD=${REDIS_PASSWORD:-""}
-  export REDIS_DB=${REDIS_DB:-"0"}
-  export USE_REDIS_ADAPTER=${USE_REDIS_ADAPTER:-"true"}
-
-  # agent
-  export AGENT_TENANT_MODE="${AGENT_TENANT_MODE:-single}"
-  export AGENT_HOST=${AGENT_HOST:-aca-py}
-  export AGENT_NAME="VC-AuthN Agent"
-  export AGENT_HTTP_PORT=${AGENT_HTTP_PORT:-8030}
-  export AGENT_ADMIN_PORT=${AGENT_ADMIN_PORT:-"8077"}
-  export AGENT_ADMIN_URL=${AGENT_ADMIN_URL:-http://$AGENT_HOST:$AGENT_ADMIN_PORT}
-  export AGENT_ENDPOINT=${AGENT_ENDPOINT:-http://$AGENT_HOST:$AGENT_HTTP_PORT}
-  export AGENT_ADMIN_API_KEY=${AGENT_ADMIN_API_KEY}
+  # Agent Admin Mode: Append API Key if present
   export AGENT_ADMIN_MODE="admin-insecure-mode"
   if [ ! -z "${AGENT_ADMIN_API_KEY}" ]; then
-    AGENT_ADMIN_MODE="admin-api-key ${AGENT_ADMIN_API_KEY}"
+    export AGENT_ADMIN_MODE="admin-api-key ${AGENT_ADMIN_API_KEY}"
   fi
-  export AGENT_WALLET_SEED=${AGENT_WALLET_SEED}
-  export MT_ACAPY_WALLET_ID=${MT_ACAPY_WALLET_ID}
-  export MT_ACAPY_WALLET_KEY=${MT_ACAPY_WALLET_KEY}
 
-  # keycloak-db
-  export KEYCLOAK_DB_NAME="keycloak"
-  export KEYCLOAK_DB_USER="keycloak"
-  export KEYCLOAK_DB_PASSWORD="keycloak"
+  # Agent URLs: Construct from Host/Port if not explicitly set
+  if [ -z "${AGENT_ENDPOINT}" ]; then
+    export AGENT_ENDPOINT="http://${AGENT_HOST}:${AGENT_HTTP_PORT}"
+  fi
 
-  # keycloak
-  export KEYCLOAK_DB_VENDOR="postgres"
-  export KEYCLOAK_DB_ADDR="keycloak-db"
-  export KEYCLOAK_USER="admin"
-  export KEYCLOAK_PASSWORD="admin"
-  export KEYCLOAK_LOGLEVEL="WARN"
-  export KEYCLOAK_ROOT_LOGLEVEL="WARN"
-
-  # wallet-db
-  export WALLET_TYPE="postgres_storage"
-  export WALLET_ENCRYPTION_KEY="key"
-  export POSTGRESQL_WALLET_HOST="wallet-db"
-  export POSTGRESQL_WALLET_PORT="5432"
-  export POSTGRESQL_WALLET_DATABASE="wallet_db"
-  export POSTGRESQL_WALLET_USER="walletuser"
-  export POSTGRESQL_WALLET_PASSWORD="walletpassword"
+  if [ -z "${AGENT_ADMIN_URL}" ]; then
+    export AGENT_ADMIN_URL="http://${AGENT_HOST}:${AGENT_ADMIN_PORT}"
+  fi
 }
 
 getStartupParams() {
