@@ -1,5 +1,6 @@
 """Tests for subject identifier management."""
 
+from contextlib import contextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -9,11 +10,34 @@ from api.routers.oidc import store_subject_identifier
 from api.routers.oidc import post_token
 
 
+# Test Helpers
+
+
+@pytest.fixture
+def mock_form_request():
+    """Factory fixture for mock form requests with customizable values."""
+
+    def _make_request(code="test-code", grant_type="authorization_code"):
+        mock_request = MagicMock()
+        mock_form = MagicMock()
+        mock_form._dict = {"code": code, "grant_type": grant_type}
+        # Mock form() as async context manager
+        mock_form_context = AsyncMock()
+        mock_form_context.__aenter__ = AsyncMock(return_value=mock_form)
+        mock_form_context.__aexit__ = AsyncMock(return_value=None)
+        mock_request.form = MagicMock(return_value=mock_form_context)
+        return mock_request
+
+    return _make_request
+
+
 class TestPostTokenAuthSessionUpdate:
     """Tests for AuthSession.pyop_user_id update during post_token."""
 
     @pytest.mark.asyncio
-    async def test_updates_auth_session_pyop_user_id_to_presentation_sub(self):
+    async def test_updates_auth_session_pyop_user_id_to_presentation_sub(
+        self, mock_form_request
+    ):
         """Test that AuthSession.pyop_user_id is updated to presentation_sub."""
         with patch("api.routers.oidc.AuthSessionCRUD") as mock_crud_class, patch(
             "api.routers.oidc.VerificationConfigCRUD"
@@ -103,19 +127,8 @@ class TestPostTokenAuthSessionUpdate:
                 return_value=MagicMock(to_dict=lambda: {"access_token": "test-token"})
             )
 
-            # Mock request with async context manager for form()
-            mock_request = MagicMock()
-            mock_form = MagicMock()
-            mock_form._dict = {
-                "code": "test-code",
-                "grant_type": "authorization_code",
-            }
-            # Mock form() as async context manager
-            mock_form_context = AsyncMock()
-            mock_form_context.__aenter__ = AsyncMock(return_value=mock_form)
-            mock_form_context.__aexit__ = AsyncMock(return_value=None)
-            mock_request.form = MagicMock(return_value=mock_form_context)
-
+            # Mock request using fixture
+            mock_request = mock_form_request()
             mock_db = MagicMock()
 
             # Execute
@@ -127,7 +140,7 @@ class TestPostTokenAuthSessionUpdate:
             )
 
     @pytest.mark.asyncio
-    async def test_local_user_id_updated_to_presentation_sub(self):
+    async def test_local_user_id_updated_to_presentation_sub(self, mock_form_request):
         """Test that local user_id variable is updated to presentation_sub for claims storage."""
         with patch("api.routers.oidc.AuthSessionCRUD") as mock_crud_class, patch(
             "api.routers.oidc.VerificationConfigCRUD"
@@ -214,19 +227,8 @@ class TestPostTokenAuthSessionUpdate:
                 return_value=MagicMock(to_dict=lambda: {"access_token": "test-token"})
             )
 
-            # Mock request with async context manager for form()
-            mock_request = MagicMock()
-            mock_form = MagicMock()
-            mock_form._dict = {
-                "code": "test-code",
-                "grant_type": "authorization_code",
-            }
-            # Mock form() as async context manager
-            mock_form_context = AsyncMock()
-            mock_form_context.__aenter__ = AsyncMock(return_value=mock_form)
-            mock_form_context.__aexit__ = AsyncMock(return_value=None)
-            mock_request.form = MagicMock(return_value=mock_form_context)
-
+            # Mock request using fixture
+            mock_request = mock_form_request()
             mock_db = MagicMock()
 
             # Execute
@@ -334,7 +336,9 @@ class TestPostTokenIntegration:
     """Integration tests for post_token with subject identifier updates."""
 
     @pytest.mark.asyncio
-    async def test_post_token_handles_missing_claims_gracefully(self):
+    async def test_post_token_handles_missing_claims_gracefully(
+        self, mock_form_request
+    ):
         """Test that post_token handles edge case where claims are missing."""
         with patch("api.routers.oidc.AuthSessionCRUD") as mock_crud_class, patch(
             "api.routers.oidc.VerificationConfigCRUD"
@@ -400,14 +404,8 @@ class TestPostTokenIntegration:
                 return_value=MagicMock(to_dict=lambda: {"access_token": "token"})
             )
 
-            mock_request = MagicMock()
-            mock_form = MagicMock()
-            mock_form._dict = {"code": "test-code", "grant_type": "authorization_code"}
-            mock_form_context = AsyncMock()
-            mock_form_context.__aenter__ = AsyncMock(return_value=mock_form)
-            mock_form_context.__aexit__ = AsyncMock(return_value=None)
-            mock_request.form = MagicMock(return_value=mock_form_context)
-
+            # Mock request using fixture
+            mock_request = mock_form_request()
             mock_db = MagicMock()
 
             # Execute - should not crash even without 'sub' in claims
