@@ -158,7 +158,7 @@ services:
     build:
       context: ./aca-py
       dockerfile: Dockerfile
-    image: vc-authn-oidc-acapy:1.3.2-webvh
+    image: vc-authn-oidc-acapy:webvh
     environment:
       - ACAPY_LABEL=${AGENT_NAME}
       - ACAPY_ENDPOINT=${AGENT_ENDPOINT}
