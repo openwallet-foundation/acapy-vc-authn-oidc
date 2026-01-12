@@ -49,6 +49,16 @@ services:
       - ACAPY_TENANCY=${AGENT_TENANT_MODE}
       - ACAPY_AGENT_URL=${AGENT_ENDPOINT}
       - ACAPY_ADMIN_URL=${AGENT_ADMIN_URL}
+      # Unified Tenant / Wallet Configuration
+      - ACAPY_TENANT_WALLET_ID=${ACAPY_TENANT_WALLET_ID}
+      - ACAPY_TENANT_WALLET_KEY=${ACAPY_TENANT_WALLET_KEY}
+      - ACAPY_TOKEN_CACHE_TTL=3600
+
+      # OIDC UserInfo Configuration
+      - CONTROLLER_ENABLE_USERINFO_ENDPOINT=${CONTROLLER_ENABLE_USERINFO_ENDPOINT:-false}
+      - OIDC_ACCESS_TOKEN_TTL=${OIDC_ACCESS_TOKEN_TTL:-3600}
+
+      # Legacy variables (passed for backward compatibility)
       - MT_ACAPY_WALLET_ID=${MT_ACAPY_WALLET_ID}
       - MT_ACAPY_WALLET_KEY=${MT_ACAPY_WALLET_KEY}
       - ST_ACAPY_ADMIN_API_KEY=${AGENT_ADMIN_API_KEY}
@@ -150,12 +160,15 @@ services:
       - vc_auth
 
   aca-py:
-    image: ghcr.io/openwallet-foundation/acapy-agent:py3.12-1.3.2
+    build:
+      context: ./aca-py
+      dockerfile: Dockerfile
+    image: vc-authn-oidc-acapy:webvh
     environment:
       - ACAPY_LABEL=${AGENT_NAME}
       - ACAPY_ENDPOINT=${AGENT_ENDPOINT}
       - ACAPY_WALLET_NAME=oidc_agent_wallet
-      - ACAPY_WALLET_TYPE=askar
+      - ACAPY_WALLET_TYPE=askar-anoncreds
       - ACAPY_WALLET_KEY=${WALLET_ENCRYPTION_KEY}
       - ACAPY_WALLET_SEED=${AGENT_WALLET_SEED}
       - ACAPY_WALLET_LOCAL_DID=true
@@ -187,7 +200,7 @@ services:
     command:
       [
         "-c",
-        'sleep 15; aca-py start --inbound-transport http ''0.0.0.0'' ${AGENT_HTTP_PORT} --outbound-transport http --wallet-storage-config ''{"url":"${POSTGRESQL_WALLET_HOST}:${POSTGRESQL_WALLET_PORT}","max_connections":5}'' --wallet-storage-creds ''{"account":"${POSTGRESQL_WALLET_USER}","password":"${POSTGRESQL_WALLET_PASSWORD}","admin_account":"${POSTGRESQL_WALLET_USER}","admin_password":"${POSTGRESQL_WALLET_PASSWORD}"}'' --admin ''0.0.0.0'' ${AGENT_ADMIN_PORT} --${AGENT_ADMIN_MODE}',
+        'sleep 15; aca-py start --plugin webvh --inbound-transport http ''0.0.0.0'' ${AGENT_HTTP_PORT} --outbound-transport http --wallet-storage-config ''{"url":"${POSTGRESQL_WALLET_HOST}:${POSTGRESQL_WALLET_PORT}","max_connections":5}'' --wallet-storage-creds ''{"account":"${POSTGRESQL_WALLET_USER}","password":"${POSTGRESQL_WALLET_PASSWORD}","admin_account":"${POSTGRESQL_WALLET_USER}","admin_password":"${POSTGRESQL_WALLET_PASSWORD}"}'' --admin ''0.0.0.0'' ${AGENT_ADMIN_PORT} --${AGENT_ADMIN_MODE}',
       ]
 
   wallet-db:

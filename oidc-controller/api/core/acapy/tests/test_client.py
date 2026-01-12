@@ -13,7 +13,11 @@ from api.core.acapy.client import (
     WALLET_DID_URI,
     AcapyClient,
 )
-from api.core.acapy.config import MultiTenantAcapy, SingleTenantAcapy
+from api.core.acapy.config import (
+    MultiTenantAcapy,
+    SingleTenantAcapy,
+    TractionTenantAcapy,
+)
 from api.core.acapy.models import CreatePresentationResponse, WalletDid
 from api.core.acapy.tests.__mocks__ import (
     create_presentation_response_http,
@@ -44,6 +48,14 @@ async def test_init_multi_returns_client_with_multi_tenancy_config():
     client = AcapyClient()
     assert client is not None
     assert isinstance(client.agent_config, MultiTenantAcapy) is True
+
+
+@pytest.mark.asyncio
+@mock.patch.object(settings, "ACAPY_TENANCY", "traction")
+async def test_init_traction_returns_client_with_traction_tenancy_config():
+    client = AcapyClient()
+    assert client is not None
+    assert isinstance(client.agent_config, TractionTenantAcapy) is True
 
 
 @pytest.mark.asyncio
