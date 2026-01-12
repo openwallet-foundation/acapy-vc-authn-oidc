@@ -1,8 +1,11 @@
+import importlib
 import pytest
 import secrets
 from unittest.mock import Mock, patch, MagicMock
 from pyop.storage import StatelessWrapper, RedisWrapper
 from api.core.oidc.provider import RedisWrapperWithPack, DynamicClientDatabase
+from api.core.oidc import provider as provider_module
+from api.core.config import settings as real_settings
 
 
 class TestRedisWrapperWithPack:
@@ -541,7 +544,6 @@ class TestInitProvider:
     @pytest.mark.asyncio
     async def test_init_provider_creates_provider(self):
         """Test that init_provider creates a provider instance."""
-        from api.core.oidc import provider as provider_module
 
         # Create a mock database
         mock_db = Mock()
@@ -555,3 +557,66 @@ class TestInitProvider:
         assert provider_module.provider is not None
         assert hasattr(provider_module.provider, "authz_state")
         assert hasattr(provider_module.provider, "clients")
+
+
+class TestProviderConfiguration:
+    """Test provider module configuration constants and dicts."""
+
+    def test_endpoints_constants(self):
+        """Test that endpoint constants are defined and correct."""
+
+        assert hasattr(provider_module, "AuthorizeUriEndpoint")
+        assert hasattr(provider_module, "TokenUriEndpoint")
+        assert hasattr(provider_module, "UserInfoUriEndpoint")
+        assert provider_module.UserInfoUriEndpoint == "userinfo"
+
+    def test_configuration_information_flag_logic(self):
+        """Test that userinfo_endpoint is conditional based on settings."""
+        # Case 1: Enabled
+        with patch.object(real_settings, "CONTROLLER_ENABLE_USERINFO_ENDPOINT", True):
+            with patch.object(real_settings, "USE_REDIS_ADAPTER", False):
+                importlib.reload(provider_module)
+                config = provider_module.configuration_information
+                assert "userinfo_endpoint" in config
+                assert config["userinfo_endpoint"].endswith("/userinfo")
+
+        # Case 2: Disabled
+        with patch.object(real_settings, "CONTROLLER_ENABLE_USERINFO_ENDPOINT", False):
+            with patch.object(real_settings, "USE_REDIS_ADAPTER", False):
+                importlib.reload(provider_module)
+                config = provider_module.configuration_information
+                assert "userinfo_endpoint" not in config
+
+
+class TestProviderRedisConfiguration:
+    """Test Redis configuration logic in provider module."""
+
+    @patch("api.core.oidc.provider._build_redis_url")
+    def test_redis_ttl_synchronization(self, mock_build_url):
+        """
+        Verify that UserInfo Redis TTL is synchronized with Access Token TTL.
+        We verify this by inspecting the created objects in the module.
+        """
+        TEST_TTL = 1000
+        mock_build_url.return_value = "redis://mock"
+
+        # Apply settings to the singleton directly so reload picks them up
+        with patch.object(real_settings, "USE_REDIS_ADAPTER", True), patch.object(
+            real_settings, "OIDC_ACCESS_TOKEN_TTL", TEST_TTL
+        ), patch.object(real_settings, "REDIS_HOST", "localhost"):
+
+            # Reload to run the top-level 'if settings.USE_REDIS_ADAPTER:' block
+            importlib.reload(provider_module)
+
+            # Inspect the objects created by the module
+            # Note: PyOP RedisWrapper stores TTL in self.ttl
+
+            # 1. Access Token Storage
+            # Should match OIDC_ACCESS_TOKEN_TTL exactly
+            assert hasattr(provider_module, "access_token_storage")
+            assert provider_module.access_token_storage.ttl == TEST_TTL
+
+            # 2. UserInfo Storage
+            # Should match OIDC_ACCESS_TOKEN_TTL + 60s buffer
+            assert hasattr(provider_module, "userinfo_claims_storage")
+            assert provider_module.userinfo_claims_storage.ttl == TEST_TTL + 60

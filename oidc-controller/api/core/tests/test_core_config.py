@@ -9,6 +9,7 @@ from api.core.config import (
     FactoryConfig,
     EnvironmentEnum,
 )
+from pydantic import ValidationError
 
 
 def test_strtobool():
@@ -103,3 +104,34 @@ class TestConfigValidation:
                 from api.core import config
 
                 importlib.reload(config)
+
+
+class TestOIDCConfig:
+    """Tests for OIDC-specific configuration."""
+
+    def test_default_token_ttl(self):
+        """Test default TTL is 3600 seconds."""
+        # Use patch to ensure clean environment
+        with patch.dict(os.environ, {}, clear=True):
+            # We need to reload the config module or recreate the config object
+            # Since FactoryConfig creates new instances, we can use that
+            config = FactoryConfig(EnvironmentEnum.LOCAL.value)()
+            assert config.OIDC_ACCESS_TOKEN_TTL == 3600
+
+    def test_custom_token_ttl(self):
+        """Test overriding TTL via environment variable."""
+        with patch.dict(os.environ, {"OIDC_ACCESS_TOKEN_TTL": "7200"}):
+            config = FactoryConfig(EnvironmentEnum.LOCAL.value)()
+            assert config.OIDC_ACCESS_TOKEN_TTL == 7200
+
+    def test_invalid_token_ttl_raises_error(self):
+        """Test that negative or zero TTL raises ValidationError."""
+        with patch.dict(os.environ, {"OIDC_ACCESS_TOKEN_TTL": "0"}):
+            with pytest.raises(ValidationError) as exc:
+                FactoryConfig(EnvironmentEnum.LOCAL.value)()
+            assert "OIDC_ACCESS_TOKEN_TTL must be a positive integer" in str(exc.value)
+
+        with patch.dict(os.environ, {"OIDC_ACCESS_TOKEN_TTL": "-100"}):
+            with pytest.raises(ValidationError) as exc:
+                FactoryConfig(EnvironmentEnum.LOCAL.value)()
+            assert "OIDC_ACCESS_TOKEN_TTL must be a positive integer" in str(exc.value)

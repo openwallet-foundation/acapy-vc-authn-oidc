@@ -256,6 +256,7 @@ class DynamicClientDatabase(dict):
 # Define constants so that they can be imported for route definition in routers/oidc.py
 AuthorizeUriEndpoint = "authorize"
 TokenUriEndpoint = "token"
+UserInfoUriEndpoint = "userinfo"
 
 # TODO validate the correctness of this? either change config or add capabilities
 configuration_information = {
@@ -280,6 +281,16 @@ configuration_information = {
     "backchannel_logout_session_supported": True,
 }
 
+# Conditionally add UserInfo endpoint to discovery
+if settings.CONTROLLER_ENABLE_USERINFO_ENDPOINT:
+    configuration_information["userinfo_endpoint"] = (
+        f"{issuer_url}/{UserInfoUriEndpoint}"
+    )
+    logger.info("OIDC UserInfo endpoint enabled in discovery document")
+else:
+    logger.info("OIDC UserInfo endpoint disabled in discovery document")
+
+
 subject_id_factory = HashBasedSubjectIdentifierFactory(settings.SUBJECT_ID_HASH_SALT)
 
 # Conditionally create storage backends based on USE_REDIS_ADAPTER setting
@@ -296,7 +307,7 @@ if settings.USE_REDIS_ADAPTER:
     access_token_storage = RedisWrapperWithPack(
         db_uri=redis_url,
         collection="pyop_access_tokens",
-        ttl=3600,  # 1 hour
+        ttl=settings.OIDC_ACCESS_TOKEN_TTL,
     )
 
     refresh_token_storage = RedisWrapperWithPack(
@@ -314,7 +325,10 @@ if settings.USE_REDIS_ADAPTER:
     userinfo_claims_storage = RedisWrapperWithPack(
         db_uri=redis_url,
         collection="pyop_userinfo_claims",
-        ttl=600,  # 10 minutes - same as auth codes
+        # Set TTL to match Token TTL.
+        # We add a 60 second buffer to ensure the data strictly outlives the token
+        # preventing race conditions at the exact second of expiry.
+        ttl=settings.OIDC_ACCESS_TOKEN_TTL + 60,
     )
 
     logger.info(

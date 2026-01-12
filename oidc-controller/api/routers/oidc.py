@@ -14,7 +14,11 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from jinja2 import Template
 from oic.oic.message import AuthorizationRequest
 from pymongo.database import Database
-from pyop.exceptions import InvalidAuthenticationRequest
+from pyop.exceptions import (
+    InvalidAuthenticationRequest,
+    InvalidAccessToken,
+    BearerTokenError,
+)
 
 from ..authSessions.crud import AuthSessionCreate, AuthSessionCRUD
 from ..authSessions.models import AuthSession, AuthSessionPatch, AuthSessionState
@@ -35,6 +39,7 @@ ChallengePollUri = "/poll"
 AuthorizeCallbackUri = "/callback"
 VerifiedCredentialAuthorizeUri = f"/{provider.AuthorizeUriEndpoint}"
 VerifiedCredentialTokenUri = f"/{provider.TokenUriEndpoint}"
+VerifiedCredentialUserInfoUri = f"/{provider.UserInfoUriEndpoint}"
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
 
@@ -516,3 +521,44 @@ async def post_token(request: Request, db: Database = Depends(get_db)):
             )
 
         return token_response.to_dict()
+
+
+@log_debug
+@router.get(VerifiedCredentialUserInfoUri, response_class=JSONResponse)
+@router.post(VerifiedCredentialUserInfoUri, response_class=JSONResponse)
+async def get_userinfo(request: Request):
+    """
+    Called by RPs (like Firebase) to retrieve user claims using the Access Token.
+    Only available if CONTROLLER_ENABLE_USERINFO_ENDPOINT is True.
+    """
+    if not settings.CONTROLLER_ENABLE_USERINFO_ENDPOINT:
+        raise HTTPException(
+            status_code=http_status.HTTP_404_NOT_FOUND,
+            detail="UserInfo endpoint is disabled",
+        )
+    try:
+        # We need to read the body for POST requests, though standard GETs won't have one.
+        # pyop expects the body as a string if it exists.
+        body = (await request.body()).decode("utf-8")
+
+        # Parse and process the request using pyop
+        # This validates the Bearer token and looks up claims in VCUserinfo
+        userinfo_response = provider.provider.handle_userinfo_request(
+            body, request.headers
+        )
+
+        return userinfo_response.to_dict()
+
+    except (BearerTokenError, InvalidAccessToken) as e:
+        logger.warning(f"UserInfo request failed: {e}")
+        raise HTTPException(
+            status_code=http_status.HTTP_401_UNAUTHORIZED,
+            detail=str(e),
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    except Exception as e:
+        logger.error(f"UserInfo unexpected error: {e}")
+        raise HTTPException(
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve user info",
+        )
