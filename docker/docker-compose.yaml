@@ -186,6 +186,7 @@ services:
       - POSTGRESQL_WALLET_PORT=${POSTGRESQL_WALLET_PORT}
       - POSTGRESQL_WALLET_USER=${POSTGRESQL_WALLET_USER}
       - POSTGRESQL_WALLET_PASSWORD=${POSTGRESQL_WALLET_PASSWORD}
+      - ACAPY_PLUGIN_CONFIG=/tmp/plugin-config.yml
     ports:
       - ${AGENT_ADMIN_PORT}:${AGENT_ADMIN_PORT}
       - ${AGENT_HTTP_PORT}:${AGENT_HTTP_PORT}
@@ -193,6 +194,7 @@ services:
       - vc_auth
     volumes:
       - ./agent/config/ledgers.yaml:/tmp/ledgers.yaml
+      - ./agent/config/plugin-config.yaml:/tmp/plugin-config.yml
     depends_on:
       - wallet-db
     entrypoint: /bin/bash
