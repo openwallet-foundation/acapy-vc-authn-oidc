@@ -18,18 +18,12 @@ If you are upgrading from a previous release, take a look at the [migration guid
 - [Docker](https://docs.docker.com/get-docker/)
 - Ngrok token (optional, required for local development)
 
-## Configuring Ngrok
-
-Each developer must apply for an Ngrok token [here](https://dashboard.ngrok.com/get-started/your-authtoken). Then place the token into the .env-dev file within the docker directory.
-
-```
-NGROK_AUTHTOKEN=<your token here>
-```
-
 ## Running VC-AuthN
 
 Open a shell in the [docker](docker/) folder and run the following commands:
 
+- `cp .env.example .env` to create a local environment variable file.
+- Update `.env` with your `NGROK_AUTHTOKEN` and customize environment variables as/if needed.
 - `./manage build`: this command will build the controller image. This step is required the first time the project is run, and when dependencies change in the requirements file(s).
 - `./manage start`: this will start the project with **multiple controller pods by default** for scalability. Follow the script prompts to select the appropriate runtime options: they will be saved in an `env` file for the next execution.
 - To reset everything (including removing container data and selected options in the `env` file) execute `./manage rm`.
