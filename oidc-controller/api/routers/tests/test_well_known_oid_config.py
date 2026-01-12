@@ -31,6 +31,7 @@ class TestWellKnownEndpoints:
             "issuer": "https://example.com",
             "authorization_endpoint": "https://example.com/authorize",
             "token_endpoint": "https://example.com/token",
+            "userinfo_endpoint": "https://example.com/userinfo",
             "jwks_uri": "https://example.com/.well-known/openid-configuration/jwks",
             "response_types_supported": ["code", "id_token", "token"],
             "subject_types_supported": ["public"],
