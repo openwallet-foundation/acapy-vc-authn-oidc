@@ -1,0 +1,415 @@
+"""Tests for subject identifier management."""
+
+from contextlib import contextmanager
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+from api.authSessions.models import AuthSession
+from bson import ObjectId
+from api.routers.oidc import store_subject_identifier
+from api.routers.oidc import post_token
+
+
+# Test Helpers
+
+
+@pytest.fixture
+def mock_form_request():
+    """Factory fixture for mock form requests with customizable values."""
+
+    def _make_request(code="test-code", grant_type="authorization_code"):
+        mock_request = MagicMock()
+        mock_form = MagicMock()
+        mock_form._dict = {"code": code, "grant_type": grant_type}
+        # Mock form() as async context manager
+        mock_form_context = AsyncMock()
+        mock_form_context.__aenter__ = AsyncMock(return_value=mock_form)
+        mock_form_context.__aexit__ = AsyncMock(return_value=None)
+        mock_request.form = MagicMock(return_value=mock_form_context)
+        return mock_request
+
+    return _make_request
+
+
+class TestPostTokenAuthSessionUpdate:
+    """Tests for AuthSession.pyop_user_id update during post_token."""
+
+    @pytest.mark.asyncio
+    async def test_updates_auth_session_pyop_user_id_to_presentation_sub(
+        self, mock_form_request
+    ):
+        """Test that AuthSession.pyop_user_id is updated to presentation_sub."""
+        with patch("api.routers.oidc.AuthSessionCRUD") as mock_crud_class, patch(
+            "api.routers.oidc.VerificationConfigCRUD"
+        ) as mock_ver_crud_class, patch(
+            "api.routers.oidc.provider"
+        ) as mock_provider, patch(
+            "api.routers.oidc.Token"
+        ) as mock_token_class, patch(
+            "api.routers.oidc.settings"
+        ) as mock_settings:
+            # Setup mocks
+            mock_settings.USE_REDIS_ADAPTER = True
+            mock_settings.ACAPY_PROOF_FORMAT = "anoncreds"
+
+            mock_auth_session = MagicMock(spec=AuthSession)
+            mock_auth_session.id = ObjectId()
+            mock_auth_session.pyop_user_id = "original-uuid-12345"
+            mock_auth_session.pyop_auth_code = "test-code"
+            mock_auth_session.ver_config_id = "test-config"
+            mock_auth_session.request_parameters = {
+                "pres_req_conf_id": "showcase-person",
+                "nonce": "test-nonce",
+            }
+            mock_auth_session.presentation_exchange = {
+                "pres_request": {
+                    "anoncreds": {
+                        "requested_attributes": {"req_attr_0": {"names": ["email"]}}
+                    }
+                },
+                "pres": {
+                    "anoncreds": {
+                        "requested_proof": {
+                            "revealed_attr_groups": {
+                                "req_attr_0": {
+                                    "values": {
+                                        "email": {
+                                            "raw": "alice@example.com",
+                                            "encoded": "123",
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+            }
+
+            mock_ver_config = MagicMock()
+            mock_ver_config.subject_identifier = "email"
+            mock_ver_config.generate_consistent_identifier = False
+
+            # Mock Token.get_claims to return claims with sub
+            mock_token_class.get_claims.return_value = {
+                "sub": "alice@example.com@showcase-person",
+                "pres_req_conf_id": "showcase-person",
+                "acr": "vc_authn",
+                "nonce": "test-nonce",
+                "vc_presented_attributes": '{"email": "alice@example.com"}',
+            }
+
+            # Mock CRUD
+            mock_crud = MagicMock()
+            mock_crud.get_by_pyop_auth_code = AsyncMock(return_value=mock_auth_session)
+            mock_crud.update_pyop_user_id = AsyncMock(return_value=True)
+            mock_crud_class.return_value = mock_crud
+
+            mock_ver_crud = MagicMock()
+            mock_ver_crud.get = AsyncMock(return_value=mock_ver_config)
+            mock_ver_crud_class.return_value = mock_ver_crud
+
+            # Mock PyOP provider
+            mock_authz_codes = MagicMock()
+            mock_authz_info = {
+                "sub": "original-uuid-12345",
+                "user_info": {},
+            }
+            mock_authz_codes.__getitem__ = MagicMock(return_value=mock_authz_info)
+            mock_authz_codes.pack = MagicMock(return_value="new-packed-code")
+            mock_provider.provider.authz_state.authorization_codes = mock_authz_codes
+
+            # Mock userinfo with set_claims_for_user method
+            mock_userinfo = MagicMock()
+            mock_userinfo.set_claims_for_user = MagicMock()
+            mock_provider.provider.userinfo = mock_userinfo
+
+            mock_provider.provider.handle_token_request = MagicMock(
+                return_value=MagicMock(to_dict=lambda: {"access_token": "test-token"})
+            )
+
+            # Mock request using fixture
+            mock_request = mock_form_request()
+            mock_db = MagicMock()
+
+            # Execute
+            await post_token(mock_request, mock_db)
+
+            # Verify AuthSession.pyop_user_id was updated to presentation_sub
+            mock_crud.update_pyop_user_id.assert_called_once_with(
+                str(mock_auth_session.id), "alice@example.com@showcase-person"
+            )
+
+    @pytest.mark.asyncio
+    async def test_local_user_id_updated_to_presentation_sub(self, mock_form_request):
+        """Test that local user_id variable is updated to presentation_sub for claims storage."""
+        with patch("api.routers.oidc.AuthSessionCRUD") as mock_crud_class, patch(
+            "api.routers.oidc.VerificationConfigCRUD"
+        ) as mock_ver_crud_class, patch(
+            "api.routers.oidc.provider"
+        ) as mock_provider, patch(
+            "api.routers.oidc.Token"
+        ) as mock_token_class, patch(
+            "api.routers.oidc.settings"
+        ) as mock_settings, patch(
+            "api.routers.oidc.store_subject_identifier"
+        ) as mock_store_subject:
+            # Setup
+            mock_settings.USE_REDIS_ADAPTER = True
+            mock_settings.ACAPY_PROOF_FORMAT = "anoncreds"
+
+            mock_auth_session = MagicMock(spec=AuthSession)
+            mock_auth_session.id = ObjectId()
+            mock_auth_session.pyop_user_id = "original-uuid-12345"
+            mock_auth_session.pyop_auth_code = "test-code"
+            mock_auth_session.ver_config_id = "test-config"
+            mock_auth_session.request_parameters = {
+                "pres_req_conf_id": "showcase-person",
+                "nonce": "test-nonce",
+            }
+            mock_auth_session.presentation_exchange = {
+                "pres_request": {
+                    "anoncreds": {
+                        "requested_attributes": {"req_attr_0": {"names": ["email"]}}
+                    }
+                },
+                "pres": {
+                    "anoncreds": {
+                        "requested_proof": {
+                            "revealed_attr_groups": {
+                                "req_attr_0": {
+                                    "values": {
+                                        "email": {
+                                            "raw": "alice@example.com",
+                                            "encoded": "123",
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+            }
+
+            mock_ver_config = MagicMock()
+            mock_ver_config.subject_identifier = "email"
+            mock_ver_config.generate_consistent_identifier = False
+
+            presentation_sub = "alice@example.com@showcase-person"
+            mock_token_class.get_claims.return_value = {
+                "sub": presentation_sub,
+                "pres_req_conf_id": "showcase-person",
+                "acr": "vc_authn",
+                "nonce": "test-nonce",
+                "vc_presented_attributes": '{"email": "alice@example.com"}',
+            }
+
+            mock_crud = MagicMock()
+            mock_crud.get_by_pyop_auth_code = AsyncMock(return_value=mock_auth_session)
+            mock_crud.update_pyop_user_id = AsyncMock(return_value=True)
+            mock_crud_class.return_value = mock_crud
+
+            mock_ver_crud = MagicMock()
+            mock_ver_crud.get = AsyncMock(return_value=mock_ver_config)
+            mock_ver_crud_class.return_value = mock_ver_crud
+
+            mock_authz_codes = MagicMock()
+            mock_authz_info = {"sub": "original-uuid-12345", "user_info": {}}
+            mock_authz_codes.__getitem__ = MagicMock(return_value=mock_authz_info)
+            mock_authz_codes.pack = MagicMock(return_value="new-packed-code")
+            mock_provider.provider.authz_state.authorization_codes = mock_authz_codes
+
+            # Mock userinfo with set_claims_for_user method
+            mock_userinfo = MagicMock()
+            mock_userinfo.set_claims_for_user = MagicMock()
+            mock_provider.provider.userinfo = mock_userinfo
+
+            mock_provider.provider.handle_token_request = MagicMock(
+                return_value=MagicMock(to_dict=lambda: {"access_token": "test-token"})
+            )
+
+            # Mock request using fixture
+            mock_request = mock_form_request()
+            mock_db = MagicMock()
+
+            # Execute
+            await post_token(mock_request, mock_db)
+
+            # Verify store_subject_identifier was called with presentation_sub
+            mock_store_subject.assert_called_once_with(
+                presentation_sub, "public", presentation_sub
+            )
+
+
+class TestStoreSubjectIdentifierEdgeCases:
+    """Additional edge case tests for store_subject_identifier."""
+
+    def test_preserves_existing_subject_types(self):
+        """Test that storing a new subject type preserves existing ones."""
+        mock_storage = MagicMock()
+        existing_subjects = {"pairwise": "existing-pairwise-id"}
+        mock_storage.__contains__ = MagicMock(return_value=True)
+        mock_storage.__getitem__ = MagicMock(return_value=existing_subjects)
+        mock_storage.__setitem__ = MagicMock()
+
+        mock_provider_obj = MagicMock()
+        mock_provider_obj.authz_state.subject_identifiers = mock_storage
+
+        with patch("api.core.config.settings") as mock_settings, patch(
+            "api.routers.oidc.provider"
+        ) as mock_provider:
+            mock_settings.USE_REDIS_ADAPTER = False  # Stateless mode
+            mock_provider.provider = mock_provider_obj
+
+            # Execute - add public subject to user with existing pairwise
+            is_new = store_subject_identifier("user-123", "public", "alice@example.com")
+
+            # Verify
+            assert is_new is False  # Not a new user
+            # Should have stored both types
+            stored_call = mock_storage.__setitem__.call_args_list[-1]
+            stored_value = stored_call[0][1]
+            assert stored_value["pairwise"] == "existing-pairwise-id"
+            assert stored_value["public"] == "alice@example.com"
+
+    def test_updates_existing_subject_type(self):
+        """Test that storing same subject type updates the value."""
+        mock_storage = MagicMock()
+        existing_subjects = {"public": "old-identifier"}
+        mock_storage.__contains__ = MagicMock(return_value=True)
+        mock_storage.__getitem__ = MagicMock(return_value=existing_subjects)
+        mock_storage.__setitem__ = MagicMock()
+
+        mock_provider_obj = MagicMock()
+        mock_provider_obj.authz_state.subject_identifiers = mock_storage
+
+        with patch("api.core.config.settings") as mock_settings, patch(
+            "api.routers.oidc.provider"
+        ) as mock_provider:
+            mock_settings.USE_REDIS_ADAPTER = False
+            mock_provider.provider = mock_provider_obj
+
+            # Execute - update public subject for existing user
+            is_new = store_subject_identifier("user-123", "public", "new-identifier")
+
+            # Verify
+            assert is_new is False
+            stored_call = mock_storage.__setitem__.call_args_list[-1]
+            stored_value = stored_call[0][1]
+            assert stored_value["public"] == "new-identifier"
+
+    def test_multiple_subject_types_stored_correctly(self):
+        """Test storing multiple subject types for same user."""
+        mock_storage = MagicMock()
+        mock_storage.__contains__ = MagicMock(return_value=False)
+        mock_storage.__getitem__ = MagicMock(side_effect=KeyError())
+        mock_storage.__setitem__ = MagicMock()
+
+        mock_provider_obj = MagicMock()
+        mock_provider_obj.authz_state.subject_identifiers = mock_storage
+
+        with patch("api.core.config.settings") as mock_settings, patch(
+            "api.routers.oidc.provider"
+        ) as mock_provider:
+            mock_settings.USE_REDIS_ADAPTER = False
+            mock_provider.provider = mock_provider_obj
+
+            user_id = "user-123"
+
+            # Store first subject type
+            store_subject_identifier(user_id, "public", "public-id")
+
+            # Update mock to return existing data
+            mock_storage.__contains__ = MagicMock(return_value=True)
+            mock_storage.__getitem__ = MagicMock(return_value={"public": "public-id"})
+
+            # Store second subject type
+            store_subject_identifier(user_id, "pairwise", "pairwise-id")
+
+            # Verify final state has both
+            last_call = mock_storage.__setitem__.call_args_list[-1]
+            stored_subjects = last_call[0][1]
+            assert stored_subjects["public"] == "public-id"
+            assert stored_subjects["pairwise"] == "pairwise-id"
+
+
+class TestPostTokenIntegration:
+    """Integration tests for post_token with subject identifier updates."""
+
+    @pytest.mark.asyncio
+    async def test_post_token_handles_missing_claims_gracefully(
+        self, mock_form_request
+    ):
+        """Test that post_token handles edge case where claims are missing."""
+        with patch("api.routers.oidc.AuthSessionCRUD") as mock_crud_class, patch(
+            "api.routers.oidc.VerificationConfigCRUD"
+        ) as mock_ver_crud_class, patch(
+            "api.routers.oidc.provider"
+        ) as mock_provider, patch(
+            "api.routers.oidc.Token"
+        ) as mock_token_class, patch(
+            "api.routers.oidc.settings"
+        ) as mock_settings:
+            # Setup mocks
+            mock_settings.USE_REDIS_ADAPTER = True
+            mock_settings.ACAPY_PROOF_FORMAT = "anoncreds"
+
+            mock_auth_session = MagicMock(spec=AuthSession)
+            mock_auth_session.id = ObjectId()
+            mock_auth_session.pyop_user_id = "uuid-123"
+            mock_auth_session.pyop_auth_code = "test-code"
+            mock_auth_session.ver_config_id = "test-config"
+            mock_auth_session.request_parameters = {
+                "pres_req_conf_id": "test-config",
+                "nonce": "test-nonce",
+            }
+            mock_auth_session.presentation_exchange = {
+                "pres_request": {"anoncreds": {"requested_attributes": {}}},
+                "pres": {
+                    "anoncreds": {"requested_proof": {"revealed_attr_groups": {}}}
+                },
+            }
+
+            mock_ver_config = MagicMock()
+            mock_ver_config.subject_identifier = "email"
+            mock_ver_config.generate_consistent_identifier = False
+
+            # Mock Token.get_claims to return minimal claims (no sub)
+            mock_token_class.get_claims.return_value = {
+                "pres_req_conf_id": "test-config",
+                "acr": "vc_authn",
+                "nonce": "test-nonce",
+                "vc_presented_attributes": "{}",
+            }
+
+            mock_crud = MagicMock()
+            mock_crud.get_by_pyop_auth_code = AsyncMock(return_value=mock_auth_session)
+            mock_crud.update_pyop_user_id = AsyncMock(return_value=True)
+            mock_crud_class.return_value = mock_crud
+
+            mock_ver_crud = MagicMock()
+            mock_ver_crud.get = AsyncMock(return_value=mock_ver_config)
+            mock_ver_crud_class.return_value = mock_ver_crud
+
+            mock_authz_codes = MagicMock()
+            mock_authz_info = {"sub": "uuid-123", "user_info": {}}
+            mock_authz_codes.__getitem__ = MagicMock(return_value=mock_authz_info)
+            mock_authz_codes.pack = MagicMock(return_value="new-code")
+            mock_provider.provider.authz_state.authorization_codes = mock_authz_codes
+
+            mock_userinfo = MagicMock()
+            mock_userinfo.set_claims_for_user = MagicMock()
+            mock_provider.provider.userinfo = mock_userinfo
+
+            mock_provider.provider.handle_token_request = MagicMock(
+                return_value=MagicMock(to_dict=lambda: {"access_token": "token"})
+            )
+
+            # Mock request using fixture
+            mock_request = mock_form_request()
+            mock_db = MagicMock()
+
+            # Execute - should not crash even without 'sub' in claims
+            result = await post_token(mock_request, mock_db)
+
+            # Verify response returned successfully
+            assert result is not None

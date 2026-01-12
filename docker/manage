@@ -135,8 +135,19 @@ build-oidc-controller() {
     -f './oidc-controller/Dockerfile' '..'
 }
 
+build-aca-py() {
+  #
+  # aca-py with webvh plugin
+  #
+  echo -e "\nBuilding aca-py image with webvh plugin..."
+  docker build \
+    -t 'vc-authn-oidc-acapy:webvh' \
+    -f './aca-py/Dockerfile' './aca-py'
+}
+
 buildImages() {
   build-oidc-controller
+  build-aca-py
 }
 
 configureEnvironment() {
