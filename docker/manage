@@ -156,7 +156,17 @@ configureEnvironment() {
   if [ -f .env ]; then
     while read line; do
       if [[ ! "$line" =~ ^\# ]] && [[ "$line" =~ .*= ]]; then
-        export "${line//[$'\r\n']}"
+        var_name="${line%%=*}"
+        # Strip whitespace from variable name
+        var_name="${var_name//[[:space:]]/}"
+        # Only export if not already set (respects command-line precedence)
+        # Using -v to distinguish between unset and empty variables
+        if [ ! -v "${var_name}" ]; then
+          if ! export "${line//[$'\r\n']}" 2>/dev/null; then
+            echoError "ERROR: Invalid .env line: ${line}"
+            exit 1
+          fi
+        fi
       fi
     done <.env
   fi
