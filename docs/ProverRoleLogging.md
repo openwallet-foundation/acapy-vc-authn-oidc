@@ -119,18 +119,8 @@ From the `docker/` directory, run:
 
 ```bash
 TEST_PROVER_ROLE=true \
-LEDGER_URL=http://test.bcovrin.vonx.io \
-TAILS_SERVER_URL=https://tails-test.vonx.io \
-ENDORSER_ENV=testing \
-ACAPY_ENDPOINT=http://host.docker.internal:8050 \
-LOG_WITH_JSON=FALSE \
-NGROK_AUTHTOKEN="<your-token>" \
-USE_REDIS_ADAPTER="true" \
 ./manage bootstrap
 ```
-
-[!NOTE]
-Replace `<your-token>` with your actual Ngrok authentication token.
 
 ### Test Flow
 

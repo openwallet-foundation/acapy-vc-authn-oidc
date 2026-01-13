@@ -1,6 +1,6 @@
 services:
   issuer-aca-py:
-    image: ghcr.io/openwallet-foundation/acapy-agent:py3.12-1.4.0
+    image: vc-authn-oidc-acapy:webvh
     environment:
       - ACAPY_LABEL=${ISSUER_AGENT_NAME:-Trusted Verifier Issuer}
       - ACAPY_ENDPOINT=${ISSUER_AGENT_ENDPOINT:-http://issuer-aca-py:8031}
