@@ -248,14 +248,32 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                 state = webhook_body.get("state")
 
                 deleted = False
-                if pres_ex_id and state == "done":
-                    deleted = AcapyClient().delete_presentation_record(pres_ex_id)
+                delete_error = None
+
+                # Clean up presentation records in terminal states
+                if pres_ex_id and state in ["done", "abandoned", "declined"]:
+                    try:
+                        deleted = AcapyClient().delete_presentation_record(pres_ex_id)
+                        if not deleted:
+                            logger.warning(
+                                f"Failed to delete prover-role presentation record",
+                                pres_ex_id=pres_ex_id,
+                                state=state,
+                            )
+                    except Exception as e:
+                        delete_error = str(e)
+                        logger.error(
+                            f"Error deleting prover-role presentation record",
+                            pres_ex_id=pres_ex_id,
+                            error=delete_error,
+                        )
 
                 logger.info(
                     f"Prover-role webhook received: {state}",
                     pres_ex_id=pres_ex_id,
                     connection_id=connection_id,
                     deleted=deleted,
+                    delete_error=delete_error,
                     role=role,
                     state=state,
                     timestamp=datetime.now(UTC).isoformat(),

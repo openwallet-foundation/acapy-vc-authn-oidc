@@ -1244,3 +1244,188 @@ class TestProverRoleWebhooks:
         mock_auth_session_crud.return_value.get_by_pres_exch_id.assert_called_once_with(
             "test-pres-ex-id"
         )
+
+    @pytest.mark.asyncio
+    @patch("api.routers.acapy_handler.AuthSessionCRUD")
+    @patch("api.routers.acapy_handler.AcapyClient")
+    async def test_prover_role_deletes_presentation_when_done(
+        self,
+        mock_acapy_client,
+        mock_auth_session_crud,
+        mock_request,
+        mock_db,
+    ):
+        """Test that prover-role deletes presentation record on 'done' state."""
+        webhook_body = {
+            "pres_ex_id": "test-pres-ex-id",
+            "state": "done",
+            "role": "prover",
+        }
+
+        mock_request.body.return_value = json.dumps(webhook_body).encode("ascii")
+        mock_client = MagicMock()
+        mock_client.delete_presentation_record.return_value = True
+        mock_acapy_client.return_value = mock_client
+
+        result = await post_topic(mock_request, "present_proof_v2_0", mock_db)
+
+        assert result == {"status": "prover-role event logged"}
+        mock_client.delete_presentation_record.assert_called_once_with(
+            "test-pres-ex-id"
+        )
+        mock_auth_session_crud.assert_not_called()
+
+    @pytest.mark.asyncio
+    @patch("api.routers.acapy_handler.AuthSessionCRUD")
+    @patch("api.routers.acapy_handler.AcapyClient")
+    async def test_prover_role_deletes_presentation_when_abandoned(
+        self,
+        mock_acapy_client,
+        mock_auth_session_crud,
+        mock_request,
+        mock_db,
+    ):
+        """Test that prover-role deletes presentation record on 'abandoned' state."""
+        webhook_body = {
+            "pres_ex_id": "test-pres-ex-id",
+            "state": "abandoned",
+            "role": "prover",
+        }
+
+        mock_request.body.return_value = json.dumps(webhook_body).encode("ascii")
+        mock_client = MagicMock()
+        mock_client.delete_presentation_record.return_value = True
+        mock_acapy_client.return_value = mock_client
+
+        result = await post_topic(mock_request, "present_proof_v2_0", mock_db)
+
+        assert result == {"status": "prover-role event logged"}
+        mock_client.delete_presentation_record.assert_called_once_with(
+            "test-pres-ex-id"
+        )
+
+    @pytest.mark.asyncio
+    @patch("api.routers.acapy_handler.AuthSessionCRUD")
+    @patch("api.routers.acapy_handler.AcapyClient")
+    async def test_prover_role_deletes_presentation_when_declined(
+        self,
+        mock_acapy_client,
+        mock_auth_session_crud,
+        mock_request,
+        mock_db,
+    ):
+        """Test that prover-role deletes presentation record on 'declined' state."""
+        webhook_body = {
+            "pres_ex_id": "test-pres-ex-id",
+            "state": "declined",
+            "role": "prover",
+        }
+
+        mock_request.body.return_value = json.dumps(webhook_body).encode("ascii")
+        mock_client = MagicMock()
+        mock_client.delete_presentation_record.return_value = True
+        mock_acapy_client.return_value = mock_client
+
+        result = await post_topic(mock_request, "present_proof_v2_0", mock_db)
+
+        assert result == {"status": "prover-role event logged"}
+        mock_client.delete_presentation_record.assert_called_once_with(
+            "test-pres-ex-id"
+        )
+
+    @pytest.mark.asyncio
+    @patch("api.routers.acapy_handler.AuthSessionCRUD")
+    @patch("api.routers.acapy_handler.AcapyClient")
+    async def test_prover_role_no_delete_when_not_terminal_state(
+        self,
+        mock_acapy_client,
+        mock_auth_session_crud,
+        mock_request,
+        mock_db,
+    ):
+        """Test that prover-role does NOT delete presentation when state is not terminal."""
+        non_terminal_states = [
+            "request-received",
+            "presentation-sent",
+            "presentation-received",
+        ]
+
+        for state in non_terminal_states:
+            webhook_body = {
+                "pres_ex_id": "test-pres-ex-id",
+                "state": state,
+                "role": "prover",
+            }
+
+            mock_request.body.return_value = json.dumps(webhook_body).encode("ascii")
+            mock_client = MagicMock()
+            mock_acapy_client.return_value = mock_client
+
+            result = await post_topic(mock_request, "present_proof_v2_0", mock_db)
+
+            assert result == {"status": "prover-role event logged"}
+            mock_client.delete_presentation_record.assert_not_called()
+
+            # Reset mocks for next iteration
+            mock_client.reset_mock()
+            mock_acapy_client.reset_mock()
+
+    @pytest.mark.asyncio
+    @patch("api.routers.acapy_handler.AuthSessionCRUD")
+    @patch("api.routers.acapy_handler.AcapyClient")
+    async def test_prover_role_handles_delete_failure(
+        self,
+        mock_acapy_client,
+        mock_auth_session_crud,
+        mock_request,
+        mock_db,
+    ):
+        """Test that prover-role handles deletion failures gracefully."""
+        webhook_body = {
+            "pres_ex_id": "test-pres-ex-id",
+            "state": "done",
+            "role": "prover",
+        }
+
+        mock_request.body.return_value = json.dumps(webhook_body).encode("ascii")
+        mock_client = MagicMock()
+        mock_client.delete_presentation_record.return_value = False  # Deletion failed
+        mock_acapy_client.return_value = mock_client
+
+        # Should not raise exception
+        result = await post_topic(mock_request, "present_proof_v2_0", mock_db)
+
+        assert result == {"status": "prover-role event logged"}
+        mock_client.delete_presentation_record.assert_called_once_with(
+            "test-pres-ex-id"
+        )
+
+    @pytest.mark.asyncio
+    @patch("api.routers.acapy_handler.AuthSessionCRUD")
+    @patch("api.routers.acapy_handler.AcapyClient")
+    async def test_prover_role_handles_delete_exception(
+        self,
+        mock_acapy_client,
+        mock_auth_session_crud,
+        mock_request,
+        mock_db,
+    ):
+        """Test that prover-role handles deletion exceptions gracefully."""
+        webhook_body = {
+            "pres_ex_id": "test-pres-ex-id",
+            "state": "done",
+            "role": "prover",
+        }
+
+        mock_request.body.return_value = json.dumps(webhook_body).encode("ascii")
+        mock_client = MagicMock()
+        mock_client.delete_presentation_record.side_effect = Exception("Network error")
+        mock_acapy_client.return_value = mock_client
+
+        # Should not raise exception, should log error instead
+        result = await post_topic(mock_request, "present_proof_v2_0", mock_db)
+
+        assert result == {"status": "prover-role event logged"}
+        mock_client.delete_presentation_record.assert_called_once_with(
+            "test-pres-ex-id"
+        )
