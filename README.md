@@ -12,6 +12,8 @@ Make sure to read the [best practices](/docs/BestPractices.md) to be used when p
 
 If you are upgrading from a previous release, take a look at the [migration guide](/docs/MigrationGuide.md).
 
+For information about prover-role functionality (when VC-AuthN responds to proof requests), see the [prover role logging documentation](/docs/ProverRoleLogging.md).
+
 ## Pre-requisites
 
 - A bash-compatible shell such as [Git Bash](https://git-scm.com/downloads)
@@ -104,6 +106,23 @@ curl -X 'POST' \
 - Lastly, obtain a Person Credential from the [BC Wallet Showcase](https://digital.gov.bc.ca/digital-trust/showcase) by completing the lawyer demo.
 
 After all these steps have been completed, you should be able to authenticate with the demo application using the "Verified Credential Access" option.
+
+## Advanced Features
+
+### Prover Role (Trusted Verifier Credentials)
+
+VC-AuthN can also act as a **prover**, holding credentials in its own wallet and responding to proof requests from external verifiers. This is useful for trusted verifier networks where VC-AuthN must prove its authorization status.
+
+For detailed information about prover-role functionality, testing, and configuration, see the [Prover Role Logging documentation](docs/ProverRoleLogging.md).
+
+**Quick Test**: To test prover-role functionality with the bootstrap script:
+```bash
+cd docker
+TEST_PROVER_ROLE=true \
+LEDGER_URL=http://test.bcovrin.vonx.io \
+TAILS_SERVER_URL=https://tails-test.vonx.io \
+./manage bootstrap
+```
 
 ## Debugging
 
