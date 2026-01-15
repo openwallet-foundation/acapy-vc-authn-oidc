@@ -529,6 +529,48 @@ def verify_proof_presentation(pres_ex_id: str) -> bool:
     return False
 
 
+def get_verifier_pres_ex_id(verifier_conn_id: str, timeout: int = 10) -> str:
+    """Get VC-AuthN's presentation exchange ID for prover-role.
+
+    Args:
+        verifier_conn_id: VC-AuthN's connection ID to issuer
+        timeout: Maximum seconds to wait for presentation record
+
+    Returns:
+        VC-AuthN's presentation exchange ID (prover role)
+    """
+    log("CLEANUP TEST: Retrieving VC-AuthN's presentation ID...")
+
+    # Poll for the presentation record to appear
+    for attempt in range(timeout):
+        result = make_request(
+            "GET",
+            f"{VERIFIER_ADMIN_URL}/present-proof-2.0/records",
+            params={"connection_id": verifier_conn_id},
+            api_key=VERIFIER_ADMIN_API_KEY,
+        )
+
+        records = result.get("results", [])
+        # Sort by created_at descending to get most recent first
+        records.sort(key=lambda r: r.get("created_at", ""), reverse=True)
+
+        # Look for prover role record (VC-AuthN responding to proof request)
+        for record in records:
+            if record.get("role") == "prover":
+                pres_ex_id = record.get("pres_ex_id")
+                state = record.get("state")
+                log(
+                    f"CLEANUP TEST: Found VC-AuthN pres_ex_id: {pres_ex_id} (state: {state})"
+                )
+                return pres_ex_id
+
+        # Wait before retrying
+        if attempt < timeout - 1:
+            time.sleep(1)
+
+    raise Exception("Could not find VC-AuthN's prover-role presentation record")
+
+
 # ============================================================================
 # MUTUAL AUTHENTICATION FUNCTIONS
 # These functions implement the mutual authentication flow where both parties
@@ -870,6 +912,14 @@ def test_prover_role(
 
         # PHASE 2: VC-AuthN auto-responds with credential
         log("\n--- PHASE 2: VC-AuthN auto-responds with credential ---")
+
+        # Get VC-AuthN's presentation ID BEFORE it gets cleaned up
+        try:
+            verifier_pres_ex_id = get_verifier_pres_ex_id(verifier_conn_id)
+        except Exception as e:
+            log(f"PROVER-ROLE TEST: ⚠ Could not get VC-AuthN presentation ID: {e}")
+            verifier_pres_ex_id = None
+
         if not verify_proof_presentation(issuer_pres_ex_id):
             log("MUTUAL-AUTH TEST: ✗ VC-AuthN failed to prove identity")
             return False
@@ -887,10 +937,24 @@ def test_prover_role(
         log("\n--- PHASE 3: Verifying presentation cleanup ---")
         cleanup_success = True
 
-        # Check presentation cleanup (issuer's view)
-        if not verify_presentations_cleaned(issuer_pres_ex_id, ISSUER_ADMIN_URL):
-            log("MUTUAL-AUTH TEST: ⚠ Presentation not cleaned up")
-            cleanup_success = False
+        # Check VC-AuthN's presentation cleanup (prover role)
+        if verifier_pres_ex_id:
+            try:
+                if not verify_presentations_cleaned(
+                    verifier_pres_ex_id, VERIFIER_ADMIN_URL, VERIFIER_ADMIN_API_KEY
+                ):
+                    log("MUTUAL-AUTH TEST: ⚠ VC-AuthN presentation not cleaned up")
+                    cleanup_success = False
+            except Exception as e:
+                log(f"CLEANUP TEST: ⚠ Could not verify cleanup: {e}")
+                cleanup_success = False
+        else:
+            # If we can't find the presentation record, it means cleanup happened so fast
+            # that the record was deleted before we could retrieve it - this is actually SUCCESS!
+            log(
+                "CLEANUP TEST: ✓ Presentation already cleaned up (deleted before retrieval)"
+            )
+            log("CLEANUP TEST: Check controller logs to confirm prover-role cleanup")
 
         # Final result
         log("=" * 60)

@@ -181,13 +181,13 @@ configureEnvironment() {
   done
 
   # Controller Webhook URL: Append API Key if present
-  if [ ! -z "${CONTROLLER_API_KEY}" ] && [[ "${CONTROLLER_WEB_HOOK_URL}" != *"#"* ]]; then
+  if [ -v CONTROLLER_API_KEY ] && [ -n "${CONTROLLER_API_KEY}" ] && [[ "${CONTROLLER_WEB_HOOK_URL}" != *"#"* ]]; then
     export CONTROLLER_WEB_HOOK_URL="${CONTROLLER_WEB_HOOK_URL}#${CONTROLLER_API_KEY}"
   fi
 
   # Agent Admin Mode: Append API Key if present
   export AGENT_ADMIN_MODE="admin-insecure-mode"
-  if [ ! -z "${AGENT_ADMIN_API_KEY}" ]; then
+  if [ -v AGENT_ADMIN_API_KEY ] && [ -n "${AGENT_ADMIN_API_KEY}" ]; then
     export AGENT_ADMIN_MODE="admin-api-key ${AGENT_ADMIN_API_KEY}"
   fi
 
