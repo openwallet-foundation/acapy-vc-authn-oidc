@@ -152,10 +152,21 @@ buildImages() {
 
 configureEnvironment() {
 
+  # Load environment from .env file
   if [ -f .env ]; then
     while read line; do
       if [[ ! "$line" =~ ^\# ]] && [[ "$line" =~ .*= ]]; then
-        export "${line//[$'\r\n']}"
+        var_name="${line%%=*}"
+        # Strip whitespace from variable name
+        var_name="${var_name//[[:space:]]/}"
+        # Only export if not already set (respects command-line precedence)
+        # Using -v to distinguish between unset and empty variables
+        if [ ! -v "${var_name}" ]; then
+          if ! export "${line//[$'\r\n']}" 2>/dev/null; then
+            echoError "ERROR: Invalid .env line: ${line}"
+            exit 1
+          fi
+        fi
       fi
     done <.env
   fi
@@ -180,6 +191,11 @@ configureEnvironment() {
     esac
   done
 
+}
+
+# Finalize environment variables that depend on ngrok endpoints or other derived values
+# This must be called AFTER setNgrokEndpoints to ensure URLs are properly set
+finalizeEnvironment() {
   # Controller Webhook URL: Append API Key if present
   if [ ! -z "${CONTROLLER_API_KEY}" ] && [[ "${CONTROLLER_WEB_HOOK_URL}" != *"#"* ]]; then
     export CONTROLLER_WEB_HOOK_URL="${CONTROLLER_WEB_HOOK_URL}#${CONTROLLER_API_KEY}"
@@ -233,7 +249,7 @@ deleteVolumes() {
   docker-compose -f docker-compose.yaml -f docker-compose-ngrok.yaml down -v
 
   _pattern="^${_projectName}_\|^docker_"
-  _volumes=$(docker volume ls -q | grep ${_pattern})
+  _volumes=$(docker volume ls -q | grep ${_pattern} || true)
 
   if [ ! -z "${_volumes}" ]; then
     echo "Removing project volumes ..."
@@ -247,19 +263,47 @@ toLower() {
   echo $(echo ${@} | tr '[:upper:]' '[:lower:]')
 }
 
-initializeUserPrompts() {
-  ######
-  #  If .env-dev exists, use it to populate .env
-  #  Otherwise, create an empty .env file
-  if [ -f ".env-dev" ] ; then
-    cat .env-dev > .env
-    echo "" >> .env
-  else
-    touch .env
-  fi
-  ######
+# Default value for AGENT_WALLET_SEED (used for reset on ./manage rm)
+DEFAULT_AGENT_WALLET_SEED="vc_authn_agent_00000000000000000"
 
-  echo "AGENT_WALLET_SEED=$(generateSeed vc-authn-oidc)" >> .env
+# Portable sed in-place edit that works on both macOS and Linux
+# Uses explicit path to avoid alias issues on macOS
+sedInPlace() {
+  _pattern="$1"
+  _file="$2"
+  if [[ "$OSTYPE" == "darwin"* ]]; then
+    /usr/bin/sed -i '' "$_pattern" "$_file"
+  else
+    sed -i "$_pattern" "$_file"
+  fi
+}
+
+initializeWalletSeed() {
+  # Generate a new wallet seed and update it in .env
+  _newSeed=$(generateSeed vc-authn-oidc)
+  sedInPlace "s/^AGENT_WALLET_SEED=.*/AGENT_WALLET_SEED=${_newSeed}/" .env
+  echoSuccess "Generated new AGENT_WALLET_SEED in .env"
+}
+
+resetWalletSeed() {
+  # Reset wallet seed to default value in .env
+  sedInPlace "s/^AGENT_WALLET_SEED=.*/AGENT_WALLET_SEED=${DEFAULT_AGENT_WALLET_SEED}/" .env
+  echoInfo "Reset AGENT_WALLET_SEED to default value in .env"
+}
+
+checkEnvFile() {
+  if [[ ! -f ".env" ]]; then
+    echoError "ERROR: .env file not found!"
+    echoInfo "Please copy .env.example to .env and configure it before running ./manage start"
+    echoInfo "  cp .env.example .env"
+    echoInfo "  # Edit .env with your settings (especially NGROK_AUTHTOKEN)"
+    exit 1
+  fi
+}
+
+initializeFirstRun() {
+  # Generate a unique wallet seed for first run
+  initializeWalletSeed
   startNgrokContainers
   setNgrokEndpoints
 }
@@ -344,18 +388,24 @@ case "${COMMAND}" in
 start|up)
   _startupParams=$(getStartupParams $@)
 
-  if [[ ! -f ".env" ]]; then
-    # first/clean run, prompt user selections
-    initializeUserPrompts
-    echoWarning "User preferences were saved in docker/.env for future use"
+  # Ensure .env file exists (developer must create it from .env.example)
+  checkEnvFile
+
+  # Check if this is a first run (wallet seed is still the default placeholder)
+  configureEnvironment $@
+  if [[ "${AGENT_WALLET_SEED}" == "${DEFAULT_AGENT_WALLET_SEED}" ]]; then
+    # First run - generate unique wallet seed
+    initializeFirstRun
+    echoWarning "Generated new AGENT_WALLET_SEED for first run"
   else
-    # ngrok was already chosen, refresh containers/endpoints
+    # Subsequent run - refresh ngrok containers/endpoints
     echoInfo "Refreshing ngrok containers..."
     startNgrokContainers
     setNgrokEndpoints
   fi
 
-  configureEnvironment $@
+  # Finalize derived environment values after ngrok endpoints are set
+  finalizeEnvironment
 
   docker-compose up -d ${_startupParams} ${DEFAULT_CONTAINERS} ${ACAPY_CONTAINERS} ${PROD_CONTAINERS}
 
@@ -373,13 +423,14 @@ stop)
   docker compose -f docker-compose-ngrok.yaml stop
   ;;
 rm|down)
-  # delete previously saved settings
-  if [ -f ".env" ] ; then
-    rm ".env"
-  fi
-
+  # Load environment for docker-compose
   configureEnvironment
   deleteVolumes
+
+  # Reset wallet seed to default (keeps .env for local configuration)
+  if [ -f ".env" ] ; then
+    resetWalletSeed
+  fi
   ;;
 build)
   _startupParams=$(getStartupParams $@)
@@ -432,18 +483,25 @@ format)
   echoSuccess "Formatting complete."
   ;;
 single-pod)
-  if [[ ! -f ".env" ]]; then
-    # first/clean run, prompt user selections
-    initializeUserPrompts
-    echoWarning "User preferences were saved in docker/.env for future use"
+  # Ensure .env file exists (developer must create it from .env.example)
+  checkEnvFile
+
+  # Check if this is a first run (wallet seed is still the default placeholder)
+  configureEnvironment $@
+  if [[ "${AGENT_WALLET_SEED}" == "${DEFAULT_AGENT_WALLET_SEED}" ]]; then
+    # First run - generate unique wallet seed
+    initializeFirstRun
+    echoWarning "Generated new AGENT_WALLET_SEED for first run"
   else
-    # ngrok was already chosen, refresh containers/endpoints
+    # Subsequent run - refresh ngrok containers/endpoints
     echoInfo "Refreshing ngrok containers..."
     startNgrokContainers
     setNgrokEndpoints
   fi
 
-  configureEnvironment $@
+  # Finalize derived environment values after ngrok endpoints are set
+  finalizeEnvironment
+
   export CONTROLLER_REPLICAS=1
   export USE_REDIS_ADAPTER=false
   echo "Running single pod setup..."
