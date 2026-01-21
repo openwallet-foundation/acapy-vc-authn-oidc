@@ -167,6 +167,6 @@ class TestCleanupNonBlocking:
         # All background tasks should complete quickly
         assert len(task_execution_times) == 3, "Not all background tasks completed"
         for task_id, elapsed in task_execution_times:
-            assert elapsed < 0.1, (
-                f"Task {task_id} took {elapsed:.3f}s - event loop was blocked!"
-            )
+            assert (
+                elapsed < 0.1
+            ), f"Task {task_id} took {elapsed:.3f}s - event loop was blocked!"
