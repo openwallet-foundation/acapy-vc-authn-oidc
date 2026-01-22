@@ -1,5 +1,6 @@
 """Cleanup functions for presentation records and connections."""
 
+import asyncio
 from datetime import datetime, timedelta, UTC
 from typing import TYPE_CHECKING, TypedDict
 
@@ -366,10 +367,15 @@ async def perform_cleanup(
 
     try:
         # Phase 1: Clean up old presentation records
-        presentation_phase_start = _cleanup_presentation_records(client, cleanup_stats)
+        # Run in thread pool to avoid blocking the event loop (these use sync requests)
+        presentation_phase_start = await asyncio.to_thread(
+            _cleanup_presentation_records, client, cleanup_stats
+        )
 
         # Phase 2: Clean up expired connection invitations
-        _cleanup_connections(client, cleanup_stats, presentation_phase_start)
+        await asyncio.to_thread(
+            _cleanup_connections, client, cleanup_stats, presentation_phase_start
+        )
 
     except Exception as e:
         error_msg = f"Cleanup operation failed: {e}"
