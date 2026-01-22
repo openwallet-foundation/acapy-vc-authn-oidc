@@ -1,6 +1,6 @@
 [project]
 name = "acapy-vc-authn-oidc"
-version = "2.3.5"
+version = "2.3.6"
 description = "Verifiable Credential Identity Provider for OpenID Connect."
 authors = [ { name = "OpenWallet Foundation" } ]
 license = "Apache-2.0"
