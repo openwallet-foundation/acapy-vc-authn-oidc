@@ -142,7 +142,7 @@ build-aca-py() {
   echo -e "\nBuilding aca-py image with webvh plugin..."
   docker build \
     -t 'vc-authn-oidc-acapy:webvh' \
-    -f './aca-py/Dockerfile' './aca-py'
+    -f './agent/Dockerfile' './agent'
 }
 
 buildImages() {
@@ -160,8 +160,8 @@ configureEnvironment() {
         # Strip whitespace from variable name
         var_name="${var_name//[[:space:]]/}"
         # Only export if not already set (respects command-line precedence)
-        # Using -v to distinguish between unset and empty variables
-        if [ ! -v "${var_name}" ]; then
+        # Using -z with indirect expansion to check if variable is unset or empty
+        if [[ -z "${!var_name+x}" ]]; then
           if ! export "${line//[$'\r\n']}" 2>/dev/null; then
             echoError "ERROR: Invalid .env line: ${line}"
             exit 1
