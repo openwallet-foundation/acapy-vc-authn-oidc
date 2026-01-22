@@ -161,7 +161,7 @@ services:
 
   aca-py:
     build:
-      context: ./aca-py
+      context: ./agent
       dockerfile: Dockerfile
     image: vc-authn-oidc-acapy:webvh
     environment:
