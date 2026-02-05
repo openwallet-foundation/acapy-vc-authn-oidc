@@ -1,28 +1,13 @@
-name: Build latest development image
+name: Build release images
 on:
-  workflow_dispatch:
-    inputs:
-      ref:
-        description: 'Branch or full SHA to build'
-        required: false
-        default: 'main'
-  push:
-    branches:
-      - main
-    paths:
-      - "docker/oidc-controller/**"
-      - "docker/agent/**"
-      - "oidc-controller/**"
-      - "html-templates/**"
-      - "pyproject.toml"
-      - "poetry.lock"
+  release:
+    types: [published]
 jobs:
   build-controller:
     name: "Build ACAPy VC-AuthN"
     if: github.repository_owner == 'openwallet-foundation'
     uses: ./.github/workflows/publish.yml
     with:
-      ref: ${{ inputs.ref }}
       platforms: "linux/amd64,linux/arm64"
       image_name: "acapy-vc-authn-oidc"
       dockerfile_path: "docker/oidc-controller/Dockerfile"
@@ -33,7 +18,6 @@ jobs:
     if: github.repository_owner == 'openwallet-foundation'
     uses: ./.github/workflows/publish.yml
     with:
-      ref: ${{ inputs.ref }}
       platforms: "linux/amd64,linux/arm64"
       image_name: "vc-authn-oidc-agent"
       dockerfile_path: "docker/agent/Dockerfile"
