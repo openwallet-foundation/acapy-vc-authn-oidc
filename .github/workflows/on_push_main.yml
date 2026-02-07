@@ -35,5 +35,5 @@ jobs:
     with:
       ref: ${{ inputs.ref }}
       platforms: "linux/amd64,linux/arm64"
-      image_name: "vc-authn-oidc-agent"
+      image_name: "acapy-vc-authn-oidc-agent"
       dockerfile_path: "docker/agent/Dockerfile"
