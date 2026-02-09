@@ -1,0 +1,23 @@
+name: Build release images
+on:
+  release:
+    types: [published]
+jobs:
+  build-controller:
+    name: "Build ACAPy VC-AuthN"
+    if: github.repository_owner == 'openwallet-foundation'
+    uses: ./.github/workflows/publish.yml
+    with:
+      platforms: "linux/amd64,linux/arm64"
+      image_name: "acapy-vc-authn-oidc"
+      dockerfile_path: "docker/oidc-controller/Dockerfile"
+      build_target: "main"
+
+  build-agent:
+    name: "Build ACA-Py Agent"
+    if: github.repository_owner == 'openwallet-foundation'
+    uses: ./.github/workflows/publish.yml
+    with:
+      platforms: "linux/amd64,linux/arm64"
+      image_name: "acapy-vc-authn-oidc-agent"
+      dockerfile_path: "docker/agent/Dockerfile"
