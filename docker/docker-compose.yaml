@@ -113,7 +113,7 @@ services:
       retries: 3
 
   controller-db:
-    image: mongo:8.0
+    image: mongo:8.2
     environment:
       - MONGO_INITDB_ROOT_USERNAME=${OIDC_CONTROLLER_DB_USER}
       - MONGO_INITDB_ROOT_PASSWORD=${OIDC_CONTROLLER_DB_USER_PWD}
