@@ -1,5 +1,4 @@
 import structlog
-
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from jinja2 import Template
@@ -7,11 +6,11 @@ from pymongo.database import Database
 
 from ..authSessions.crud import AuthSessionCRUD
 from ..authSessions.models import AuthSession, AuthSessionState
-
 from ..core.config import settings
-from ..routers.socketio import sio, get_socket_id_for_pid, safe_emit
-from ..routers.oidc import gen_deep_link
+from ..core.siam_audit import audit_qr_scanned
 from ..db.session import get_db
+from ..routers.oidc import gen_deep_link
+from ..routers.socketio import get_socket_id_for_pid, safe_emit, sio
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
 
@@ -52,6 +51,17 @@ async def send_connectionless_proof_req(
 
         # If the qrcode was scanned by mobile phone camera toggle the pending flag
         await toggle_pending(db, auth_session)
+
+        # SIAM Audit: Log QR scan via mobile camera (redirected to deep link)
+        client_ip = req.client.host if req.client else None
+        user_agent = req.headers.get("user-agent")
+        audit_qr_scanned(
+            session_id=str(auth_session.id),
+            scan_method="qr_code",
+            client_ip=client_ip,
+            user_agent=user_agent,
+        )
+
         response = HTMLResponse(template.render({"wallet_deep_link": wallet_deep_link}))
 
     if "text/html" in req.headers.get("accept"):
@@ -68,6 +78,16 @@ async def send_connectionless_proof_req(
     # If the qrcode has been scanned, toggle the pending flag
     if auth_session.proof_status is AuthSessionState.NOT_STARTED:
         await toggle_pending(db, auth_session)
+
+        # SIAM Audit: Log QR scan via wallet deep link
+        client_ip = req.client.host if req.client else None
+        user_agent = req.headers.get("user-agent")
+        audit_qr_scanned(
+            session_id=str(auth_session.id),
+            scan_method="deep_link",
+            client_ip=client_ip,
+            user_agent=user_agent,
+        )
 
     msg = auth_session.presentation_request_msg
 

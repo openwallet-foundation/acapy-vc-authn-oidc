@@ -1,5 +1,6 @@
 import base64
 import io
+import time
 import uuid
 from datetime import UTC, datetime
 from typing import cast
@@ -15,9 +16,9 @@ from jinja2 import Template
 from oic.oic.message import AuthorizationRequest
 from pymongo.database import Database
 from pyop.exceptions import (
-    InvalidAuthenticationRequest,
-    InvalidAccessToken,
     BearerTokenError,
+    InvalidAccessToken,
+    InvalidAuthenticationRequest,
 )
 
 from ..authSessions.crud import AuthSessionCreate, AuthSessionCRUD
@@ -27,6 +28,11 @@ from ..core.config import settings
 from ..core.logger_util import log_debug
 from ..core.oidc import provider
 from ..core.oidc.issue_token_service import Token
+from ..core.siam_audit import (
+    audit_auth_session_initiated,
+    audit_proof_request_created,
+    audit_token_issued,
+)
 from ..db.session import get_db
 
 # Access to the websocket
@@ -188,6 +194,24 @@ async def get_authorize(request: Request, db: Database = Depends(get_db)):
         multi_use=False,  # Currently all connections are single-use
     )
     auth_session = await AuthSessionCRUD(db).create(new_auth_session)
+
+    # SIAM Audit: Log auth session initiation (no PII, safe metadata only)
+    client_ip = request.client.host if request.client else None
+    user_agent = request.headers.get("user-agent")
+    audit_auth_session_initiated(
+        session_id=str(auth_session.id),
+        client_id=model.get("client_id", "unknown"),
+        ver_config=ver_config,
+        client_ip=client_ip,
+        user_agent=user_agent,
+    )
+
+    # SIAM Audit: Log proof request creation
+    audit_proof_request_created(
+        session_id=str(auth_session.id),
+        ver_config=ver_config,
+        proof_name=ver_config.proof_request.name,
+    )
 
     # QR CONTENTS
     controller_host = settings.CONTROLLER_URL
@@ -359,6 +383,7 @@ async def generate_auth_code(claims, auth_session, form_dict, db):
 @router.post(VerifiedCredentialTokenUri, response_class=JSONResponse)
 async def post_token(request: Request, db: Database = Depends(get_db)):
     """Called by oidc platform to retrieve token contents"""
+    token_start_time = time.time()
     async with request.form() as form:
         logger.info(f"post_token: form was {form}")
         form_dict = cast(dict[str, str], form._dict)
@@ -519,6 +544,16 @@ async def post_token(request: Request, db: Database = Depends(get_db)):
                 sub_in_token=decoded.get("sub"),
                 all_claims=list(decoded.keys()),
             )
+
+        # SIAM Audit: Log successful token issuance (count only, no claim values)
+        token_duration_ms = int((time.time() - token_start_time) * 1000)
+        audit_token_issued(
+            session_id=str(auth_session.id),
+            client_id=auth_session.request_parameters.get("client_id", "unknown"),
+            ver_config_id=auth_session.ver_config_id,
+            claims_count=len(claims),
+            duration_ms=token_duration_ms,
+        )
 
         return token_response.to_dict()
 

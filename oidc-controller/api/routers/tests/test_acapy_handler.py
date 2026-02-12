@@ -4,13 +4,12 @@ import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from bson import ObjectId
-from fastapi.testclient import TestClient
-from pymongo.database import Database
-
 from api.authSessions.models import AuthSession, AuthSessionState
 from api.core.config import settings
 from api.routers.acapy_handler import post_topic
+from bson import ObjectId
+from fastapi.testclient import TestClient
+from pymongo.database import Database
 
 
 @pytest.fixture
@@ -467,6 +466,7 @@ class TestConnectionBasedVerificationWebhooks:
         mock_auth_session_no_pres_id.pres_exch_id = None
         mock_auth_session_no_pres_id.connection_id = "test-connection-id"
         mock_auth_session_no_pres_id.multi_use = False
+        mock_auth_session_no_pres_id.ver_config_id = "test-ver-config-id"
         mock_auth_session_no_pres_id.model_dump = MagicMock(
             return_value={
                 "id": "test-session-id",

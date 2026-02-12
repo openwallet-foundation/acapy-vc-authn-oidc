@@ -1,23 +1,81 @@
 import json
-from pydantic.plugin import Any
-import structlog
-from datetime import datetime, timedelta, UTC
+import time
+from datetime import UTC, datetime, timedelta
 
+import structlog
 from fastapi import APIRouter, Depends, Request
+from pydantic.plugin import Any
 from pymongo.database import Database
 
 from ..authSessions.crud import AuthSessionCRUD
 from ..authSessions.models import AuthSession, AuthSessionPatch, AuthSessionState
-from ..db.session import get_db
 from ..core.acapy.client import AcapyClient
-from ..verificationConfigs.crud import VerificationConfigCRUD
-
 from ..core.config import settings
-from ..routers.socketio import sio, get_socket_id_for_pid, safe_emit
+from ..core.siam_audit import (
+    audit_proof_verification_failed,
+    audit_proof_verified,
+    audit_session_abandoned,
+    audit_session_expired,
+    audit_webhook_received,
+)
+from ..db.session import get_db
+from ..routers.socketio import get_socket_id_for_pid, safe_emit, sio
+from ..verificationConfigs.crud import VerificationConfigCRUD
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _extract_credential_schemas(presentation_data: dict) -> list[str]:
+    """
+    Extract schema names from verified presentation data.
+
+    Safe to log - schema names are public metadata, not PII.
+    """
+    schemas = set()
+    try:
+        # Try to extract from various proof formats
+        by_format = presentation_data.get("by_format", {})
+        for format_key in ["indy", "anoncreds"]:
+            if format_key in by_format:
+                pres = by_format[format_key].get("pres", {})
+                identifiers = pres.get("identifiers", [])
+                for identifier in identifiers:
+                    if schema_id := identifier.get("schema_id"):
+                        # Extract schema name from schema_id (format: did:schema_name:version)
+                        parts = schema_id.split(":")
+                        if len(parts) >= 3:
+                            schemas.add(parts[-2])  # schema name is second to last
+                        else:
+                            schemas.add(schema_id)
+    except Exception:
+        pass  # Return empty list if extraction fails
+    return sorted(list(schemas))
+
+
+def _extract_issuer_dids(presentation_data: dict) -> list[str]:
+    """
+    Extract issuer DIDs from verified presentation data.
+
+    Safe to log - DIDs are public identifiers, not PII.
+    """
+    issuers = set()
+    try:
+        by_format = presentation_data.get("by_format", {})
+        for format_key in ["indy", "anoncreds"]:
+            if format_key in by_format:
+                pres = by_format[format_key].get("pres", {})
+                identifiers = pres.get("identifiers", [])
+                for identifier in identifiers:
+                    if cred_def_id := identifier.get("cred_def_id"):
+                        # Extract issuer DID from cred_def_id (format: did:3:CL:schema:tag)
+                        parts = cred_def_id.split(":")
+                        if len(parts) >= 1:
+                            issuers.add(parts[0])
+    except Exception:
+        pass  # Return empty list if extraction fails
+    return sorted(list(issuers))
 
 
 async def _send_problem_report_safely(
@@ -116,8 +174,10 @@ async def _parse_webhook_body(request: Request) -> dict[Any, Any]:
 @router.post("/topic/{topic}/")
 async def post_topic(request: Request, topic: str, db: Database = Depends(get_db)):
     """Called by aca-py agent."""
+    webhook_start_time = time.time()
     logger.info(f">>> post_topic : topic={topic}")
-    logger.info(f">>> web hook post_body : {await _parse_webhook_body(request)}")
+    # Note: Full webhook body is logged at DEBUG level only to protect privacy
+    logger.debug(f">>> web hook received for topic: {topic}")
 
     match topic:
         case "connections":
@@ -235,11 +295,21 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
 
         case "present_proof_v2_0":
             webhook_body = await _parse_webhook_body(request)
-            logger.info(f">>>> pres_exch_id: {webhook_body['pres_ex_id']}")
-            # logger.info(f">>>> web hook: {webhook_body}")
+            state = webhook_body.get("state")
+            role = webhook_body.get("role")
+
+            # SIAM Audit: Log webhook receipt (safe metadata only)
+            audit_webhook_received(
+                topic="present_proof_v2_0",
+                state=state,
+                role=role,
+            )
+
+            logger.info(
+                f">>>> pres_exch_id: {webhook_body['pres_ex_id']}, state: {state}"
+            )
 
             # Check for prover-role (issue #898)
-            role = webhook_body.get("role")
 
             if role == "prover":
                 # Handle prover-role separately - VC-AuthN is responding to a proof request
@@ -296,8 +366,10 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                 logger.info("presentation-received")
 
             if webhook_body["state"] == "done":
-                logger.info("VERIFIED")
+                duration_ms = int((time.time() - webhook_start_time) * 1000)
+
                 if webhook_body["verified"] == "true":
+                    logger.info("VERIFIED")
                     auth_session.proof_status = AuthSessionState.VERIFIED
 
                     # Get presentation data via API call instead of webhook payload
@@ -318,6 +390,20 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                         f"Retrieved presentation data via API for {webhook_body['pres_ex_id']}"
                     )
 
+                    # SIAM Audit: Log successful verification (metadata only, no PII)
+                    # Extract schema names from presentation for audit
+                    credential_schemas = _extract_credential_schemas(presentation_data)
+                    issuer_dids = _extract_issuer_dids(presentation_data)
+
+                    audit_proof_verified(
+                        session_id=str(auth_session.id),
+                        ver_config_id=auth_session.ver_config_id,
+                        credential_schemas=credential_schemas,
+                        issuer_dids=issuer_dids,
+                        duration_ms=duration_ms,
+                        revocation_checked=settings.SET_NON_REVOKED,
+                    )
+
                     # Cleanup presentation record and connection after successful verification
                     await _cleanup_presentation_and_connection(
                         auth_session,
@@ -327,7 +413,17 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
 
                     await _emit_status_to_socket(db, auth_session, "verified")
                 else:
+                    logger.info("VERIFICATION FAILED")
                     auth_session.proof_status = AuthSessionState.FAILED
+
+                    # SIAM Audit: Log failed verification
+                    audit_proof_verification_failed(
+                        session_id=str(auth_session.id),
+                        ver_config_id=auth_session.ver_config_id,
+                        failure_category="unknown",  # ACA-Py doesn't provide detailed failure reason
+                        duration_ms=duration_ms,
+                    )
+
                     await _emit_status_to_socket(db, auth_session, "failed")
 
                     # Send problem report for failed verification in connection-based flow
@@ -349,8 +445,21 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
             # abandoned state
             if webhook_body["state"] == "abandoned":
                 logger.info("ABANDONED")
-                logger.info(webhook_body["error_msg"])
+                # Note: error_msg may contain sensitive info, log at debug level only
+                logger.debug(
+                    f"Abandonment reason: {webhook_body.get('error_msg', 'No reason provided')}"
+                )
                 auth_session.proof_status = AuthSessionState.ABANDONED
+
+                # SIAM Audit: Log session abandonment
+                duration_ms = int((time.time() - webhook_start_time) * 1000)
+                audit_session_abandoned(
+                    session_id=str(auth_session.id),
+                    ver_config_id=auth_session.ver_config_id,
+                    phase="wallet_response",
+                    duration_ms=duration_ms,
+                )
+
                 await _emit_status_to_socket(db, auth_session, "abandoned")
 
                 # Send problem report for abandoned presentation in connection-based flow
@@ -399,6 +508,15 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
             ):
                 logger.info("EXPIRED")
                 auth_session.proof_status = AuthSessionState.EXPIRED
+
+                # SIAM Audit: Log session expiration
+                audit_session_expired(
+                    session_id=str(auth_session.id),
+                    ver_config_id=auth_session.ver_config_id,
+                    phase="qr_scan",
+                    timeout_seconds=settings.CONTROLLER_PRESENTATION_EXPIRE_TIME,
+                )
+
                 await _emit_status_to_socket(db, auth_session, "expired")
 
                 # Send problem report for expired presentation in connection-based flow
