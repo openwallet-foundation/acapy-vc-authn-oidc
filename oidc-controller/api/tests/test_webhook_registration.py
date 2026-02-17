@@ -4,7 +4,6 @@ from unittest.mock import patch, MagicMock, AsyncMock
 import requests
 from api.core.webhook_utils import register_tenant_webhook
 from api.main import on_tenant_startup
-from api.core.config import settings
 from api.core.webhook_utils import _register_via_tenant_api
 
 

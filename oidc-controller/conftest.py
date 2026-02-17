@@ -5,7 +5,6 @@ import mongomock
 import logging
 import os
 import tempfile
-import shutil
 
 
 # disable mongodb logging when running tests

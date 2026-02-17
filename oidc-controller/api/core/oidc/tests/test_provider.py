@@ -2,7 +2,6 @@ import importlib
 import pytest
 import secrets
 from unittest.mock import Mock, patch, MagicMock
-from pyop.storage import StatelessWrapper
 from api.core.oidc.provider import SingleRedisWrapperWithPack, DynamicClientDatabase
 from api.core.oidc import provider as provider_module
 from api.core.config import settings as real_settings

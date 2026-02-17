@@ -1,4 +1,3 @@
-import pytest
 from unittest.mock import patch, MagicMock
 from api.core.logger_util import log_debug
 

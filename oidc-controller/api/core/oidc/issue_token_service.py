@@ -74,7 +74,7 @@ class Token(BaseModel):
             else:
                 # If we reach here, we have a data inconsistency or unsupported format
                 raise ValueError(
-                    f"No valid proof format found in presentation exchange"
+                    "No valid proof format found in presentation exchange"
                 )
 
         logger.info(

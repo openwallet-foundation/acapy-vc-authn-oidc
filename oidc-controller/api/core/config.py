@@ -8,7 +8,6 @@ from functools import lru_cache
 from pathlib import Path
 from pydantic_settings import BaseSettings
 from pydantic import ConfigDict, field_validator
-from typing import Any
 
 import structlog
 

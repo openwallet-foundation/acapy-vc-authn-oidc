@@ -5,11 +5,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from bson import ObjectId
-from fastapi.testclient import TestClient
 from pymongo.database import Database
 
 from api.authSessions.models import AuthSession, AuthSessionState
-from api.core.config import settings
 from api.routers.acapy_handler import post_topic
 
 

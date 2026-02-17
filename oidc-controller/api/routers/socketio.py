@@ -5,13 +5,11 @@ import redis
 from redis.cluster import RedisCluster, ClusterNode
 import socketio  # For using websockets
 from socketio.async_pubsub_manager import AsyncPubSubManager
-import logging
 import structlog
-from fastapi import Depends
 from pymongo.database import Database
 
 from ..authSessions.crud import AuthSessionCRUD
-from ..db.session import get_db, client
+from ..db.session import client
 from ..core.config import settings
 from ..core.redis_utils import parse_host_port_pairs, build_redis_url
 

@@ -110,7 +110,7 @@ class AcapyClient:
 
             success = resp_raw.status_code == 200
             if success:
-                logger.debug(f"<<< delete_presentation_record -> Success")
+                logger.debug("<<< delete_presentation_record -> Success")
             else:
                 logger.warning(
                     f"<<< delete_presentation_record -> Failed: {resp_raw.status_code}, {resp_raw.content}"
@@ -431,7 +431,7 @@ class AcapyClient:
 
             success = resp_raw.status_code == 200
             if success:
-                logger.debug(f"<<< delete_connection -> Success")
+                logger.debug("<<< delete_connection -> Success")
             else:
                 logger.warning(
                     f"<<< delete_connection -> Failed: {resp_raw.status_code}, {resp_raw.content}"

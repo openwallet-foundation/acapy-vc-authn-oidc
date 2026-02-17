@@ -1,4 +1,3 @@
-import asyncio
 import traceback
 import structlog
 import os
@@ -115,7 +114,7 @@ async def logging_middleware(request: Request, call_next) -> Response:
     try:
         response: Response = await call_next(request)
         return response
-    except Exception as e:
+    except Exception:
         process_time = time.time() - start_time
         logger.info(
             "failed to process a request",

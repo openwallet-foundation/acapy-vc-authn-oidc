@@ -2,7 +2,7 @@ import pytest
 import logging
 import os
 import importlib
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from api.core.config import (
     strtobool,
     determin_log_level,

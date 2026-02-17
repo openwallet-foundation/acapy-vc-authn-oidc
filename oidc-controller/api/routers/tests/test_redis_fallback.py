@@ -4,7 +4,6 @@ Test Redis fallback behavior to ensure proper handling when USE_REDIS_ADAPTER is
 """
 
 import pytest
-import asyncio
 from unittest.mock import Mock, patch, AsyncMock
 import time
 

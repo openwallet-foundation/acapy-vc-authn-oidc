@@ -10,10 +10,9 @@ from ..authSessions.crud import AuthSessionCRUD
 from ..authSessions.models import AuthSession, AuthSessionPatch, AuthSessionState
 from ..db.session import get_db
 from ..core.acapy.client import AcapyClient
-from ..verificationConfigs.crud import VerificationConfigCRUD
 
 from ..core.config import settings
-from ..routers.socketio import sio, get_socket_id_for_pid, safe_emit
+from ..routers.socketio import get_socket_id_for_pid, safe_emit
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
 
@@ -256,14 +255,14 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                         deleted = AcapyClient().delete_presentation_record(pres_ex_id)
                         if not deleted:
                             logger.warning(
-                                f"Failed to delete prover-role presentation record",
+                                "Failed to delete prover-role presentation record",
                                 pres_ex_id=pres_ex_id,
                                 state=state,
                             )
                     except Exception as e:
                         delete_error = str(e)
                         logger.error(
-                            f"Error deleting prover-role presentation record",
+                            "Error deleting prover-role presentation record",
                             pres_ex_id=pres_ex_id,
                             error=delete_error,
                         )
