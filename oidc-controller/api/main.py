@@ -7,7 +7,6 @@ import uuid
 from pathlib import Path
 
 import uvicorn
-import redis.asyncio as async_redis
 from api.core.config import settings
 from fastapi import FastAPI
 from starlette.requests import Request
@@ -27,10 +26,18 @@ from .routers import (
 )
 from .verificationConfigs.router import router as ver_configs_router
 from .clientConfigurations.router import router as client_config_router
-from .routers.socketio import sio_app, _build_redis_url, _handle_redis_failure
+from .routers.socketio import (
+    sio_app,
+    _handle_redis_failure,
+    can_we_reach_redis,
+    can_we_reach_cluster,
+    can_we_reach_sentinel,
+)
+from .core.redis_utils import parse_host_port_pairs, build_redis_url
 from api.core.oidc.provider import init_provider
 from api.core.webhook_utils import register_tenant_webhook
 from api.core.acapy.config import MultiTenantAcapy, TractionTenantAcapy
+from api.core.config import validate_redis_config
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
 
@@ -139,25 +146,43 @@ async def logging_middleware(request: Request, call_next) -> Response:
 @app.on_event("startup")
 async def on_tenant_startup():
     """Register any events we need to respond to."""
+    # Validate Redis configuration early
+    validate_redis_config()
+
     await init_db()
     await init_provider(await get_db())
 
     # Check Redis availability if adapter is enabled
-    if settings.USE_REDIS_ADAPTER:
+    mode = settings.REDIS_MODE.lower()
+    if mode == "none":
+        logger.debug("Redis adapter disabled (REDIS_MODE=none)")
+    else:
         try:
-            # Test Redis connectivity during startup
-            redis_url = _build_redis_url()
-            redis_client = async_redis.from_url(redis_url)
-            await redis_client.ping()
-            await redis_client.close()
-            logger.info("Redis adapter is available and ready")
+            reachable = False
+            if mode == "single":
+                reachable = can_we_reach_redis(build_redis_url())
+            elif mode == "sentinel":
+                hosts = parse_host_port_pairs(settings.REDIS_HOST)
+                reachable = can_we_reach_sentinel(
+                    hosts, settings.REDIS_SENTINEL_MASTER_NAME
+                )
+            elif mode == "cluster":
+                hosts = parse_host_port_pairs(settings.REDIS_HOST)
+                reachable = can_we_reach_cluster(hosts)
+
+            if reachable:
+                logger.info(f"Redis adapter is available and ready (mode={mode})")
+            else:
+                logger.warning(
+                    f"Redis adapter enabled but unavailable (mode={mode}) "
+                    "- continuing with degraded Socket.IO functionality"
+                )
         except Exception as e:
             error_type = _handle_redis_failure("startup Redis check", e)
             logger.warning(
-                f"Redis adapter enabled but unavailable (type: {error_type}) - continuing with degraded Socket.IO functionality"
+                f"Redis adapter enabled but unavailable (type: {error_type}) "
+                "- continuing with degraded Socket.IO functionality"
             )
-    else:
-        logger.debug("Redis adapter disabled")
 
     # Robust Webhook Registration
     if settings.ACAPY_TENANCY == "multi":

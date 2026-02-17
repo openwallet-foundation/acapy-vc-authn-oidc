@@ -1,12 +1,15 @@
+import json
 import os
 import secrets
 from urllib.parse import urlparse
 
+import redis
 import structlog
 import structlog.typing
 from api.clientConfigurations.models import TOKENENDPOINTAUTHMETHODS
 from api.core.config import settings
 from api.core.models import VCUserinfo
+from api.core.redis_utils import parse_host_port_pairs, build_redis_url
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
@@ -14,8 +17,9 @@ from jwkest.jwk import KEYS, RSAKey, rsa_load
 from pymongo.database import Database
 from pyop.authz_state import AuthorizationState
 from pyop.provider import Provider
-from pyop.storage import RedisWrapper, StatelessWrapper
+from pyop.storage import StatelessWrapper
 from pyop.subject_identifier import HashBasedSubjectIdentifierFactory
+from redis.sentinel import Sentinel
 
 logger: structlog.typing.FilteringBoundLogger = structlog.get_logger()
 DIR_PATH = os.path.dirname(os.path.realpath(__file__))
@@ -41,27 +45,127 @@ def pem_file_exists(filepath) -> bool:
     return os.path.isfile(filepath)
 
 
-def _build_redis_url():
-    """Build Redis connection URL from settings"""
+
+
+def _get_sentinel_master():
+    """Get a Redis master connection via Sentinel."""
+    sentinel_hosts = parse_host_port_pairs(settings.REDIS_HOST)
+
+    sentinel_kwargs = {}
     if settings.REDIS_PASSWORD:
-        return f"redis://:{settings.REDIS_PASSWORD}@{settings.REDIS_HOST}:{settings.REDIS_PORT}/{settings.REDIS_DB}"
-    else:
-        return (
-            f"redis://{settings.REDIS_HOST}:{settings.REDIS_PORT}/{settings.REDIS_DB}"
-        )
+        sentinel_kwargs["password"] = settings.REDIS_PASSWORD
+
+    sentinel = Sentinel(sentinel_hosts, sentinel_kwargs=sentinel_kwargs)
+    return sentinel.master_for(
+        settings.REDIS_SENTINEL_MASTER_NAME, password=settings.REDIS_PASSWORD
+    )
 
 
-class RedisWrapperWithPack(RedisWrapper):
+def _get_cluster_client():
+    """Get a Redis Cluster client."""
+    from redis.cluster import RedisCluster, ClusterNode
+
+    hosts = parse_host_port_pairs(settings.REDIS_HOST)
+    startup_nodes = [ClusterNode(host, port) for host, port in hosts]
+
+    return RedisCluster(
+        startup_nodes=startup_nodes,
+        password=settings.REDIS_PASSWORD,
+    )
+
+
+def _get_single_redis_client():
+    """Get a single Redis client connection."""
+    redis_url = build_redis_url()
+    return redis.from_url(redis_url)
+
+
+class BaseRedisWrapperWithPack:
     """
-    Wrapper around PyOP's RedisWrapper that implements pack() and unpack() methods.
+    Base class for Redis storage wrappers with pack/unpack support.
 
-    PyOP's RedisWrapper doesn't implement these methods (raises NotImplementedError),
-    but the application code calls .pack() to regenerate authorization codes.
+    Provides a dict-like interface for storing JSON-serializable values in Redis
+    with automatic TTL. Subclasses only need to override the `db` property to
+    provide the appropriate Redis client (Sentinel master, Cluster, etc.).
 
-    This wrapper stores values in Redis (shared across pods) and returns a random key.
-    Unlike StatelessWrapper which encrypts data into the token, this approach uses
-    Redis as a shared data store accessible by all pods.
+    Works with PyOP's storage interface for authorization codes, tokens, etc.
     """
+
+    # Override in subclass for logging (e.g., "sentinel", "cluster")
+    backend_name: str = "redis"
+
+    def __init__(self, collection: str, ttl: int):
+        """Initialize Redis storage.
+
+        Args:
+            collection: Key prefix/namespace for this storage
+            ttl: Time to live in seconds for stored values
+        """
+        self._collection = collection
+        self.collection = collection  # For compatibility with logging
+        self.ttl = ttl
+        self._db = None
+
+    @property
+    def db(self):
+        """Return Redis client. Override in subclass."""
+        raise NotImplementedError("Subclasses must implement db property")
+
+    def _key(self, key: str) -> str:
+        """Build full Redis key with collection prefix."""
+        return f"{self._collection}:{key}"
+
+    def __setitem__(self, key, value):
+        """Store a value in Redis with TTL."""
+        full_key = self._key(key)
+        self.db.set(full_key, json.dumps(value), ex=self.ttl)
+
+    def __getitem__(self, key):
+        """Retrieve a value from Redis."""
+        full_key = self._key(key)
+        value = self.db.get(full_key)
+        if value is None:
+            raise KeyError(key)
+        return json.loads(value)
+
+    def __delitem__(self, key):
+        """Delete a value from Redis."""
+        full_key = self._key(key)
+        self.db.delete(full_key)
+
+    def __contains__(self, key):
+        """Check if a key exists in Redis."""
+        full_key = self._key(key)
+        return self.db.exists(full_key) > 0
+
+    def keys(self):
+        """Return all keys in this collection."""
+        pattern = f"{self._collection}:*"
+        prefix_len = len(self._collection) + 1  # +1 for the colon
+        for full_key in self.db.scan_iter(match=pattern):
+            # Decode bytes to string if needed
+            if isinstance(full_key, bytes):
+                full_key = full_key.decode("utf-8")
+            # Strip the collection prefix to get the original key
+            yield full_key[prefix_len:]
+
+    def values(self):
+        """Return all values in this collection."""
+        for key in self.keys():
+            try:
+                yield self[key]
+            except KeyError:
+                # Key may have expired between scan and get
+                continue
+
+    def items(self):
+        """Return all (key, value) pairs in this collection."""
+        for key in self.keys():
+            try:
+                yield key, self[key]
+            except KeyError:
+                # Key may have expired between scan and get
+                continue
 
     def pack(self, value):
         """
@@ -73,7 +177,7 @@ class RedisWrapperWithPack(RedisWrapper):
         key = secrets.token_urlsafe(32)
         self[key] = value
         logger.debug(
-            "Stored value in Redis",
+            f"Stored value in Redis ({self.backend_name})",
             operation="pack",
             collection=self._collection,
             key_prefix=key[:8],
@@ -90,7 +194,7 @@ class RedisWrapperWithPack(RedisWrapper):
         try:
             value = self[key]
             logger.debug(
-                "Retrieved value from Redis",
+                f"Retrieved value from Redis ({self.backend_name})",
                 operation="unpack",
                 collection=self.collection,
                 key_prefix=key[:8],
@@ -98,12 +202,51 @@ class RedisWrapperWithPack(RedisWrapper):
             return value
         except KeyError:
             logger.warning(
-                "Key not found in Redis",
+                f"Key not found in Redis ({self.backend_name})",
                 operation="unpack",
                 collection=self.collection,
                 key_prefix=key[:8],
             )
             raise
+
+
+class SentinelRedisWrapperWithPack(BaseRedisWrapperWithPack):
+    """Redis storage wrapper using Sentinel for high availability."""
+
+    backend_name = "sentinel"
+
+    @property
+    def db(self):
+        """Lazy initialization of Sentinel master connection."""
+        if self._db is None:
+            self._db = _get_sentinel_master()
+        return self._db
+
+
+class ClusterRedisWrapperWithPack(BaseRedisWrapperWithPack):
+    """Redis storage wrapper using Redis Cluster for horizontal scaling."""
+
+    backend_name = "cluster"
+
+    @property
+    def db(self):
+        """Lazy initialization of Cluster client."""
+        if self._db is None:
+            self._db = _get_cluster_client()
+        return self._db
+
+
+class SingleRedisWrapperWithPack(BaseRedisWrapperWithPack):
+    """Redis storage wrapper using a single Redis instance."""
+
+    backend_name = "single"
+
+    @property
+    def db(self):
+        """Lazy initialization of single Redis connection."""
+        if self._db is None:
+            self._db = _get_single_redis_client()
+        return self._db
 
 
 if settings.TESTING:
@@ -141,7 +284,7 @@ if not pem_file_exists(SIGNING_KEY_FILEPATH):
     )
     save_pem_file(SIGNING_KEY_FILEPATH, pem)
 else:
-    logger.info("pem file alrady exists")
+    logger.info("pem file already exists")
 logger.info(f"pem file located at {SIGNING_KEY_FILEPATH}.")
 
 issuer_url = settings.CONTROLLER_URL
@@ -293,37 +436,44 @@ else:
 
 subject_id_factory = HashBasedSubjectIdentifierFactory(settings.SUBJECT_ID_HASH_SALT)
 
+
+def extract_storage_class(redis_mode: str) -> type[BaseRedisWrapperWithPack]:
+    match redis_mode:
+        case "sentinel":
+            return SentinelRedisWrapperWithPack
+        case "cluster":
+            return ClusterRedisWrapperWithPack
+        case _:
+            return SingleRedisWrapperWithPack
+
+
 # Conditionally create storage backends based on USE_REDIS_ADAPTER setting
 if settings.USE_REDIS_ADAPTER:
     # Redis storage for multi-pod deployments - shared state across all pods
-    redis_url = _build_redis_url()
+    redis_mode = settings.REDIS_MODE.lower()
 
-    authorization_code_storage = RedisWrapperWithPack(
-        db_uri=redis_url,
+    storage_class: type[BaseRedisWrapperWithPack] = extract_storage_class(redis_mode)
+    authorization_code_storage = storage_class(
         collection="pyop_authorization_codes",
         ttl=600,  # 10 minutes
     )
 
-    access_token_storage = RedisWrapperWithPack(
-        db_uri=redis_url,
+    access_token_storage = storage_class(
         collection="pyop_access_tokens",
         ttl=settings.OIDC_ACCESS_TOKEN_TTL,
     )
 
-    refresh_token_storage = RedisWrapperWithPack(
-        db_uri=redis_url,
+    refresh_token_storage = storage_class(
         collection="pyop_refresh_tokens",
         ttl=2592000,  # 30 days
     )
 
-    subject_identifier_storage = RedisWrapperWithPack(
-        db_uri=redis_url,
+    subject_identifier_storage = storage_class(
         collection="pyop_subject_identifiers",
         ttl=3600,  # 1 hour - matches access token lifetime
     )
 
-    userinfo_claims_storage = RedisWrapperWithPack(
-        db_uri=redis_url,
+    userinfo_claims_storage = storage_class(
         collection="pyop_userinfo_claims",
         # Set TTL to match Token TTL.
         # We add a 60 second buffer to ensure the data strictly outlives the token
@@ -332,7 +482,7 @@ if settings.USE_REDIS_ADAPTER:
     )
 
     logger.info(
-        "Initialized Redis storage for PyOP tokens",
+        f"Initialized Redis {storage_class.backend_name} storage for PyOP tokens",
         storage_backend="redis",
         redis_host=settings.REDIS_HOST,
         redis_port=settings.REDIS_PORT,

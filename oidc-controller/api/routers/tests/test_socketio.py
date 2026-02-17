@@ -495,12 +495,12 @@ class TestShouldUseRedisAdapter:
     """Test _should_use_redis_adapter function for consolidated Redis configuration checks."""
 
     @patch("api.routers.socketio.settings")
-    def test_should_use_redis_adapter_disabled(self, mock_settings):
-        """Test _should_use_redis_adapter when Redis adapter is disabled."""
+    def test_should_use_redis_adapter_mode_none(self, mock_settings):
+        """Test _should_use_redis_adapter when REDIS_MODE is none."""
         from api.routers.socketio import _should_use_redis_adapter
 
         # Setup
-        mock_settings.USE_REDIS_ADAPTER = False
+        mock_settings.REDIS_MODE = "none"
 
         # Execute
         result = _should_use_redis_adapter()
@@ -514,7 +514,7 @@ class TestShouldUseRedisAdapter:
         from api.routers.socketio import _should_use_redis_adapter
 
         # Setup
-        mock_settings.USE_REDIS_ADAPTER = True
+        mock_settings.REDIS_MODE = "single"
         mock_settings.REDIS_HOST = None
 
         # Execute
@@ -524,12 +524,12 @@ class TestShouldUseRedisAdapter:
         assert result is False
 
     @patch("api.routers.socketio.settings")
-    def test_should_use_redis_adapter_enabled(self, mock_settings):
-        """Test _should_use_redis_adapter when all settings are configured."""
+    def test_should_use_redis_adapter_single_mode(self, mock_settings):
+        """Test _should_use_redis_adapter when REDIS_MODE is single."""
         from api.routers.socketio import _should_use_redis_adapter
 
         # Setup
-        mock_settings.USE_REDIS_ADAPTER = True
+        mock_settings.REDIS_MODE = "single"
         mock_settings.REDIS_HOST = "localhost"
 
         # Execute
@@ -537,6 +537,50 @@ class TestShouldUseRedisAdapter:
 
         # Verify
         assert result is True
+
+    @patch("api.routers.socketio.settings")
+    def test_should_use_redis_adapter_sentinel_mode(self, mock_settings):
+        """Test _should_use_redis_adapter when REDIS_MODE is sentinel."""
+        from api.routers.socketio import _should_use_redis_adapter
+
+        # Setup
+        mock_settings.REDIS_MODE = "sentinel"
+        mock_settings.REDIS_HOST = "sentinel1:26379,sentinel2:26379"
+
+        # Execute
+        result = _should_use_redis_adapter()
+
+        # Verify
+        assert result is True
+
+    @patch("api.routers.socketio.settings")
+    def test_should_use_redis_adapter_cluster_mode(self, mock_settings):
+        """Test _should_use_redis_adapter when REDIS_MODE is cluster."""
+        from api.routers.socketio import _should_use_redis_adapter
+
+        # Setup
+        mock_settings.REDIS_MODE = "cluster"
+        mock_settings.REDIS_HOST = "node1:6379,node2:6379,node3:6379"
+
+        # Execute
+        result = _should_use_redis_adapter()
+
+        # Verify
+        assert result is True
+
+    @patch("api.routers.socketio.settings")
+    def test_should_use_redis_adapter_invalid_mode(self, mock_settings):
+        """Test _should_use_redis_adapter when REDIS_MODE is invalid."""
+        from api.routers.socketio import _should_use_redis_adapter
+
+        # Setup
+        mock_settings.REDIS_MODE = "invalid_mode"
+
+        # Execute
+        result = _should_use_redis_adapter()
+
+        # Verify
+        assert result is False
 
 
 class TestCreateSocketManager:
@@ -558,21 +602,24 @@ class TestCreateSocketManager:
         mock_should_use.assert_called_once()
 
     @patch("api.routers.socketio._should_use_redis_adapter")
+    @patch("api.core.redis_utils.settings")
     @patch("api.routers.socketio.settings")
     @patch("api.routers.socketio.can_we_reach_redis")
     @patch("socketio.AsyncRedisManager")
-    def test_create_socket_manager_success_with_password(
-        self, mock_redis_manager, mock_can_reach_redis, mock_settings, mock_should_use
+    def test_create_socket_manager_single_mode_with_password(
+        self, mock_redis_manager, mock_can_reach_redis, mock_settings, mock_utils_settings, mock_should_use
     ):
-        """Test successful Redis manager creation with password."""
+        """Test successful Redis manager creation in single mode with password."""
         from api.routers.socketio import create_socket_manager
 
         # Setup
         mock_should_use.return_value = True
-        mock_settings.REDIS_HOST = "localhost"
-        mock_settings.REDIS_PORT = 6379
-        mock_settings.REDIS_PASSWORD = "secret"
-        mock_settings.REDIS_DB = 0
+        for s in (mock_settings, mock_utils_settings):
+            s.REDIS_MODE = "single"
+            s.REDIS_HOST = "localhost"
+            s.REDIS_PORT = 6379
+            s.REDIS_PASSWORD = "secret"
+            s.REDIS_DB = 0
         mock_can_reach_redis.return_value = True
 
         mock_instance = Mock()
@@ -589,21 +636,24 @@ class TestCreateSocketManager:
         mock_redis_manager.assert_called_once_with(expected_url)
 
     @patch("api.routers.socketio._should_use_redis_adapter")
+    @patch("api.core.redis_utils.settings")
     @patch("api.routers.socketio.settings")
     @patch("api.routers.socketio.can_we_reach_redis")
     @patch("socketio.AsyncRedisManager")
-    def test_create_socket_manager_success_without_password(
-        self, mock_redis_manager, mock_can_reach_redis, mock_settings, mock_should_use
+    def test_create_socket_manager_single_mode_without_password(
+        self, mock_redis_manager, mock_can_reach_redis, mock_settings, mock_utils_settings, mock_should_use
     ):
-        """Test successful Redis manager creation without password."""
+        """Test successful Redis manager creation in single mode without password."""
         from api.routers.socketio import create_socket_manager
 
         # Setup
         mock_should_use.return_value = True
-        mock_settings.REDIS_HOST = "localhost"
-        mock_settings.REDIS_PORT = 6379
-        mock_settings.REDIS_PASSWORD = None
-        mock_settings.REDIS_DB = 0
+        for s in (mock_settings, mock_utils_settings):
+            s.REDIS_MODE = "single"
+            s.REDIS_HOST = "localhost"
+            s.REDIS_PORT = 6379
+            s.REDIS_PASSWORD = None
+            s.REDIS_DB = 0
         mock_can_reach_redis.return_value = True
 
         mock_instance = Mock()
@@ -620,20 +670,105 @@ class TestCreateSocketManager:
         mock_redis_manager.assert_called_once_with(expected_url)
 
     @patch("api.routers.socketio._should_use_redis_adapter")
+    @patch("api.core.redis_utils.settings")
     @patch("api.routers.socketio.settings")
-    @patch("api.routers.socketio.can_we_reach_redis")
-    def test_create_socket_manager_exception(
-        self, mock_can_reach_redis, mock_settings, mock_should_use
+    @patch("api.routers.socketio.can_we_reach_sentinel")
+    @patch("socketio.AsyncRedisManager")
+    def test_create_socket_manager_sentinel_mode(
+        self,
+        mock_redis_manager,
+        mock_can_reach_sentinel,
+        mock_settings,
+        mock_utils_settings,
+        mock_should_use,
     ):
-        """Test create_socket_manager crashes when Redis validation fails."""
+        """Test successful Redis manager creation in sentinel mode."""
         from api.routers.socketio import create_socket_manager
 
         # Setup
         mock_should_use.return_value = True
-        mock_settings.REDIS_HOST = "localhost"
-        mock_settings.REDIS_PORT = 6379
-        mock_settings.REDIS_PASSWORD = ""
-        mock_settings.REDIS_DB = 0
+        for s in (mock_settings, mock_utils_settings):
+            s.REDIS_MODE = "sentinel"
+            s.REDIS_HOST = "sentinel1:26379,sentinel2:26379"
+            s.REDIS_PORT = 26379
+            s.REDIS_PASSWORD = "secret"
+            s.REDIS_DB = 0
+            s.REDIS_SENTINEL_MASTER_NAME = "mymaster"
+        mock_can_reach_sentinel.return_value = True
+
+        mock_instance = Mock()
+        mock_redis_manager.return_value = mock_instance
+
+        # Execute
+        result = create_socket_manager()
+
+        # Verify
+        mock_should_use.assert_called_once()
+        assert result is mock_instance
+        # Sentinel connectivity check is called with parsed hosts and master name
+        mock_can_reach_sentinel.assert_called_once_with(
+            [("sentinel1", 26379), ("sentinel2", 26379)], "mymaster"
+        )
+        # AsyncRedisManager is created with sentinel URL
+        expected_url = "redis+sentinel://:secret@sentinel1:26379,sentinel2:26379/mymaster/0"
+        mock_redis_manager.assert_called_once_with(expected_url)
+
+    @patch("api.routers.socketio._should_use_redis_adapter")
+    @patch("api.routers.socketio.settings")
+    @patch("api.routers.socketio.can_we_reach_cluster")
+    @patch("api.routers.socketio.AsyncRedisClusterManager")
+    def test_create_socket_manager_cluster_mode(
+        self,
+        mock_cluster_manager,
+        mock_can_reach_cluster,
+        mock_settings,
+        mock_should_use,
+    ):
+        """Test successful Redis manager creation in cluster mode."""
+        from api.routers.socketio import create_socket_manager
+
+        # Setup
+        mock_should_use.return_value = True
+        mock_settings.REDIS_MODE = "cluster"
+        mock_settings.REDIS_HOST = "node1:6379,node2:6379,node3:6379"
+        mock_settings.REDIS_PASSWORD = "secret"
+        mock_can_reach_cluster.return_value = True
+
+        mock_instance = Mock()
+        mock_cluster_manager.return_value = mock_instance
+
+        # Execute
+        result = create_socket_manager()
+
+        # Verify
+        mock_should_use.assert_called_once()
+        assert result is mock_instance
+        mock_can_reach_cluster.assert_called_once_with(
+            [("node1", 6379), ("node2", 6379), ("node3", 6379)]
+        )
+        mock_cluster_manager.assert_called_once_with(
+            startup_nodes=[("node1", 6379), ("node2", 6379), ("node3", 6379)],
+            password="secret",
+        )
+
+    @patch("api.routers.socketio._should_use_redis_adapter")
+    @patch("api.core.redis_utils.settings")
+    @patch("api.routers.socketio.settings")
+    @patch("api.routers.socketio.can_we_reach_redis")
+    def test_create_socket_manager_single_mode_connection_fails(
+        self, mock_can_reach_redis, mock_settings, mock_utils_settings, mock_should_use
+    ):
+        """Test create_socket_manager returns None when Redis validation fails in single mode."""
+        from api.routers.socketio import create_socket_manager
+
+        # Setup
+        mock_should_use.return_value = True
+        for s in (mock_settings, mock_utils_settings):
+            s.REDIS_MODE = "single"
+            s.REDIS_HOST = "localhost"
+            s.REDIS_PORT = 6379
+            s.REDIS_PASSWORD = ""
+            s.REDIS_DB = 0
         mock_can_reach_redis.return_value = False  # Validation fails
 
         # Execute and verify graceful fallback
@@ -642,3 +777,207 @@ class TestCreateSocketManager:
 
         # Verify
         mock_should_use.assert_called_once()
+
+    @patch("api.routers.socketio._should_use_redis_adapter")
+    @patch("api.routers.socketio.settings")
+    @patch("api.routers.socketio.can_we_reach_cluster")
+    def test_create_socket_manager_cluster_mode_connection_fails(
+        self, mock_can_reach_cluster, mock_settings, mock_should_use
+    ):
+        """Test create_socket_manager returns None when cluster validation fails."""
+        from api.routers.socketio import create_socket_manager
+
+        # Setup
+        mock_should_use.return_value = True
+        mock_settings.REDIS_MODE = "cluster"
+        mock_settings.REDIS_HOST = "node1:6379,node2:6379"
+        mock_settings.REDIS_PASSWORD = None
+        mock_can_reach_cluster.return_value = False  # Validation fails
+
+        # Execute and verify graceful fallback
+        result = create_socket_manager()
+        assert result is None
+
+        # Verify
+        mock_should_use.assert_called_once()
+
+    @patch("api.routers.socketio._should_use_redis_adapter")
+    @patch("api.routers.socketio.settings")
+    def test_create_socket_manager_invalid_mode(self, mock_settings, mock_should_use):
+        """Test create_socket_manager returns None for invalid mode."""
+        from api.routers.socketio import create_socket_manager
+
+        # Setup
+        mock_should_use.return_value = True
+        mock_settings.REDIS_MODE = "invalid"
+
+        # Execute
+        result = create_socket_manager()
+
+        # Verify
+        assert result is None
+
+
+class TestBuildRedisUrl:
+    """Test _build_redis_url function for different Redis modes."""
+
+    @patch("api.core.redis_utils.settings")
+    def test_build_redis_url_single_mode_with_password(self, mock_settings):
+        """Test URL building for single mode with password."""
+        from api.routers.socketio import _build_redis_url
+
+        mock_settings.REDIS_MODE = "single"
+        mock_settings.REDIS_HOST = "redis-host"
+        mock_settings.REDIS_PORT = 6379
+        mock_settings.REDIS_PASSWORD = "secret"
+        mock_settings.REDIS_DB = 1
+
+        result = _build_redis_url()
+
+        assert result == "redis://:secret@redis-host:6379/1"
+
+    @patch("api.core.redis_utils.settings")
+    def test_build_redis_url_single_mode_without_password(self, mock_settings):
+        """Test URL building for single mode without password."""
+        from api.routers.socketio import _build_redis_url
+
+        mock_settings.REDIS_MODE = "single"
+        mock_settings.REDIS_HOST = "redis-host"
+        mock_settings.REDIS_PORT = 6380
+        mock_settings.REDIS_PASSWORD = None
+        mock_settings.REDIS_DB = 0
+
+        result = _build_redis_url()
+
+        assert result == "redis://redis-host:6380/0"
+
+    @patch("api.core.redis_utils.settings")
+    def test_build_redis_url_sentinel_mode_with_password(self, mock_settings):
+        """Test URL building for sentinel mode with password."""
+        from api.routers.socketio import _build_redis_url
+
+        mock_settings.REDIS_MODE = "sentinel"
+        mock_settings.REDIS_HOST = "sentinel1:26379,sentinel2:26379,sentinel3:26379"
+        mock_settings.REDIS_PASSWORD = "secret"
+        mock_settings.REDIS_DB = 2
+        mock_settings.REDIS_SENTINEL_MASTER_NAME = "mymaster"
+
+        result = _build_redis_url()
+
+        assert (
+            result
+            == "redis+sentinel://:secret@sentinel1:26379,sentinel2:26379,sentinel3:26379/mymaster/2"
+        )
+
+    @patch("api.core.redis_utils.settings")
+    def test_build_redis_url_sentinel_mode_without_password(self, mock_settings):
+        """Test URL building for sentinel mode without password."""
+        from api.routers.socketio import _build_redis_url
+
+        mock_settings.REDIS_MODE = "sentinel"
+        mock_settings.REDIS_HOST = "sentinel1:26379,sentinel2:26379"
+        mock_settings.REDIS_PASSWORD = None
+        mock_settings.REDIS_DB = 0
+        mock_settings.REDIS_SENTINEL_MASTER_NAME = "redis-master"
+
+        result = _build_redis_url()
+
+        assert (
+            result
+            == "redis+sentinel://sentinel1:26379,sentinel2:26379/redis-master/0"
+        )
+
+    @patch("api.core.redis_utils.settings")
+    def test_build_redis_url_cluster_mode_returns_none(self, mock_settings):
+        """Test URL building for cluster mode returns None (uses startup_nodes)."""
+        from api.routers.socketio import _build_redis_url
+
+        mock_settings.REDIS_MODE = "cluster"
+        mock_settings.REDIS_HOST = "node1:6379,node2:6379"
+
+        result = _build_redis_url()
+
+        assert result is None
+
+
+class TestParseHostPortPairs:
+    """Test _parse_host_port_pairs function for parsing node strings."""
+
+    def test_parse_single_node(self):
+        """Test parsing a single node."""
+        from api.routers.socketio import _parse_host_port_pairs
+
+        result = _parse_host_port_pairs("redis-node:6379")
+
+        assert result == [("redis-node", 6379)]
+
+    def test_parse_multiple_nodes(self):
+        """Test parsing multiple nodes."""
+        from api.routers.socketio import _parse_host_port_pairs
+
+        result = _parse_host_port_pairs("node1:6379,node2:6380,node3:6381")
+
+        assert result == [("node1", 6379), ("node2", 6380), ("node3", 6381)]
+
+    def test_parse_with_spaces(self):
+        """Test parsing nodes with spaces around commas."""
+        from api.routers.socketio import _parse_host_port_pairs
+
+        result = _parse_host_port_pairs("node1:6379, node2:6380 , node3:6381")
+
+        assert result == [("node1", 6379), ("node2", 6380), ("node3", 6381)]
+
+    def test_parse_sentinel_nodes(self):
+        """Test parsing sentinel nodes with default sentinel port."""
+        from api.routers.socketio import _parse_host_port_pairs
+
+        result = _parse_host_port_pairs(
+            "sentinel1:26379,sentinel2:26379,sentinel3:26379"
+        )
+
+        assert result == [
+            ("sentinel1", 26379),
+            ("sentinel2", 26379),
+            ("sentinel3", 26379),
+        ]
+
+    def test_parse_with_ipv4_addresses(self):
+        """Test parsing nodes with IPv4 addresses."""
+        from api.routers.socketio import _parse_host_port_pairs
+
+        result = _parse_host_port_pairs("192.168.1.10:6379,192.168.1.11:6379")
+
+        assert result == [("192.168.1.10", 6379), ("192.168.1.11", 6379)]
+
+
+class TestCanWeReachCluster:
+    """Test can_we_reach_cluster function for cluster connectivity testing."""
+
+    @patch("api.routers.socketio.RedisCluster")
+    @patch("api.routers.socketio.settings")
+    def test_can_we_reach_cluster_success(self, mock_settings, mock_redis_cluster):
+        """Test successful cluster connectivity check."""
+        from api.routers.socketio import can_we_reach_cluster
+
+        mock_settings.REDIS_PASSWORD = "secret"
+        mock_client = Mock()
+        mock_redis_cluster.return_value = mock_client
+
+        result = can_we_reach_cluster([("node1", 6379), ("node2", 6379)])
+
+        assert result is True
+        mock_client.ping.assert_called_once()
+        mock_client.close.assert_called_once()
+
+    @patch("api.routers.socketio.RedisCluster")
+    @patch("api.routers.socketio.settings")
+    def test_can_we_reach_cluster_failure(self, mock_settings, mock_redis_cluster):
+        """Test cluster connectivity check failure."""
+        from api.routers.socketio import can_we_reach_cluster
+
+        mock_settings.REDIS_PASSWORD = None
+        mock_redis_cluster.side_effect = Exception("Cluster unreachable")
+
+        result = can_we_reach_cluster([("node1", 6379)])
+
+        assert result is False

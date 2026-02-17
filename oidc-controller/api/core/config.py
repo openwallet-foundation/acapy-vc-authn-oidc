@@ -133,6 +133,28 @@ class EnvironmentEnum(str, Enum):
     LOCAL = "local"
 
 
+def _get_redis_mode() -> str:
+    """Determine Redis mode with backwards compatibility for USE_REDIS_ADAPTER.
+
+    Priority:
+    1. If REDIS_MODE env var is set, use it directly
+    2. If legacy USE_REDIS_ADAPTER is set to true, return "single" with deprecation warning
+    3. Default to "none" (Redis disabled)
+    """
+    mode = os.environ.get("REDIS_MODE")
+    if mode:
+        return mode.lower()
+
+    # Legacy fallback for backwards compatibility
+    use_adapter = os.environ.get("USE_REDIS_ADAPTER", "false")
+    if strtobool(use_adapter):
+        logger.warning(
+            "USE_REDIS_ADAPTER is deprecated, use REDIS_MODE=single instead"
+        )
+        return "single"
+    return "none"
+
+
 class GlobalConfig(BaseSettings):
     TITLE: str = os.environ.get(
         "CONTROLLER_APP_TITLE", "acapy-vc-authn-oidc Controller"
@@ -254,8 +276,6 @@ class GlobalConfig(BaseSettings):
             raise ValueError("OIDC_ACCESS_TOKEN_TTL must be a positive integer")
         return v
 
-    model_config = ConfigDict(case_sensitive=True)
-
     OIDC_CLIENT_ID: str = os.environ.get("OIDC_CLIENT_ID", "keycloak")
     OIDC_CLIENT_NAME: str = os.environ.get("OIDC_CLIENT_NAME", "keycloak")
     OIDC_CLIENT_REDIRECT_URI: str = os.environ.get(
@@ -286,11 +306,26 @@ class GlobalConfig(BaseSettings):
     )
 
     # Redis Configuration for multi-pod Socket.IO
+    # REDIS_MODE: "none", "single", "sentinel", or "cluster"
+    # - none: Redis disabled (default for backwards compatibility)
+    # - single: Single Redis instance (REDIS_HOST:REDIS_PORT)
+    # - sentinel: Redis Sentinel (REDIS_HOST = "host1:port1,host2:port2")
+    # - cluster: Redis Cluster (REDIS_HOST = "host1:port1,host2:port2")
+    REDIS_MODE: str = _get_redis_mode()
     REDIS_HOST: str = os.environ.get("REDIS_HOST", "redis")
     REDIS_PORT: int = int(os.environ.get("REDIS_PORT", 6379))
     REDIS_PASSWORD: str | None = os.environ.get("REDIS_PASSWORD")
     REDIS_DB: int = int(os.environ.get("REDIS_DB", 0))
-    USE_REDIS_ADAPTER: bool = strtobool(os.environ.get("USE_REDIS_ADAPTER", False))
+
+    # Sentinel-specific configuration (only used when REDIS_MODE=sentinel)
+    REDIS_SENTINEL_MASTER_NAME: str = os.environ.get(
+        "REDIS_SENTINEL_MASTER_NAME", "mymaster"
+    )
+
+    @property
+    def USE_REDIS_ADAPTER(self) -> bool:
+        """Backwards compatibility property - derived from REDIS_MODE."""
+        return self.REDIS_MODE.lower() != "none"
 
     # Redis error handling and retry configuration
     REDIS_THREAD_MAX_RETRIES: int = int(os.environ.get("REDIS_THREAD_MAX_RETRIES", 5))
@@ -357,3 +392,51 @@ if settings.ACAPY_TOKEN_CACHE_TTL <= 0:
     raise ValueError(
         f"ACAPY_TOKEN_CACHE_TTL must be a positive integer, got '{settings.ACAPY_TOKEN_CACHE_TTL}'"
     )
+
+
+import re
+
+
+def validate_redis_config():
+    """Validate Redis configuration at startup.
+
+    Raises ValueError with clear message if configuration is invalid.
+    This should be called at application startup.
+    """
+    mode = settings.REDIS_MODE.lower()
+
+    if mode == "none":
+        return  # No validation needed
+
+    if mode == "single":
+        # Single mode: REDIS_HOST should be a simple hostname (no commas)
+        if "," in settings.REDIS_HOST:
+            raise ValueError(
+                f"REDIS_MODE=single but REDIS_HOST contains multiple hosts: '{settings.REDIS_HOST}'. "
+                f"For single mode, use a single hostname (e.g., REDIS_HOST=redis). "
+                f"For multiple nodes, use REDIS_MODE=sentinel or REDIS_MODE=cluster."
+            )
+
+    elif mode in ("sentinel", "cluster"):
+        # Sentinel/Cluster mode: REDIS_HOST should be comma-separated host:port pairs
+        host_port_pattern = re.compile(r"^[\w.\-]+:\d+$")
+        # Filter out empty strings (handles REDIS_HOST="" or "host1:6379,,host2:6379")
+        nodes = [n.strip() for n in settings.REDIS_HOST.split(",") if n.strip()]
+
+        if not nodes:
+            raise ValueError(
+                f"REDIS_MODE={mode} requires at least one node in REDIS_HOST."
+            )
+
+        for node in nodes:
+            if not host_port_pattern.match(node):
+                raise ValueError(
+                    f"REDIS_MODE={mode} requires REDIS_HOST as comma-separated host:port pairs. "
+                    f"Invalid node: '{node}'. "
+                    f"Expected format: 'host1:port1,host2:port2' (e.g., 'sentinel1:26379,sentinel2:26379')"
+                )
+
+    else:
+        raise ValueError(
+            f"Invalid REDIS_MODE: '{mode}'. Must be one of: none, single, sentinel, cluster"
+        )

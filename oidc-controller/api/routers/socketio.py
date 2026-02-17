@@ -1,7 +1,10 @@
 import asyncio
+import pickle
 import redis.asyncio as async_redis
 import redis
+from redis.cluster import RedisCluster, ClusterNode
 import socketio  # For using websockets
+from socketio.async_pubsub_manager import AsyncPubSubManager
 import logging
 import structlog
 from fastapi import Depends
@@ -10,8 +13,12 @@ from pymongo.database import Database
 from ..authSessions.crud import AuthSessionCRUD
 from ..db.session import get_db, client
 from ..core.config import settings
+from ..core.redis_utils import parse_host_port_pairs, build_redis_url
 
 logger = structlog.getLogger(__name__)
+
+# Valid Redis modes
+VALID_REDIS_MODES = ("none", "single", "sentinel", "cluster")
 
 
 class RedisErrorType:
@@ -82,9 +89,22 @@ def _handle_redis_failure(operation: str, error: Exception) -> str:
 
 
 def _should_use_redis_adapter():
-    """Single check to determine if Redis adapter should be used"""
-    if not settings.USE_REDIS_ADAPTER:
-        logger.info("Redis adapter disabled - using default manager")
+    """Single check to determine if Redis adapter should be used.
+
+    Checks REDIS_MODE to determine if Redis should be used.
+    For backwards compatibility, also supports legacy USE_REDIS_ADAPTER env var
+    (handled in _get_redis_mode in config.py).
+    """
+    mode = settings.REDIS_MODE.lower()
+
+    if mode == "none":
+        logger.info("Redis adapter disabled (REDIS_MODE=none) - using default manager")
+        return False
+
+    if mode not in VALID_REDIS_MODES:
+        logger.error(
+            f"Invalid REDIS_MODE: '{mode}'. Must be one of: {', '.join(VALID_REDIS_MODES)}"
+        )
         return False
 
     if not settings.REDIS_HOST:
@@ -96,13 +116,179 @@ def _should_use_redis_adapter():
 
 
 def _build_redis_url():
-    """Build Redis connection URL from settings"""
-    if settings.REDIS_PASSWORD:
-        return f"redis://:{settings.REDIS_PASSWORD}@{settings.REDIS_HOST}:{settings.REDIS_PORT}/{settings.REDIS_DB}"
-    else:
-        return (
-            f"redis://{settings.REDIS_HOST}:{settings.REDIS_PORT}/{settings.REDIS_DB}"
+    """Build Redis connection URL from settings. Delegates to shared module."""
+    return build_redis_url()
+
+
+def _parse_host_port_pairs(hosts_string: str) -> list[tuple[str, int]]:
+    """Parse host:port pairs. Delegates to shared module."""
+    return parse_host_port_pairs(hosts_string)
+
+
+class AsyncRedisClusterManager(AsyncPubSubManager):
+    """Custom manager for Redis Cluster mode.
+
+    Extends AsyncPubSubManager to use RedisCluster client for publishing
+    and a single node connection for pub/sub (since cluster pub/sub messages
+    are broadcast to all nodes).
+
+    Based on python-socketio's AsyncRedisManager implementation pattern.
+    """
+
+    name = "asyncrediscluster"
+
+    def __init__(
+        self,
+        startup_nodes: list[tuple[str, int]],
+        password: str | None = None,
+        channel: str = "socketio",
+        write_only: bool = False,
+        redis_options: dict | None = None,
+    ):
+        """Initialize Redis Cluster manager.
+
+        Args:
+            startup_nodes: List of (host, port) tuples for cluster nodes
+            password: Redis password (optional)
+            channel: Pub/Sub channel name (default: 'socketio')
+            write_only: If True, only publish messages without subscribing
+            redis_options: Additional options passed to RedisCluster client
+        """
+        # Store raw tuples - ClusterNode objects created when needed
+        self._startup_nodes_raw = startup_nodes
+        self._password = password
+        self._redis_options = redis_options or {}
+        self.redis = None  # Cluster client for publish
+        self.pubsub_client = None  # Single node client for subscribe
+        self.pubsub = None
+        super().__init__(channel=channel, write_only=write_only)
+
+    async def _publish(self, data):
+        """Publish message to Redis Cluster."""
+        retry = True
+        while True:
+            try:
+                if self.redis is None:
+                    from redis.asyncio.cluster import RedisCluster as AsyncRedisCluster
+
+                    # Create cluster nodes for async client
+                    startup_nodes = [
+                        {"host": host, "port": port}
+                        for host, port in self._startup_nodes_raw
+                    ]
+                    self.redis = AsyncRedisCluster(
+                        startup_nodes=startup_nodes,
+                        password=self._password,
+                        **self._redis_options,
+                    )
+                return await self.redis.publish(self.channel, pickle.dumps(data))
+            except Exception:
+                if retry:
+                    logger.warning("Redis Cluster publish failed, reconnecting...")
+                    self.redis = None
+                    retry = False
+                else:
+                    raise
+
+    async def _listen(self):
+        """Listen for messages from Redis Cluster pub/sub.
+
+        Redis Cluster broadcasts pub/sub messages to all nodes, so we only need
+        to subscribe to one node to receive all messages.
+        """
+        retry_sleep = 1
+        while True:
+            try:
+                if self.pubsub_client is None:
+                    # Connect to the first node for pub/sub
+                    # (messages are broadcast to all nodes in cluster)
+                    host, port = self._startup_nodes_raw[0]
+                    self.pubsub_client = async_redis.Redis(
+                        host=host,
+                        port=port,
+                        password=self._password,
+                    )
+                    self.pubsub = self.pubsub_client.pubsub()
+                    await self.pubsub.subscribe(self.channel)
+                    retry_sleep = 1
+                    logger.info(
+                        f"Redis Cluster pub/sub connected to {host}:{port}"
+                    )
+                async for message in self.pubsub.listen():
+                    if message["type"] == "message":
+                        yield message["data"]
+            except Exception as e:
+                logger.warning(f"Redis Cluster pub/sub error: {e}, retrying...")
+                if self.pubsub:
+                    try:
+                        await self.pubsub.close()
+                    except Exception:
+                        pass
+                if self.pubsub_client:
+                    try:
+                        await self.pubsub_client.close()
+                    except Exception:
+                        pass
+                self.pubsub_client = None
+                self.pubsub = None
+                await asyncio.sleep(retry_sleep)
+                retry_sleep = min(retry_sleep * 2, 60)
+
+
+def can_we_reach_cluster(startup_nodes: list[tuple[str, int]]) -> bool:
+    """Test Redis Cluster connectivity.
+
+    Args:
+        startup_nodes: List of (host, port) tuples
+
+    Returns:
+        bool: True if cluster is reachable, False otherwise
+    """
+    try:
+        nodes = [ClusterNode(host, port) for host, port in startup_nodes]
+        client = RedisCluster(startup_nodes=nodes, password=settings.REDIS_PASSWORD)
+        client.ping()
+        client.close()
+        return True
+    except Exception as e:
+        _handle_redis_failure("cluster connectivity test", e)
+        return False
+
+
+def can_we_reach_sentinel(sentinel_hosts: list[tuple[str, int]], master_name: str) -> bool:
+    """Test Redis Sentinel connectivity.
+
+    Connects to the sentinel nodes and verifies we can discover and reach the master.
+
+    Args:
+        sentinel_hosts: List of (host, port) tuples for sentinel nodes
+        master_name: Name of the master to discover (e.g., 'mymaster')
+
+    Returns:
+        bool: True if sentinel and master are reachable, False otherwise
+    """
+    try:
+        from redis.sentinel import Sentinel
+
+        # Create Sentinel connection
+        sentinel_kwargs = {}
+        if settings.REDIS_PASSWORD:
+            sentinel_kwargs["password"] = settings.REDIS_PASSWORD
+
+        sentinel = Sentinel(sentinel_hosts, sentinel_kwargs=sentinel_kwargs)
+
+        # Get master from sentinel and ping it
+        master = sentinel.master_for(master_name, password=settings.REDIS_PASSWORD)
+        master.ping()
+        master.close()
+
+        logger.info(
+            f"Successfully connected to Redis via Sentinel (master: {master_name})"
         )
+        return True
+    except Exception as e:
+        _handle_redis_failure("sentinel connectivity test", e)
+        return False
 
 
 def can_we_reach_redis(redis_url):
@@ -215,36 +401,93 @@ def _patch_redis_manager_for_graceful_failure(manager):
 
 
 def create_socket_manager():
-    """Create Socket.IO manager with Redis adapter if configured"""
+    """Create Socket.IO manager with Redis adapter based on REDIS_MODE.
+
+    Supports three Redis deployment modes:
+    - single: Standard single Redis instance
+    - sentinel: Redis Sentinel for high availability
+    - cluster: Redis Cluster for horizontal scaling
+
+    Returns:
+        socketio.AsyncRedisManager | AsyncRedisClusterManager | None:
+            Redis manager if configured and reachable, None otherwise
+    """
     if not _should_use_redis_adapter():
         logger.info("Redis adapter disabled - using default Socket.IO manager")
         return None
 
+    mode = settings.REDIS_MODE.lower()
+
     try:
-        # Build Redis URL
-        redis_url = _build_redis_url()
+        if mode == "single":
+            # Single mode uses standard URL-based AsyncRedisManager
+            redis_url = _build_redis_url()
 
-        # Part 1: Test Redis connectivity BEFORE creating manager
-        # This prevents background threads from starting with bad Redis config
-        redis_available = can_we_reach_redis(redis_url)
+            # Test Redis connectivity BEFORE creating manager
+            redis_available = can_we_reach_redis(redis_url)
+            if not redis_available:
+                logger.warning(
+                    f"Redis connectivity test failed (mode={mode}) - falling back to default Socket.IO manager"
+                )
+                return None
 
-        if not redis_available:
-            logger.warning(
-                "Redis connectivity test failed - falling back to default Socket.IO manager"
+            manager = socketio.AsyncRedisManager(redis_url)
+            _patch_redis_manager_for_graceful_failure(manager)
+
+            logger.info(
+                f"Redis adapter configured: {settings.REDIS_HOST}:{settings.REDIS_PORT}"
+            )
+            return manager
+
+        elif mode == "sentinel":
+            # Sentinel mode: test connectivity via Sentinel client first
+            sentinel_hosts = _parse_host_port_pairs(settings.REDIS_HOST)
+
+            sentinel_available = can_we_reach_sentinel(
+                sentinel_hosts, settings.REDIS_SENTINEL_MASTER_NAME
+            )
+            if not sentinel_available:
+                logger.warning(
+                    "Redis Sentinel connectivity test failed - falling back to default Socket.IO manager"
+                )
+                return None
+
+            # Build sentinel URL for python-socketio's AsyncRedisManager
+            redis_url = _build_redis_url()
+            manager = socketio.AsyncRedisManager(redis_url)
+            _patch_redis_manager_for_graceful_failure(manager)
+
+            logger.info(
+                f"Redis Sentinel adapter configured: {settings.REDIS_HOST} (master: {settings.REDIS_SENTINEL_MASTER_NAME})"
+            )
+            return manager
+
+        elif mode == "cluster":
+            # Cluster mode uses custom AsyncRedisClusterManager
+            startup_nodes = _parse_host_port_pairs(settings.REDIS_HOST)
+
+            # Test cluster connectivity BEFORE creating manager
+            cluster_available = can_we_reach_cluster(startup_nodes)
+            if not cluster_available:
+                logger.warning(
+                    "Redis Cluster connectivity test failed - falling back to default Socket.IO manager"
+                )
+                return None
+
+            manager = AsyncRedisClusterManager(
+                startup_nodes=startup_nodes,
+                password=settings.REDIS_PASSWORD,
+            )
+            # Note: Cluster manager has its own retry logic built-in
+
+            logger.info(f"Redis Cluster adapter configured: {settings.REDIS_HOST}")
+            return manager
+
+        else:
+            logger.error(
+                f"Invalid REDIS_MODE: '{mode}'. Must be one of: {', '.join(VALID_REDIS_MODES)}"
             )
             return None
-
-        # Create manager only if Redis connectivity test passed
-        manager = socketio.AsyncRedisManager(redis_url)
-
-        # Part 2: Patch manager for graceful error handling
-        # This ensures background thread failures are handled gracefully
-        _patch_redis_manager_for_graceful_failure(manager)
-
-        logger.info(
-            f"Redis adapter configured: {settings.REDIS_HOST}:{settings.REDIS_PORT}"
-        )
-        return manager
 
     except Exception as e:
         # Handle any unexpected errors gracefully

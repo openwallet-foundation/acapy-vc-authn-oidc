@@ -345,17 +345,57 @@ Since the VC-AuthN OP does not maintain a permanent user database, this endpoint
 
 **Architecture Modes:**
 
-1.  **Stateless Mode (`USE_REDIS_ADAPTER=false`)**:
+1.  **Stateless Mode (`REDIS_MODE=none`)**:
     User claims are serialized, encrypted, and embedded directly inside the Access Token.
     *   **Data Availability**: Guaranteed. The data exists exactly as long as the token exists.
     *   **Pros**: Simple, no external dependencies.
     *   **Cons**: Larger token sizes.
 
-2.  **Redis Mode (`USE_REDIS_ADAPTER=true`)**:
+2.  **Redis Mode (`REDIS_MODE=single|sentinel|cluster`)**:
     User claims are cached in Redis and referenced by the Access Token.
     *   **Data Availability**: The system automatically synchronizes the Redis data Time-To-Live (TTL) with the Access Token's expiration (configured via `OIDC_ACCESS_TOKEN_TTL`). A small safety buffer (+60s) is added to the database entry to prevent race conditions where a valid token hits a missing database record due to clock skew.
     *   **Pros**: Smaller tokens, faster processing.
     *   **Cons**: Requires Redis infrastructure.
+
+**Redis Deployment Options:**
+
+| Mode | `REDIS_MODE` | `REDIS_HOST` Format | Use Case |
+|------|--------------|---------------------|----------|
+| Disabled | `none` | N/A | Single-pod deployments, no Socket.IO sync needed |
+| Single | `single` | `hostname` (e.g., `redis`) | Simple HA with single Redis instance |
+| Sentinel | `sentinel` | `host1:port1,host2:port2` (e.g., `sentinel1:26379,sentinel2:26379`) | High availability with automatic failover |
+| Cluster | `cluster` | `host1:port1,host2:port2` (e.g., `node1:6379,node2:6379,node3:6379`) | Horizontal scaling for large deployments |
+
+**Redis Configuration Variables:**
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `REDIS_MODE` | Redis deployment mode: `none`, `single`, `sentinel`, `cluster` | `none` |
+| `REDIS_HOST` | Redis hostname (single) or comma-separated `host:port` pairs (sentinel/cluster) | `redis` |
+| `REDIS_PORT` | Redis port (only used in single mode) | `6379` |
+| `REDIS_PASSWORD` | Redis password (optional) | - |
+| `REDIS_DB` | Redis database number (single/sentinel only) | `0` |
+| `REDIS_SENTINEL_MASTER_NAME` | Sentinel master name (sentinel mode only) | `mymaster` |
+
+**Example Configurations:**
+
+```bash
+# Single Redis instance
+REDIS_MODE=single
+REDIS_HOST=redis
+REDIS_PORT=6379
+
+# Redis Sentinel (high availability)
+REDIS_MODE=sentinel
+REDIS_HOST=sentinel1:26379,sentinel2:26379,sentinel3:26379
+REDIS_SENTINEL_MASTER_NAME=mymaster
+
+# Redis Cluster (horizontal scaling)
+REDIS_MODE=cluster
+REDIS_HOST=redis-node1:6379,redis-node2:6379,redis-node3:6379
+```
+
+**Backwards Compatibility:** The legacy `USE_REDIS_ADAPTER=true` environment variable is still supported and maps to `REDIS_MODE=single`. However, it is deprecated and will be removed in a future release.
 
 **Note:** This endpoint is strictly for retrieving the *current session's* claims. It is not a persistent profile store. Once the Access Token expires, the data is evicted or becomes inaccessible.
 
