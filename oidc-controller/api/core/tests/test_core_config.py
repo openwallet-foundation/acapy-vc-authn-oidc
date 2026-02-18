@@ -9,6 +9,7 @@ from api.core.config import (
     FactoryConfig,
     EnvironmentEnum,
     _get_redis_mode,
+    normalize_redis_config,
     validate_redis_config,
 )
 from pydantic import ValidationError
@@ -191,16 +192,30 @@ class TestValidateRedisConfig:
 
     @patch("api.core.config.settings")
     def test_validate_redis_config_single_mode_valid(self, mock_settings):
-        """Test validation passes for valid single mode config."""
+        """Test validation passes for valid single mode config with host:port."""
         mock_settings.REDIS_MODE = "single"
-        mock_settings.REDIS_HOST = "redis-host"
+        mock_settings.REDIS_HOST = "redis-host:6379"
 
         # Should not raise
         validate_redis_config()
 
     @patch("api.core.config.settings")
-    def test_validate_redis_config_single_mode_with_commas_fails(self, mock_settings):
-        """Test validation fails for single mode with comma-separated hosts."""
+    def test_validate_redis_config_single_mode_bare_hostname_invalid(self, mock_settings):
+        """Test that validate_redis_config rejects a bare hostname (no port).
+
+        normalize_redis_config() must be called first to expand bare hostnames.
+        validate_redis_config() is pure and does not perform that transformation.
+        """
+        mock_settings.REDIS_MODE = "single"
+        mock_settings.REDIS_HOST = "redis-host"  # no port — not yet normalized
+
+        with pytest.raises(ValueError) as exc:
+            validate_redis_config()
+        assert "Invalid node:" in str(exc.value)
+
+    @patch("api.core.config.settings")
+    def test_validate_redis_config_single_mode_with_multiple_hosts_fails(self, mock_settings):
+        """Test validation fails for single mode with multiple hosts."""
         mock_settings.REDIS_MODE = "single"
         mock_settings.REDIS_HOST = "redis1:6379,redis2:6379"
 
@@ -227,7 +242,7 @@ class TestValidateRedisConfig:
 
         with pytest.raises(ValueError) as exc:
             validate_redis_config()
-        assert "requires REDIS_HOST as comma-separated host:port pairs" in str(
+        assert "requires REDIS_HOST as host:port pairs" in str(
             exc.value
         )
 
@@ -277,3 +292,48 @@ class TestValidateRedisConfig:
 
         # Should not raise
         validate_redis_config()
+
+
+class TestNormalizeRedisConfig:
+    """Test normalize_redis_config — backwards-compat mutation of settings."""
+
+    @patch("api.core.config.settings")
+    def test_normalize_bare_hostname_appends_port(self, mock_settings):
+        """Test that a bare hostname gets REDIS_PORT appended."""
+        mock_settings.REDIS_MODE = "single"
+        mock_settings.REDIS_HOST = "redis-host"
+        mock_settings.REDIS_PORT = 6379
+
+        normalize_redis_config()
+
+        assert mock_settings.REDIS_HOST == "redis-host:6379"
+
+    @patch("api.core.config.settings")
+    def test_normalize_host_with_port_unchanged(self, mock_settings):
+        """Test that a host already in host:port format is not modified."""
+        mock_settings.REDIS_MODE = "single"
+        mock_settings.REDIS_HOST = "redis-host:6379"
+
+        normalize_redis_config()
+
+        assert mock_settings.REDIS_HOST == "redis-host:6379"
+
+    @patch("api.core.config.settings")
+    def test_normalize_non_single_mode_unchanged(self, mock_settings):
+        """Test that non-single modes are not touched."""
+        mock_settings.REDIS_MODE = "sentinel"
+        mock_settings.REDIS_HOST = "sentinel1"  # bare, but not single mode
+
+        normalize_redis_config()
+
+        assert mock_settings.REDIS_HOST == "sentinel1"
+
+    @patch("api.core.config.settings")
+    def test_normalize_none_mode_unchanged(self, mock_settings):
+        """Test that mode=none is a no-op."""
+        mock_settings.REDIS_MODE = "none"
+        mock_settings.REDIS_HOST = "redis"
+
+        normalize_redis_config()
+
+        assert mock_settings.REDIS_HOST == "redis"

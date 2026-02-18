@@ -362,7 +362,7 @@ Since the VC-AuthN OP does not maintain a permanent user database, this endpoint
 | Mode | `REDIS_MODE` | `REDIS_HOST` Format | Use Case |
 |------|--------------|---------------------|----------|
 | Disabled | `none` | N/A | Single-pod deployments, no Socket.IO sync needed |
-| Single | `single` | `hostname` (e.g., `redis`) | Simple HA with single Redis instance |
+| Single | `single` | `host:port` (e.g., `redis:6379`) | Simple HA with single Redis instance |
 | Sentinel | `sentinel` | `host1:port1,host2:port2` (e.g., `sentinel1:26379,sentinel2:26379`) | High availability with automatic failover |
 | Cluster | `cluster` | `host1:port1,host2:port2` (e.g., `node1:6379,node2:6379,node3:6379`) | Horizontal scaling for large deployments |
 
@@ -371,8 +371,7 @@ Since the VC-AuthN OP does not maintain a permanent user database, this endpoint
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `REDIS_MODE` | Redis deployment mode: `none`, `single`, `sentinel`, `cluster` | `none` |
-| `REDIS_HOST` | Redis hostname (single) or comma-separated `host:port` pairs (sentinel/cluster) | `redis` |
-| `REDIS_PORT` | Redis port (only used in single mode) | `6379` |
+| `REDIS_HOST` | Comma-separated `host:port` pairs (one entry for single mode) | `redis:6379` |
 | `REDIS_PASSWORD` | Redis password (optional) | - |
 | `REDIS_DB` | Redis database number (single/sentinel only) | `0` |
 | `REDIS_SENTINEL_MASTER_NAME` | Sentinel master name (sentinel mode only) | `mymaster` |
@@ -382,8 +381,7 @@ Since the VC-AuthN OP does not maintain a permanent user database, this endpoint
 ```bash
 # Single Redis instance
 REDIS_MODE=single
-REDIS_HOST=redis
-REDIS_PORT=6379
+REDIS_HOST=redis:6379
 
 # Redis Sentinel (high availability)
 REDIS_MODE=sentinel

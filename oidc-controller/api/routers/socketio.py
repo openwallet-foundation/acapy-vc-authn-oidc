@@ -10,13 +10,10 @@ from pymongo.database import Database
 
 from ..authSessions.crud import AuthSessionCRUD
 from ..db.session import client
-from ..core.config import settings
+from ..core.config import settings, validate_redis_config
 from ..core.redis_utils import parse_host_port_pairs, build_redis_url
 
 logger = structlog.getLogger(__name__)
-
-# Valid Redis modes
-VALID_REDIS_MODES = ("none", "single", "sentinel", "cluster")
 
 
 class RedisErrorType:
@@ -89,7 +86,7 @@ def _handle_redis_failure(operation: str, error: Exception) -> str:
 def _should_use_redis_adapter():
     """Single check to determine if Redis adapter should be used.
 
-    Checks REDIS_MODE to determine if Redis should be used.
+    Delegates to validate_redis_config() for validation.
     For backwards compatibility, also supports legacy USE_REDIS_ADAPTER env var
     (handled in _get_redis_mode in config.py).
     """
@@ -99,28 +96,13 @@ def _should_use_redis_adapter():
         logger.info("Redis adapter disabled (REDIS_MODE=none) - using default manager")
         return False
 
-    if mode not in VALID_REDIS_MODES:
-        logger.error(
-            f"Invalid REDIS_MODE: '{mode}'. Must be one of: {', '.join(VALID_REDIS_MODES)}"
-        )
+    try:
+        validate_redis_config()
+    except ValueError as e:
+        logger.error(f"Redis configuration invalid: {e}")
         return False
 
-    if not settings.REDIS_HOST:
-        logger.warning("REDIS_HOST not configured - falling back to default manager")
-        return False
-
-    # All required settings present
     return True
-
-
-def _build_redis_url():
-    """Build Redis connection URL from settings. Delegates to shared module."""
-    return build_redis_url()
-
-
-def _parse_host_port_pairs(hosts_string: str) -> list[tuple[str, int]]:
-    """Parse host:port pairs. Delegates to shared module."""
-    return parse_host_port_pairs(hosts_string)
 
 
 class AsyncRedisClusterManager(AsyncPubSubManager):
@@ -358,7 +340,7 @@ def _patch_redis_manager_for_graceful_failure(manager):
             return
 
         retry_sleep = settings.REDIS_RETRY_BASE_DELAY
-        connect = False
+        connect = True  # Always connect on first iteration (pubsub starts as None)
         max_consecutive_failures = settings.REDIS_PUBSUB_MAX_FAILURES
         consecutive_failures = 0
 
@@ -419,7 +401,7 @@ def create_socket_manager():
     try:
         if mode == "single":
             # Single mode uses standard URL-based AsyncRedisManager
-            redis_url = _build_redis_url()
+            redis_url = build_redis_url()
 
             # Test Redis connectivity BEFORE creating manager
             redis_available = can_we_reach_redis(redis_url)
@@ -433,13 +415,13 @@ def create_socket_manager():
             _patch_redis_manager_for_graceful_failure(manager)
 
             logger.info(
-                f"Redis adapter configured: {settings.REDIS_HOST}:{settings.REDIS_PORT}"
+                f"Redis adapter configured: {settings.REDIS_HOST}"
             )
             return manager
 
         elif mode == "sentinel":
             # Sentinel mode: test connectivity via Sentinel client first
-            sentinel_hosts = _parse_host_port_pairs(settings.REDIS_HOST)
+            sentinel_hosts = parse_host_port_pairs(settings.REDIS_HOST)
 
             sentinel_available = can_we_reach_sentinel(
                 sentinel_hosts, settings.REDIS_SENTINEL_MASTER_NAME
@@ -451,7 +433,7 @@ def create_socket_manager():
                 return None
 
             # Build sentinel URL for python-socketio's AsyncRedisManager
-            redis_url = _build_redis_url()
+            redis_url = build_redis_url()
             manager = socketio.AsyncRedisManager(redis_url)
             _patch_redis_manager_for_graceful_failure(manager)
 
@@ -462,7 +444,7 @@ def create_socket_manager():
 
         elif mode == "cluster":
             # Cluster mode uses custom AsyncRedisClusterManager
-            startup_nodes = _parse_host_port_pairs(settings.REDIS_HOST)
+            startup_nodes = parse_host_port_pairs(settings.REDIS_HOST)
 
             # Test cluster connectivity BEFORE creating manager
             cluster_available = can_we_reach_cluster(startup_nodes)
@@ -482,9 +464,7 @@ def create_socket_manager():
             return manager
 
         else:
-            logger.error(
-                f"Invalid REDIS_MODE: '{mode}'. Must be one of: {', '.join(VALID_REDIS_MODES)}"
-            )
+            logger.error(f"Invalid REDIS_MODE: '{mode}'")
             return None
 
     except Exception as e:

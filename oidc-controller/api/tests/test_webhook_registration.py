@@ -370,6 +370,8 @@ async def test_startup_redis_check_success(mock_settings):
     ) as mock_reach, patch(
         "api.main.build_redis_url", return_value="redis://localhost"
     ), patch(
+        "api.main.normalize_redis_config"
+    ), patch(
         "api.main.validate_redis_config"
     ):
 
@@ -380,8 +382,9 @@ async def test_startup_redis_check_success(mock_settings):
 
 @pytest.mark.asyncio
 async def test_startup_redis_check_failure(mock_settings):
-    """Test startup logic handles Redis connection failure gracefully."""
+    """Test startup fails fast when Redis is configured but unreachable."""
     mock_settings.REDIS_MODE = "single"  # Enable Redis via REDIS_MODE
+    mock_settings.REDIS_HOST = "redis:6379"
 
     with patch("api.main.init_db", new_callable=AsyncMock), patch(
         "api.main.init_provider", new_callable=AsyncMock
@@ -390,12 +393,12 @@ async def test_startup_redis_check_failure(mock_settings):
     ), patch(
         "api.main.build_redis_url", return_value="redis://localhost"
     ), patch(
+        "api.main.normalize_redis_config"
+    ), patch(
         "api.main.validate_redis_config"
     ):
-
-        await on_tenant_startup()
-
-        # Should log warning but continue startup (no crash)
+        with pytest.raises(RuntimeError, match="REDIS_MODE=single is configured but Redis is not reachable"):
+            await on_tenant_startup()
 
 
 @pytest.mark.asyncio

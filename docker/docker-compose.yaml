@@ -69,12 +69,9 @@ services:
       - INVITATION_LABEL=${INVITATION_LABEL}
       - REDIS_MODE=${REDIS_MODE:-single}
       - REDIS_HOST=${REDIS_HOST}
-      - REDIS_PORT=${REDIS_PORT}
       - REDIS_PASSWORD=${REDIS_PASSWORD}
       - REDIS_DB=${REDIS_DB}
       - REDIS_SENTINEL_MASTER_NAME=${REDIS_SENTINEL_MASTER_NAME:-mymaster}
-      # Legacy (deprecated)
-      - USE_REDIS_ADAPTER=${USE_REDIS_ADAPTER:-}
     # Expose debugger ports as a range
     ports:
       - "5678-5688:5678"

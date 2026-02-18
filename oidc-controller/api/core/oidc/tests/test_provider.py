@@ -2,7 +2,8 @@ import importlib
 import pytest
 import secrets
 from unittest.mock import Mock, patch, MagicMock
-from api.core.oidc.provider import SingleRedisWrapperWithPack, DynamicClientDatabase
+from api.core.redis_utils import SingleRedisWrapperWithPack
+from api.core.oidc.provider import DynamicClientDatabase
 from api.core.oidc import provider as provider_module
 from api.core.config import settings as real_settings
 
@@ -420,8 +421,7 @@ class TestStorageBackendSelection:
         # Create a mock settings object
         mock_settings = Mock()
         mock_settings.USE_REDIS_ADAPTER = True
-        mock_settings.REDIS_HOST = "redis"
-        mock_settings.REDIS_PORT = 6379
+        mock_settings.REDIS_HOST = "redis:6379"
         mock_settings.REDIS_PASSWORD = None
         mock_settings.REDIS_DB = 0
 
@@ -449,15 +449,13 @@ class TestHelperFunctions:
         # Save original values
         original_mode = settings.REDIS_MODE
         original_host = settings.REDIS_HOST
-        original_port = settings.REDIS_PORT
         original_password = settings.REDIS_PASSWORD
         original_db = settings.REDIS_DB
 
         try:
-            # Set test values
+            # Set test values (REDIS_HOST is already host:port)
             settings.REDIS_MODE = "single"
-            settings.REDIS_HOST = "testhost"
-            settings.REDIS_PORT = 6380
+            settings.REDIS_HOST = "testhost:6380"
             settings.REDIS_PASSWORD = None
             settings.REDIS_DB = 1
 
@@ -467,7 +465,6 @@ class TestHelperFunctions:
             # Restore original values
             settings.REDIS_MODE = original_mode
             settings.REDIS_HOST = original_host
-            settings.REDIS_PORT = original_port
             settings.REDIS_PASSWORD = original_password
             settings.REDIS_DB = original_db
 
@@ -479,15 +476,13 @@ class TestHelperFunctions:
         # Save original values
         original_mode = settings.REDIS_MODE
         original_host = settings.REDIS_HOST
-        original_port = settings.REDIS_PORT
         original_password = settings.REDIS_PASSWORD
         original_db = settings.REDIS_DB
 
         try:
-            # Set test values
+            # Set test values (REDIS_HOST is already host:port)
             settings.REDIS_MODE = "single"
-            settings.REDIS_HOST = "securehost"
-            settings.REDIS_PORT = 6379
+            settings.REDIS_HOST = "securehost:6379"
             settings.REDIS_PASSWORD = "secret123"
             settings.REDIS_DB = 0
 
@@ -497,7 +492,6 @@ class TestHelperFunctions:
             # Restore original values
             settings.REDIS_MODE = original_mode
             settings.REDIS_HOST = original_host
-            settings.REDIS_PORT = original_port
             settings.REDIS_PASSWORD = original_password
             settings.REDIS_DB = original_db
 
@@ -596,14 +590,12 @@ class TestProviderConfiguration:
 class TestProviderRedisConfiguration:
     """Test Redis configuration logic in provider module."""
 
-    @patch("api.core.oidc.provider.build_redis_url")
-    def test_redis_ttl_synchronization(self, mock_build_url):
+    def test_redis_ttl_synchronization(self):
         """
         Verify that UserInfo Redis TTL is synchronized with Access Token TTL.
         We verify this by inspecting the created objects in the module.
         """
         TEST_TTL = 1000
-        mock_build_url.return_value = "redis://mock"
 
         # Apply settings to the singleton directly so reload picks them up
         # REDIS_MODE=single enables Redis adapter (USE_REDIS_ADAPTER property returns True)

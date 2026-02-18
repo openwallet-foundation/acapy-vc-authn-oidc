@@ -36,7 +36,7 @@ from .core.redis_utils import parse_host_port_pairs, build_redis_url
 from api.core.oidc.provider import init_provider
 from api.core.webhook_utils import register_tenant_webhook
 from api.core.acapy.config import MultiTenantAcapy, TractionTenantAcapy
-from api.core.config import validate_redis_config
+from api.core.config import normalize_redis_config, validate_redis_config
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
 
@@ -145,13 +145,17 @@ async def logging_middleware(request: Request, call_next) -> Response:
 @app.on_event("startup")
 async def on_tenant_startup():
     """Register any events we need to respond to."""
-    # Validate Redis configuration early
+    # Normalize then validate Redis configuration early
+    normalize_redis_config()
     validate_redis_config()
 
     await init_db()
     await init_provider(await get_db())
 
-    # Check Redis availability if adapter is enabled
+    # Check Redis availability if adapter is enabled.
+    # Redis is required for both Socket.IO cross-pod messaging AND PyOP token
+    # storage — if it's unreachable the entire auth flow is broken, so we fail
+    # fast here rather than starting and crashing on every request.
     mode = settings.REDIS_MODE.lower()
     if mode == "none":
         logger.debug("Redis adapter disabled (REDIS_MODE=none)")
@@ -172,16 +176,20 @@ async def on_tenant_startup():
             if reachable:
                 logger.info(f"Redis adapter is available and ready (mode={mode})")
             else:
-                logger.warning(
-                    f"Redis adapter enabled but unavailable (mode={mode}) "
-                    "- continuing with degraded Socket.IO functionality"
+                raise RuntimeError(
+                    f"REDIS_MODE={mode} is configured but Redis is not reachable "
+                    f"(REDIS_HOST={settings.REDIS_HOST}). "
+                    "Ensure Redis is running and accessible, "
+                    "or set REDIS_MODE=none to disable Redis."
                 )
+        except RuntimeError:
+            raise
         except Exception as e:
             error_type = _handle_redis_failure("startup Redis check", e)
-            logger.warning(
-                f"Redis adapter enabled but unavailable (type: {error_type}) "
-                "- continuing with degraded Socket.IO functionality"
-            )
+            raise RuntimeError(
+                f"Redis startup check failed (REDIS_MODE={mode}, "
+                f"REDIS_HOST={settings.REDIS_HOST}, error_type={error_type}): {e}"
+            ) from e
 
     # Robust Webhook Registration
     if settings.ACAPY_TENANCY == "multi":

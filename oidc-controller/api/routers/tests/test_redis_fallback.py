@@ -102,20 +102,22 @@ class TestRedisConfiguration:
         result = _should_use_redis_adapter()
         assert not result
 
+    @patch("api.routers.socketio.validate_redis_config")
     @patch("api.routers.socketio.settings")
-    def test_should_use_redis_adapter_no_host(self, mock_settings):
+    def test_should_use_redis_adapter_no_host(self, mock_settings, mock_validate):
         """Test Redis adapter falls back when no REDIS_HOST provided."""
         mock_settings.REDIS_MODE = "single"
-        mock_settings.REDIS_HOST = ""
+        mock_validate.side_effect = ValueError("REDIS_HOST required")
 
         result = _should_use_redis_adapter()
         assert not result
 
+    @patch("api.routers.socketio.validate_redis_config")
     @patch("api.routers.socketio.settings")
-    def test_should_use_redis_adapter_single_mode(self, mock_settings):
+    def test_should_use_redis_adapter_single_mode(self, mock_settings, mock_validate):
         """Test Redis adapter is enabled when REDIS_MODE is single."""
         mock_settings.REDIS_MODE = "single"
-        mock_settings.REDIS_HOST = "redis"
+        mock_validate.return_value = None  # Validation passes
 
         result = _should_use_redis_adapter()
         assert result
@@ -139,8 +141,7 @@ class TestRedisConfiguration:
         """Test socket manager creates Redis manager when single mode enabled."""
         for s in (mock_settings, mock_utils_settings):
             s.REDIS_MODE = "single"
-            s.REDIS_HOST = "redis"
-            s.REDIS_PORT = 6379
+            s.REDIS_HOST = "redis:6379"
             s.REDIS_PASSWORD = ""
             s.REDIS_DB = 0
 
@@ -165,8 +166,7 @@ class TestRedisConfiguration:
         """Test socket manager returns None when Redis validation fails before manager creation."""
         for s in (mock_settings, mock_utils_settings):
             s.REDIS_MODE = "single"
-            s.REDIS_HOST = "redis"
-            s.REDIS_PORT = 6379
+            s.REDIS_HOST = "redis:6379"
             s.REDIS_PASSWORD = ""
             s.REDIS_DB = 0
 
@@ -187,8 +187,7 @@ class TestRedisConfiguration:
         """Test socket manager handles unexpected exceptions during creation."""
         for s in (mock_settings, mock_utils_settings):
             s.REDIS_MODE = "single"
-            s.REDIS_HOST = "redis"
-            s.REDIS_PORT = 6379
+            s.REDIS_HOST = "redis:6379"
             s.REDIS_PASSWORD = ""
             s.REDIS_DB = 0
 

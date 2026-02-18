@@ -508,14 +508,15 @@ class TestShouldUseRedisAdapter:
         # Verify
         assert result is False
 
+    @patch("api.routers.socketio.validate_redis_config")
     @patch("api.routers.socketio.settings")
-    def test_should_use_redis_adapter_no_host(self, mock_settings):
+    def test_should_use_redis_adapter_no_host(self, mock_settings, mock_validate):
         """Test _should_use_redis_adapter when REDIS_HOST is not configured."""
         from api.routers.socketio import _should_use_redis_adapter
 
         # Setup
         mock_settings.REDIS_MODE = "single"
-        mock_settings.REDIS_HOST = None
+        mock_validate.side_effect = ValueError("REDIS_HOST required")
 
         # Execute
         result = _should_use_redis_adapter()
@@ -523,14 +524,15 @@ class TestShouldUseRedisAdapter:
         # Verify
         assert result is False
 
+    @patch("api.routers.socketio.validate_redis_config")
     @patch("api.routers.socketio.settings")
-    def test_should_use_redis_adapter_single_mode(self, mock_settings):
+    def test_should_use_redis_adapter_single_mode(self, mock_settings, mock_validate):
         """Test _should_use_redis_adapter when REDIS_MODE is single."""
         from api.routers.socketio import _should_use_redis_adapter
 
         # Setup
         mock_settings.REDIS_MODE = "single"
-        mock_settings.REDIS_HOST = "localhost"
+        mock_validate.return_value = None  # Validation passes
 
         # Execute
         result = _should_use_redis_adapter()
@@ -538,14 +540,15 @@ class TestShouldUseRedisAdapter:
         # Verify
         assert result is True
 
+    @patch("api.routers.socketio.validate_redis_config")
     @patch("api.routers.socketio.settings")
-    def test_should_use_redis_adapter_sentinel_mode(self, mock_settings):
+    def test_should_use_redis_adapter_sentinel_mode(self, mock_settings, mock_validate):
         """Test _should_use_redis_adapter when REDIS_MODE is sentinel."""
         from api.routers.socketio import _should_use_redis_adapter
 
         # Setup
         mock_settings.REDIS_MODE = "sentinel"
-        mock_settings.REDIS_HOST = "sentinel1:26379,sentinel2:26379"
+        mock_validate.return_value = None  # Validation passes
 
         # Execute
         result = _should_use_redis_adapter()
@@ -553,14 +556,15 @@ class TestShouldUseRedisAdapter:
         # Verify
         assert result is True
 
+    @patch("api.routers.socketio.validate_redis_config")
     @patch("api.routers.socketio.settings")
-    def test_should_use_redis_adapter_cluster_mode(self, mock_settings):
+    def test_should_use_redis_adapter_cluster_mode(self, mock_settings, mock_validate):
         """Test _should_use_redis_adapter when REDIS_MODE is cluster."""
         from api.routers.socketio import _should_use_redis_adapter
 
         # Setup
         mock_settings.REDIS_MODE = "cluster"
-        mock_settings.REDIS_HOST = "node1:6379,node2:6379,node3:6379"
+        mock_validate.return_value = None  # Validation passes
 
         # Execute
         result = _should_use_redis_adapter()
@@ -568,13 +572,15 @@ class TestShouldUseRedisAdapter:
         # Verify
         assert result is True
 
+    @patch("api.routers.socketio.validate_redis_config")
     @patch("api.routers.socketio.settings")
-    def test_should_use_redis_adapter_invalid_mode(self, mock_settings):
+    def test_should_use_redis_adapter_invalid_mode(self, mock_settings, mock_validate):
         """Test _should_use_redis_adapter when REDIS_MODE is invalid."""
         from api.routers.socketio import _should_use_redis_adapter
 
         # Setup
         mock_settings.REDIS_MODE = "invalid_mode"
+        mock_validate.side_effect = ValueError("Invalid REDIS_MODE")
 
         # Execute
         result = _should_use_redis_adapter()
@@ -616,8 +622,7 @@ class TestCreateSocketManager:
         mock_should_use.return_value = True
         for s in (mock_settings, mock_utils_settings):
             s.REDIS_MODE = "single"
-            s.REDIS_HOST = "localhost"
-            s.REDIS_PORT = 6379
+            s.REDIS_HOST = "localhost:6379"
             s.REDIS_PASSWORD = "secret"
             s.REDIS_DB = 0
         mock_can_reach_redis.return_value = True
@@ -650,8 +655,7 @@ class TestCreateSocketManager:
         mock_should_use.return_value = True
         for s in (mock_settings, mock_utils_settings):
             s.REDIS_MODE = "single"
-            s.REDIS_HOST = "localhost"
-            s.REDIS_PORT = 6379
+            s.REDIS_HOST = "localhost:6379"
             s.REDIS_PASSWORD = None
             s.REDIS_DB = 0
         mock_can_reach_redis.return_value = True
@@ -690,7 +694,6 @@ class TestCreateSocketManager:
         for s in (mock_settings, mock_utils_settings):
             s.REDIS_MODE = "sentinel"
             s.REDIS_HOST = "sentinel1:26379,sentinel2:26379"
-            s.REDIS_PORT = 26379
             s.REDIS_PASSWORD = "secret"
             s.REDIS_DB = 0
             s.REDIS_SENTINEL_MASTER_NAME = "mymaster"
@@ -709,8 +712,8 @@ class TestCreateSocketManager:
         mock_can_reach_sentinel.assert_called_once_with(
             [("sentinel1", 26379), ("sentinel2", 26379)], "mymaster"
         )
-        # AsyncRedisManager is created with sentinel URL
-        expected_url = "redis+sentinel://:secret@sentinel1:26379,sentinel2:26379/mymaster/0"
+        # AsyncRedisManager is created with sentinel URL (db/service_name order per python-socketio)
+        expected_url = "redis+sentinel://:secret@sentinel1:26379,sentinel2:26379/0/mymaster"
         mock_redis_manager.assert_called_once_with(expected_url)
 
     @patch("api.routers.socketio._should_use_redis_adapter")
@@ -765,8 +768,7 @@ class TestCreateSocketManager:
         mock_should_use.return_value = True
         for s in (mock_settings, mock_utils_settings):
             s.REDIS_MODE = "single"
-            s.REDIS_HOST = "localhost"
-            s.REDIS_PORT = 6379
+            s.REDIS_HOST = "localhost:6379"
             s.REDIS_PASSWORD = ""
             s.REDIS_DB = 0
         mock_can_reach_redis.return_value = False  # Validation fails
@@ -824,11 +826,10 @@ class TestBuildRedisUrl:
     @patch("api.core.redis_utils.settings")
     def test_build_redis_url_single_mode_with_password(self, mock_settings):
         """Test URL building for single mode with password."""
-        from api.routers.socketio import _build_redis_url
+        from api.core.redis_utils import build_redis_url as _build_redis_url
 
         mock_settings.REDIS_MODE = "single"
-        mock_settings.REDIS_HOST = "redis-host"
-        mock_settings.REDIS_PORT = 6379
+        mock_settings.REDIS_HOST = "redis-host:6379"
         mock_settings.REDIS_PASSWORD = "secret"
         mock_settings.REDIS_DB = 1
 
@@ -839,11 +840,10 @@ class TestBuildRedisUrl:
     @patch("api.core.redis_utils.settings")
     def test_build_redis_url_single_mode_without_password(self, mock_settings):
         """Test URL building for single mode without password."""
-        from api.routers.socketio import _build_redis_url
+        from api.core.redis_utils import build_redis_url as _build_redis_url
 
         mock_settings.REDIS_MODE = "single"
-        mock_settings.REDIS_HOST = "redis-host"
-        mock_settings.REDIS_PORT = 6380
+        mock_settings.REDIS_HOST = "redis-host:6380"
         mock_settings.REDIS_PASSWORD = None
         mock_settings.REDIS_DB = 0
 
@@ -854,7 +854,7 @@ class TestBuildRedisUrl:
     @patch("api.core.redis_utils.settings")
     def test_build_redis_url_sentinel_mode_with_password(self, mock_settings):
         """Test URL building for sentinel mode with password."""
-        from api.routers.socketio import _build_redis_url
+        from api.core.redis_utils import build_redis_url as _build_redis_url
 
         mock_settings.REDIS_MODE = "sentinel"
         mock_settings.REDIS_HOST = "sentinel1:26379,sentinel2:26379,sentinel3:26379"
@@ -864,15 +864,16 @@ class TestBuildRedisUrl:
 
         result = _build_redis_url()
 
+        # python-socketio parse_redis_sentinel_url expects /db/service_name order
         assert (
             result
-            == "redis+sentinel://:secret@sentinel1:26379,sentinel2:26379,sentinel3:26379/mymaster/2"
+            == "redis+sentinel://:secret@sentinel1:26379,sentinel2:26379,sentinel3:26379/2/mymaster"
         )
 
     @patch("api.core.redis_utils.settings")
     def test_build_redis_url_sentinel_mode_without_password(self, mock_settings):
         """Test URL building for sentinel mode without password."""
-        from api.routers.socketio import _build_redis_url
+        from api.core.redis_utils import build_redis_url as _build_redis_url
 
         mock_settings.REDIS_MODE = "sentinel"
         mock_settings.REDIS_HOST = "sentinel1:26379,sentinel2:26379"
@@ -882,15 +883,16 @@ class TestBuildRedisUrl:
 
         result = _build_redis_url()
 
+        # python-socketio parse_redis_sentinel_url expects /db/service_name order
         assert (
             result
-            == "redis+sentinel://sentinel1:26379,sentinel2:26379/redis-master/0"
+            == "redis+sentinel://sentinel1:26379,sentinel2:26379/0/redis-master"
         )
 
     @patch("api.core.redis_utils.settings")
     def test_build_redis_url_cluster_mode_returns_none(self, mock_settings):
         """Test URL building for cluster mode returns None (uses startup_nodes)."""
-        from api.routers.socketio import _build_redis_url
+        from api.core.redis_utils import build_redis_url as _build_redis_url
 
         mock_settings.REDIS_MODE = "cluster"
         mock_settings.REDIS_HOST = "node1:6379,node2:6379"
@@ -905,7 +907,7 @@ class TestParseHostPortPairs:
 
     def test_parse_single_node(self):
         """Test parsing a single node."""
-        from api.routers.socketio import _parse_host_port_pairs
+        from api.core.redis_utils import parse_host_port_pairs as _parse_host_port_pairs
 
         result = _parse_host_port_pairs("redis-node:6379")
 
@@ -913,7 +915,7 @@ class TestParseHostPortPairs:
 
     def test_parse_multiple_nodes(self):
         """Test parsing multiple nodes."""
-        from api.routers.socketio import _parse_host_port_pairs
+        from api.core.redis_utils import parse_host_port_pairs as _parse_host_port_pairs
 
         result = _parse_host_port_pairs("node1:6379,node2:6380,node3:6381")
 
@@ -921,7 +923,7 @@ class TestParseHostPortPairs:
 
     def test_parse_with_spaces(self):
         """Test parsing nodes with spaces around commas."""
-        from api.routers.socketio import _parse_host_port_pairs
+        from api.core.redis_utils import parse_host_port_pairs as _parse_host_port_pairs
 
         result = _parse_host_port_pairs("node1:6379, node2:6380 , node3:6381")
 
@@ -929,7 +931,7 @@ class TestParseHostPortPairs:
 
     def test_parse_sentinel_nodes(self):
         """Test parsing sentinel nodes with default sentinel port."""
-        from api.routers.socketio import _parse_host_port_pairs
+        from api.core.redis_utils import parse_host_port_pairs as _parse_host_port_pairs
 
         result = _parse_host_port_pairs(
             "sentinel1:26379,sentinel2:26379,sentinel3:26379"
@@ -943,7 +945,7 @@ class TestParseHostPortPairs:
 
     def test_parse_with_ipv4_addresses(self):
         """Test parsing nodes with IPv4 addresses."""
-        from api.routers.socketio import _parse_host_port_pairs
+        from api.core.redis_utils import parse_host_port_pairs as _parse_host_port_pairs
 
         result = _parse_host_port_pairs("192.168.1.10:6379,192.168.1.11:6379")
 
