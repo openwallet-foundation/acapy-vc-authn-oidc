@@ -45,9 +45,7 @@ def _strtobool(val: str | bool) -> bool:
 
 # Feature flag: set SIAM_AUDIT_ENABLED=false to disable SIAM audit logging.
 # Enabled by default.
-SIAM_AUDIT_ENABLED: bool = _strtobool(
-    os.environ.get("SIAM_AUDIT_ENABLED", "true")
-)
+SIAM_AUDIT_ENABLED: bool = _strtobool(os.environ.get("SIAM_AUDIT_ENABLED", "true"))
 
 # Salt for IP anonymization - should be rotated periodically
 # In production, load from environment or secrets manager
