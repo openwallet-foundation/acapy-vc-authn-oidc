@@ -29,6 +29,26 @@ if TYPE_CHECKING:
 
 logger = structlog.getLogger("siam.audit")
 
+
+def _strtobool(val: str | bool) -> bool:
+    """Convert a string representation of truth to a boolean."""
+    if isinstance(val, bool):
+        return val
+    val = val.lower()
+    if val in ("y", "yes", "t", "true", "on", "1"):
+        return True
+    elif val in ("n", "no", "f", "false", "off", "0"):
+        return False
+    else:
+        raise ValueError(f"invalid truth value {val}")
+
+
+# Feature flag: set SIAM_AUDIT_ENABLED=false to disable SIAM audit logging.
+# Enabled by default.
+SIAM_AUDIT_ENABLED: bool = _strtobool(
+    os.environ.get("SIAM_AUDIT_ENABLED", "true")
+)
+
 # Salt for IP anonymization - should be rotated periodically
 # In production, load from environment or secrets manager
 _IP_ANONYMIZATION_SALT = os.environ.get(
@@ -188,6 +208,9 @@ def audit_event(
     WARNING: Never pass PII, attribute values, or subject identifiers
     to this function. All extra_safe_fields must be privacy-safe.
     """
+    if not SIAM_AUDIT_ENABLED:
+        return
+
     log_data = {
         "audit_event_type": event,
         "timestamp": datetime.now(UTC).isoformat(),

@@ -90,6 +90,52 @@ Several functions in ACAPy VC-AuthN can be tweaked by using the following enviro
 | LOG_WITH_JSON             | bool                                   | If True, logging output should printed as JSON if False it will be pretty printed.                                                                                                                                                                                                                                                                                                                                                                     | Default behavior will print as JSON.                                                                                                    |
 | LOG_TIMESTAMP_FORMAT      | string                                 | determines the timestamp formatting used in logs                                                                                                                                                                                                                                                                                                                                                                                                       | Default is "iso"                                                                                                                        |
 | LOG_LEVEL                 | "DEBUG", "INFO", "WARNING", or "ERROR" | sets the minimum log level that will be printed to standard out                                                                                                                                                                                                                                                                                                                                                                                        | Defaults to DEBUG                                                                                                                       |
+| SIAM_AUDIT_ENABLED        | bool                                   | Enables or disables SIAM audit event logging. When `false`, all audit events (session lifecycle, proof verification, token issuance, etc.) are silently suppressed.                                                                                                                                                                                                                                                                                    | Defaults to `true` (audit logging is **on**).                                                                                           |
+| SIAM_IP_SALT              | string                                 | Salt used for one-way hashing of client IP addresses in SIAM audit logs. Should be rotated periodically. Only relevant when `SIAM_AUDIT_ENABLED` is `true`.                                                                                                                                                                                                                                                                                           | Defaults to a built-in placeholder. **Set a unique value in production.**                                                               |
+
+### SIAM Audit Logging
+
+ACAPy VC-AuthN includes a privacy-preserving audit logger for SIAM (Security Information and Analytics Management) platforms. It emits structured events at key points in the verification flow—session initiation, QR scan, proof verification, token issuance, session expiry, etc.—without ever logging PII or credential attribute values.
+
+**Audit logging is enabled by default.** There are two complementary ways to control it:
+
+#### 1. Feature flag (`SIAM_AUDIT_ENABLED`)
+
+Set the environment variable to `false` to disable all SIAM audit events at the application level. No audit log lines will be emitted regardless of log-level settings.
+
+```yaml
+environment:
+  - SIAM_AUDIT_ENABLED=false        # disable SIAM audit events entirely
+```
+
+To re-enable, remove the variable or set it to `true` (the default).
+
+#### 2. Log-level override (`logconf.json` / `LOG_LEVEL`)
+
+The `siam.audit` logger is configured in `logconf.json` at the `INFO` level. You can raise it to `WARNING` or `CRITICAL` to suppress the `INFO`-level audit messages while keeping the feature flag on—useful if you want to silence routine events but still capture any future warning/error-level audit entries.
+
+```json
+{
+  "loggers": {
+    "siam.audit": {
+      "level": "WARNING",
+      "handlers": ["out"],
+      "propagate": false
+    }
+  }
+}
+```
+
+Alternatively, setting the global `LOG_LEVEL` environment variable to `WARNING` or higher will also suppress the audit messages, but this will affect **all** loggers, not just SIAM.
+
+#### IP anonymization salt
+
+When audit logging is enabled, client IP addresses are one-way hashed before being logged. The hash uses a salt read from the `SIAM_IP_SALT` environment variable. The default salt is a placeholder—**you should set a unique, secret value in production** and rotate it periodically.
+
+```yaml
+environment:
+  - SIAM_IP_SALT=my-unique-production-salt
+```
 
 ### Legacy Variable Support
 
