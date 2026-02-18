@@ -461,3 +461,8 @@ def validate_redis_config():
             f"For single mode, use one host:port (e.g., REDIS_HOST=redis:6379). "
             f"For multiple nodes, use REDIS_MODE=sentinel or REDIS_MODE=cluster."
         )
+
+
+# Normalize at import time so any module that imports settings (e.g. socketio.py
+# calling validate_redis_config() at module load) sees host:port format already.
+normalize_redis_config()
