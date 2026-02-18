@@ -97,6 +97,27 @@ Several functions in ACAPy VC-AuthN can be tweaked by using the following enviro
 
 ACAPy VC-AuthN includes a privacy-preserving audit logger for SIAM (Security Information and Analytics Management) platforms. It emits structured events at key points in the verification flow—session initiation, QR scan, proof verification, token issuance, session expiry, etc.—without ever logging PII or credential attribute values.
 
+#### Audit Events
+
+The following events are emitted by the SIAM audit logger:
+
+| Event                       | Category            | Description                                                        | Key Fields                                                                                      |
+| --------------------------- | ------------------- | ------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
+| `auth_session_initiated`    | Session lifecycle   | An OIDC authorization request created a new auth session.          | `session_id`, `client_id`, `ver_config_id`, `client_ip_hash`, `user_agent_family`, `requested_schemas`, `requested_attributes_count`, `requested_predicates_count` |
+| `proof_request_created`     | Proof request flow  | A proof request was built and is ready for scanning.               | `session_id`, `ver_config_id`, `proof_name`, `requested_schemas`, `expected_issuers`            |
+| `qr_scanned`                | Proof request flow  | The QR code was scanned or the deep link was invoked by a wallet.  | `session_id`, `scan_method` (`qr_code` / `deep_link`), `client_ip_hash`, `user_agent_family`    |
+| `proof_verified`            | Proof request flow  | Proof presentation was successfully verified.                      | `session_id`, `ver_config_id`, `outcome=verified`, `credential_schemas`, `issuer_dids`, `credential_count`, `revocation_checked`, `duration_ms` |
+| `proof_verification_failed` | Proof request flow  | Proof verification failed.                                        | `session_id`, `ver_config_id`, `outcome=failed`, `failure_category`, `duration_ms`              |
+| `session_abandoned`         | Session termination | The user abandoned or declined the proof request.                  | `session_id`, `ver_config_id`, `outcome=abandoned`, `phase`, `duration_ms`                      |
+| `session_expired`           | Session termination | The session expired before the proof flow completed.               | `session_id`, `ver_config_id`, `outcome=expired`, `phase`, `timeout_seconds`                    |
+| `token_issued`              | Token flow          | An OIDC ID token was successfully issued to the relying party.     | `session_id`, `client_id`, `ver_config_id`, `claims_count`, `duration_ms`                       |
+| `webhook_received`          | Security / monitoring | An ACA-Py agent webhook was received.                            | `webhook_topic`, `webhook_state`, `webhook_role`                                                |
+| `invalid_client_request`    | Security / monitoring | A client request failed validation (unknown client, bad params). | `client_id`, `error_type`, `client_ip_hash`                                                     |
+
+All events share a common base structure containing `audit_event_type`, `timestamp`, and `service`. Fields that are `None` are omitted from the log output for cleaner JSON.
+
+> **Privacy note:** No attribute values, subject identifiers, or credential contents are ever included. Only safe metadata (schema names, issuer DIDs, counts, durations, and anonymized IPs) is logged.
+
 **Audit logging is enabled by default.** There are two complementary ways to control it:
 
 #### 1. Feature flag (`SIAM_AUDIT_ENABLED`)
