@@ -126,14 +126,16 @@ def _extract_user_agent_family(user_agent: Optional[str]) -> Optional[str]:
     # Check for common browsers (order matters for accuracy)
     if "edg" in ua_lower:
         return "Edge"
+    elif (
+        "opera" in ua_lower or "opr" in ua_lower
+    ):  # before Chrome — Opera UAs contain "Chrome"
+        return "Opera"
     elif "chrome" in ua_lower:
         return "Chrome"
-    elif "safari" in ua_lower:
-        return "Safari"
     elif "firefox" in ua_lower:
         return "Firefox"
-    elif "opera" in ua_lower or "opr" in ua_lower:
-        return "Opera"
+    elif "safari" in ua_lower:
+        return "Safari"
     elif "mobile" in ua_lower:
         return "Mobile"
     elif "bot" in ua_lower or "crawler" in ua_lower:

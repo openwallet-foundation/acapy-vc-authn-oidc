@@ -58,8 +58,9 @@ def _extract_credential_schemas(presentation_data: dict) -> list[str]:
                                 schemas.add(remainder)
                         else:
                             schemas.add(schema_id)
-    except Exception:
-        pass  # Return empty list if extraction fails
+    except Exception as e:
+        # Return empty list if extraction fails
+        logger.debug(f"Failed to extract schemas from presentation data: {e}")
     return sorted(list(schemas))
 
 
@@ -87,8 +88,9 @@ def _extract_issuer_dids(presentation_data: dict) -> list[str]:
                             issuers.add(cred_def_id[:marker_pos])
                         else:
                             issuers.add(cred_def_id)
-    except Exception:
-        pass  # Return empty list if extraction fails
+    except Exception as e:
+        # Return empty list if extraction fails
+        logger.debug(f"Failed to extract issuer DIDs from presentation data: {e}")
     return sorted(list(issuers))
 
 
