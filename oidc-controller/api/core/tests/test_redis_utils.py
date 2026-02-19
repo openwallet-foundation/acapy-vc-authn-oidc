@@ -11,7 +11,8 @@ from api.core.redis_utils import (
 
 
 class TestGetSentinelMaster:
-    """Tests for _get_sentinel_master sentinel/master password separation."""
+    """Tests for _get_sentinel_master: REDIS_PASSWORD is used for both sentinel
+    authentication and master authentication."""
 
     def _make_sentinel_mock(self):
         master = MagicMock()
@@ -20,50 +21,47 @@ class TestGetSentinelMaster:
         return sentinel_instance, master
 
     @patch("api.core.redis_utils.Sentinel")
-    def test_sentinel_password_used_for_sentinel_kwargs(self, mock_sentinel_cls):
-        """REDIS_SENTINEL_PASSWORD authenticates to the sentinel process."""
+    def test_password_passed_to_sentinel_kwargs(self, mock_sentinel_cls):
+        """REDIS_PASSWORD is forwarded to sentinel_kwargs for sentinel auth."""
         sentinel_instance, _ = self._make_sentinel_mock()
         mock_sentinel_cls.return_value = sentinel_instance
 
         with patch("api.core.redis_utils.settings") as mock_settings:
             mock_settings.REDIS_HOST = "sentinel1:26379,sentinel2:26379"
-            mock_settings.REDIS_PASSWORD = "redis-pw"
-            mock_settings.REDIS_SENTINEL_PASSWORD = "sentinel-pw"
+            mock_settings.REDIS_PASSWORD = "shared-pw"
             mock_settings.REDIS_SENTINEL_MASTER_NAME = "mymaster"
 
             _get_sentinel_master()
 
         _, kwargs = mock_sentinel_cls.call_args
-        assert kwargs["sentinel_kwargs"]["password"] == "sentinel-pw"
+        assert kwargs["sentinel_kwargs"]["password"] == "shared-pw"
 
     @patch("api.core.redis_utils.Sentinel")
-    def test_redis_password_used_for_master(self, mock_sentinel_cls):
-        """REDIS_PASSWORD authenticates to the Redis master, not the sentinel."""
+    def test_password_passed_to_master_for(self, mock_sentinel_cls):
+        """REDIS_PASSWORD is forwarded to master_for for master auth."""
         sentinel_instance, _ = self._make_sentinel_mock()
         mock_sentinel_cls.return_value = sentinel_instance
 
         with patch("api.core.redis_utils.settings") as mock_settings:
             mock_settings.REDIS_HOST = "sentinel1:26379"
-            mock_settings.REDIS_PASSWORD = "redis-pw"
-            mock_settings.REDIS_SENTINEL_PASSWORD = "sentinel-pw"
+            mock_settings.REDIS_PASSWORD = "shared-pw"
             mock_settings.REDIS_SENTINEL_MASTER_NAME = "mymaster"
 
             _get_sentinel_master()
 
         sentinel_instance.master_for.assert_called_once_with(
-            "mymaster", password="redis-pw"
+            "mymaster", password="shared-pw"
         )
 
     @patch("api.core.redis_utils.Sentinel")
-    def test_no_sentinel_password_when_unset(self, mock_sentinel_cls):
-        """No sentinel_kwargs password when REDIS_SENTINEL_PASSWORD is None."""
+    def test_no_password_when_unset(self, mock_sentinel_cls):
+        """When REDIS_PASSWORD is unset, sentinel_kwargs has no password key."""
         sentinel_instance, _ = self._make_sentinel_mock()
         mock_sentinel_cls.return_value = sentinel_instance
 
         with patch("api.core.redis_utils.settings") as mock_settings:
             mock_settings.REDIS_HOST = "sentinel1:26379"
-            mock_settings.REDIS_PASSWORD = "redis-pw"
-            mock_settings.REDIS_SENTINEL_PASSWORD = None
+            mock_settings.REDIS_PASSWORD = None
             mock_settings.REDIS_SENTINEL_MASTER_NAME = "mymaster"
 
             _get_sentinel_master()
@@ -72,48 +70,20 @@ class TestGetSentinelMaster:
         assert "password" not in kwargs["sentinel_kwargs"]
 
     @patch("api.core.redis_utils.Sentinel")
-    def test_different_sentinel_and_redis_passwords(self, mock_sentinel_cls):
-        """Sentinel and Redis master can use different passwords independently."""
+    def test_multiple_sentinel_hosts(self, mock_sentinel_cls):
+        """All sentinel hosts are parsed and passed to Sentinel."""
         sentinel_instance, _ = self._make_sentinel_mock()
         mock_sentinel_cls.return_value = sentinel_instance
 
         with patch("api.core.redis_utils.settings") as mock_settings:
             mock_settings.REDIS_HOST = "s1:26379,s2:26379,s3:26379"
-            mock_settings.REDIS_PASSWORD = "master-secret"
-            mock_settings.REDIS_SENTINEL_PASSWORD = "sentinel-secret"
+            mock_settings.REDIS_PASSWORD = "pw"
             mock_settings.REDIS_SENTINEL_MASTER_NAME = "mymaster"
 
             _get_sentinel_master()
 
-        _, kwargs = mock_sentinel_cls.call_args
-        assert kwargs["sentinel_kwargs"]["password"] == "sentinel-secret"
-        sentinel_instance.master_for.assert_called_once_with(
-            "mymaster", password="master-secret"
-        )
-
-    @patch("api.core.redis_utils.Sentinel")
-    def test_same_password_for_both_when_only_redis_password_set(
-        self, mock_sentinel_cls
-    ):
-        """When only REDIS_PASSWORD is set, it defaults to both via config."""
-        sentinel_instance, _ = self._make_sentinel_mock()
-        mock_sentinel_cls.return_value = sentinel_instance
-
-        # Config defaults REDIS_SENTINEL_PASSWORD to REDIS_PASSWORD when unset.
-        # Simulate the default behaviour here.
-        with patch("api.core.redis_utils.settings") as mock_settings:
-            mock_settings.REDIS_HOST = "sentinel1:26379"
-            mock_settings.REDIS_PASSWORD = "shared-pw"
-            mock_settings.REDIS_SENTINEL_PASSWORD = "shared-pw"  # default
-            mock_settings.REDIS_SENTINEL_MASTER_NAME = "mymaster"
-
-            _get_sentinel_master()
-
-        _, kwargs = mock_sentinel_cls.call_args
-        assert kwargs["sentinel_kwargs"]["password"] == "shared-pw"
-        sentinel_instance.master_for.assert_called_once_with(
-            "mymaster", password="shared-pw"
-        )
+        hosts, _ = mock_sentinel_cls.call_args
+        assert hosts[0] == [("s1", 26379), ("s2", 26379), ("s3", 26379)]
 
 
 class TestParseHostPortPairsEmptyEntry:
