@@ -831,6 +831,26 @@ class TestCreateSocketManager:
         # Verify
         assert result is None
 
+    @patch("api.routers.socketio._should_use_redis_adapter")
+    @patch("api.routers.socketio.settings")
+    @patch("api.routers.socketio.can_we_reach_sentinel")
+    def test_create_socket_manager_sentinel_mode_connection_fails(
+        self, mock_can_reach_sentinel, mock_settings, mock_should_use
+    ):
+        """Test create_socket_manager returns None when Sentinel is unreachable."""
+        from api.routers.socketio import create_socket_manager
+
+        mock_should_use.return_value = True
+        mock_settings.REDIS_MODE = "sentinel"
+        mock_settings.REDIS_HOST = "sentinel1:26379,sentinel2:26379"
+        mock_settings.REDIS_SENTINEL_MASTER_NAME = "mymaster"
+        mock_can_reach_sentinel.return_value = False
+
+        result = create_socket_manager()
+
+        assert result is None
+        mock_can_reach_sentinel.assert_called_once()
+
 
 class TestBuildRedisUrl:
     """Test _build_redis_url function for different Redis modes."""
@@ -994,3 +1014,267 @@ class TestCanWeReachCluster:
         result = can_we_reach_cluster([("node1", 6379)])
 
         assert result is False
+
+
+class TestClassifyRedisError:
+    """Test _classify_redis_error for all error classifications."""
+
+    def test_authentication_failure_is_configuration_error(self):
+        from api.routers.socketio import _classify_redis_error, RedisErrorType
+
+        result = _classify_redis_error(
+            "startup", Exception("WRONGPASS authentication failed")
+        )
+        assert result == RedisErrorType.CONFIGURATION
+
+    def test_wrong_password_is_configuration_error(self):
+        from api.routers.socketio import _classify_redis_error, RedisErrorType
+
+        result = _classify_redis_error("startup", Exception("invalid password"))
+        assert result == RedisErrorType.CONFIGURATION
+
+    def test_connection_refused_is_connection_error(self):
+        from api.routers.socketio import _classify_redis_error, RedisErrorType
+
+        result = _classify_redis_error("startup", Exception("Connection refused"))
+        assert result == RedisErrorType.CONNECTION
+
+    def test_emit_operation_is_operation_error(self):
+        from api.routers.socketio import _classify_redis_error, RedisErrorType
+
+        result = _classify_redis_error("Socket.IO emit", Exception("unknown error"))
+        assert result == RedisErrorType.OPERATION
+
+    def test_unknown_error_defaults_to_connection(self):
+        from api.routers.socketio import _classify_redis_error, RedisErrorType
+
+        result = _classify_redis_error("startup", Exception("something weird"))
+        assert result == RedisErrorType.CONNECTION
+
+
+class TestCanWeReachSentinel:
+    """Test can_we_reach_sentinel for Sentinel connectivity."""
+
+    @patch("api.routers.socketio.Sentinel")
+    @patch("api.routers.socketio.settings")
+    def test_returns_true_when_sentinel_and_master_reachable(
+        self, mock_settings, mock_sentinel_cls
+    ):
+        from api.routers.socketio import can_we_reach_sentinel
+
+        mock_settings.REDIS_PASSWORD = "secret"
+        mock_master = MagicMock()
+        mock_sentinel_instance = MagicMock()
+        mock_sentinel_instance.master_for.return_value = mock_master
+        mock_sentinel_cls.return_value = mock_sentinel_instance
+
+        result = can_we_reach_sentinel([("sentinel1", 26379)], "mymaster")
+
+        assert result is True
+        mock_master.ping.assert_called_once()
+        mock_master.close.assert_called_once()
+
+    @patch("api.routers.socketio.Sentinel")
+    @patch("api.routers.socketio.settings")
+    def test_returns_false_when_sentinel_unreachable(
+        self, mock_settings, mock_sentinel_cls
+    ):
+        from api.routers.socketio import can_we_reach_sentinel
+
+        mock_settings.REDIS_PASSWORD = None
+        mock_sentinel_cls.side_effect = Exception("Sentinel unreachable")
+
+        result = can_we_reach_sentinel([("sentinel1", 26379)], "mymaster")
+
+        assert result is False
+
+    @patch("api.routers.socketio.Sentinel")
+    @patch("api.routers.socketio.settings")
+    def test_no_password_omits_sentinel_kwargs_password(
+        self, mock_settings, mock_sentinel_cls
+    ):
+        from api.routers.socketio import can_we_reach_sentinel
+
+        mock_settings.REDIS_PASSWORD = None
+        mock_master = MagicMock()
+        mock_sentinel_instance = MagicMock()
+        mock_sentinel_instance.master_for.return_value = mock_master
+        mock_sentinel_cls.return_value = mock_sentinel_instance
+
+        can_we_reach_sentinel([("s1", 26379)], "mymaster")
+
+        _, kwargs = mock_sentinel_cls.call_args
+        assert kwargs.get("sentinel_kwargs", {}).get("password") is None
+
+
+class TestAsyncRedisClusterManager:
+    """Test AsyncRedisClusterManager initialisation and publish."""
+
+    def test_init_stores_attributes(self):
+        from api.routers.socketio import AsyncRedisClusterManager
+
+        mgr = AsyncRedisClusterManager(
+            startup_nodes=[("node1", 6379), ("node2", 6380)],
+            password="secret",
+            channel="myapp",
+        )
+
+        assert mgr._startup_nodes_raw == [("node1", 6379), ("node2", 6380)]
+        assert mgr._password == "secret"
+        assert mgr.redis is None
+        assert mgr.pubsub_client is None
+        assert mgr.pubsub is None
+
+    @pytest.mark.asyncio
+    async def test_publish_creates_cluster_client_and_publishes(self):
+        from api.routers.socketio import AsyncRedisClusterManager
+
+        mgr = AsyncRedisClusterManager(startup_nodes=[("node1", 6379)], password="pw")
+
+        mock_redis = AsyncMock()
+        mock_redis.publish = AsyncMock(return_value=1)
+
+        with patch("redis.asyncio.cluster.RedisCluster", return_value=mock_redis):
+            await mgr._publish({"event": "test"})
+
+        mock_redis.publish.assert_called_once()
+        assert mgr.redis is mock_redis
+
+    @pytest.mark.asyncio
+    async def test_publish_reconnects_on_first_failure(self):
+        from api.routers.socketio import AsyncRedisClusterManager
+
+        mgr = AsyncRedisClusterManager(startup_nodes=[("node1", 6379)], password=None)
+
+        call_count = 0
+        mock_redis_first = AsyncMock()
+        mock_redis_second = AsyncMock()
+        mock_redis_second.publish = AsyncMock(return_value=1)
+
+        async def fail_then_succeed(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise ConnectionError("first attempt fails")
+            return 1
+
+        mock_redis_first.publish = AsyncMock(
+            side_effect=ConnectionError("first attempt fails")
+        )
+        mock_redis_second.publish = AsyncMock(return_value=1)
+
+        with patch(
+            "redis.asyncio.cluster.RedisCluster",
+            side_effect=[mock_redis_first, mock_redis_second],
+        ):
+            await mgr._publish({"event": "test"})
+
+        mock_redis_second.publish.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_publish_raises_on_second_failure(self):
+        from api.routers.socketio import AsyncRedisClusterManager
+
+        mgr = AsyncRedisClusterManager(startup_nodes=[("node1", 6379)], password=None)
+
+        mock_redis = AsyncMock()
+        mock_redis.publish = AsyncMock(side_effect=ConnectionError("always fails"))
+
+        with patch("redis.asyncio.cluster.RedisCluster", return_value=mock_redis):
+            with pytest.raises(ConnectionError):
+                await mgr._publish({"event": "test"})
+
+
+class TestSafeEmit:
+    """Test safe_emit graceful failure handling."""
+
+    @pytest.mark.asyncio
+    @patch("api.routers.socketio.settings")
+    @patch("api.routers.socketio.sio")
+    async def test_safe_emit_succeeds_normally(self, mock_sio, mock_settings):
+        from api.routers.socketio import safe_emit
+
+        mock_sio.emit = AsyncMock()
+
+        await safe_emit("status", {"status": "verified"}, to="socket-id")
+
+        mock_sio.emit.assert_called_once_with(
+            "status", {"status": "verified"}, to="socket-id"
+        )
+
+    @pytest.mark.asyncio
+    @patch("api.routers.socketio.settings")
+    @patch("api.routers.socketio.sio")
+    async def test_safe_emit_swallows_exception_with_redis_adapter(
+        self, mock_sio, mock_settings
+    ):
+        from api.routers.socketio import safe_emit
+
+        mock_sio.emit = AsyncMock(side_effect=Exception("Redis connection lost"))
+        mock_settings.USE_REDIS_ADAPTER = True
+
+        # Should not raise
+        await safe_emit("status", {"status": "verified"}, to="socket-id")
+
+    @pytest.mark.asyncio
+    @patch("api.routers.socketio.settings")
+    @patch("api.routers.socketio.sio")
+    async def test_safe_emit_swallows_exception_without_redis_adapter(
+        self, mock_sio, mock_settings
+    ):
+        from api.routers.socketio import safe_emit
+
+        mock_sio.emit = AsyncMock(side_effect=Exception("emit failed"))
+        mock_settings.USE_REDIS_ADAPTER = False
+
+        # Should not raise regardless of adapter setting
+        await safe_emit("status", {"status": "failed"}, to="socket-id")
+
+
+class TestPatchRedisManagerForGracefulFailure:
+    """Test _patch_redis_manager_for_graceful_failure inner thread behaviour."""
+
+    @pytest.mark.asyncio
+    @patch("api.routers.socketio.settings")
+    async def test_graceful_thread_breaks_on_normal_completion(self, mock_settings):
+        """When original_thread() returns without error, log and break."""
+        from api.routers.socketio import _patch_redis_manager_for_graceful_failure
+
+        mock_settings.REDIS_THREAD_MAX_RETRIES = 3
+        mock_settings.REDIS_RETRY_BASE_DELAY = 1
+        mock_settings.REDIS_RETRY_MAX_DELAY = 60
+
+        manager = MagicMock()
+        manager._redis_listen_with_retries = None  # Skip patching the listener
+
+        original_thread = AsyncMock()  # Returns normally (no exception)
+        manager._thread = original_thread
+
+        _patch_redis_manager_for_graceful_failure(manager)
+
+        # Should complete without raising
+        await manager._thread()
+        original_thread.assert_called_once()
+
+    @pytest.mark.asyncio
+    @patch("api.routers.socketio.settings")
+    async def test_graceful_thread_retries_on_exception(self, mock_settings):
+        """Thread retries up to max_retries then stops."""
+        from api.routers.socketio import _patch_redis_manager_for_graceful_failure
+
+        mock_settings.REDIS_THREAD_MAX_RETRIES = 2
+        mock_settings.REDIS_RETRY_BASE_DELAY = 0
+        mock_settings.REDIS_RETRY_MAX_DELAY = 0
+
+        manager = MagicMock()
+        manager._redis_listen_with_retries = None
+
+        original_thread = AsyncMock(side_effect=ConnectionError("Redis down"))
+        manager._thread = original_thread
+
+        _patch_redis_manager_for_graceful_failure(manager)
+
+        with patch("asyncio.sleep", new_callable=AsyncMock):
+            await manager._thread()
+
+        assert original_thread.call_count == mock_settings.REDIS_THREAD_MAX_RETRIES
