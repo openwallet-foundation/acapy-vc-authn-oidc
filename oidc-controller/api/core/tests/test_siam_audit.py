@@ -193,13 +193,13 @@ class TestExtractUserAgentFamily:
                 "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0",
                 "Edge",
             ),
-            # Modern Opera UAs contain "Chrome" so they match Chrome first
+            # Modern Opera UAs contain "OPR" which is checked before Chrome
             (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                 "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 OPR/105.0.0.0",
-                "Chrome",
+                "Opera",
             ),
-            # Legacy Opera UA (no Chrome substring) hits the Opera branch
+            # Legacy Opera UA also matches Opera
             (
                 "Opera/9.80 (Windows NT 6.1; WOW64) Presto/2.12.388 Version/12.18",
                 "Opera",
