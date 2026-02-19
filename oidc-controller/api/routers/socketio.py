@@ -192,9 +192,7 @@ class AsyncRedisClusterManager(AsyncPubSubManager):
                     self.pubsub = self.pubsub_client.pubsub()
                     await self.pubsub.subscribe(self.channel)
                     retry_sleep = 1
-                    logger.info(
-                        f"Redis Cluster pub/sub connected to {host}:{port}"
-                    )
+                    logger.info(f"Redis Cluster pub/sub connected to {host}:{port}")
                 async for message in self.pubsub.listen():
                     if message["type"] == "message":
                         yield message["data"]
@@ -236,7 +234,9 @@ def can_we_reach_cluster(startup_nodes: list[tuple[str, int]]) -> bool:
         return False
 
 
-def can_we_reach_sentinel(sentinel_hosts: list[tuple[str, int]], master_name: str) -> bool:
+def can_we_reach_sentinel(
+    sentinel_hosts: list[tuple[str, int]], master_name: str
+) -> bool:
     """Test Redis Sentinel connectivity.
 
     Connects to the sentinel nodes and verifies we can discover and reach the master.
@@ -413,9 +413,7 @@ def create_socket_manager():
             manager = socketio.AsyncRedisManager(redis_url)
             _patch_redis_manager_for_graceful_failure(manager)
 
-            logger.info(
-                f"Redis adapter configured: {settings.REDIS_HOST}"
-            )
+            logger.info(f"Redis adapter configured: {settings.REDIS_HOST}")
             return manager
 
         elif mode == "sentinel":

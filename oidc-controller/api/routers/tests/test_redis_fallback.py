@@ -136,7 +136,11 @@ class TestRedisConfiguration:
     @patch("api.routers.socketio.can_we_reach_redis")
     @patch("socketio.AsyncRedisManager")
     def test_create_socket_manager_single_mode_enabled(
-        self, mock_redis_manager, mock_can_reach_redis, mock_settings, mock_utils_settings
+        self,
+        mock_redis_manager,
+        mock_can_reach_redis,
+        mock_settings,
+        mock_utils_settings,
     ):
         """Test socket manager creates Redis manager when single mode enabled."""
         for s in (mock_settings, mock_utils_settings):
@@ -182,7 +186,12 @@ class TestRedisConfiguration:
     @patch("api.routers.socketio.can_we_reach_redis")
     @patch("api.routers.socketio.socketio.AsyncRedisManager")
     def test_create_socket_manager_unexpected_exception(
-        self, mock_manager, mock_can_reach_redis, mock_should_use, mock_settings, mock_utils_settings
+        self,
+        mock_manager,
+        mock_can_reach_redis,
+        mock_should_use,
+        mock_settings,
+        mock_utils_settings,
     ):
         """Test socket manager handles unexpected exceptions during creation."""
         for s in (mock_settings, mock_utils_settings):

@@ -397,7 +397,10 @@ async def test_startup_redis_check_failure(mock_settings):
     ), patch(
         "api.main.validate_redis_config"
     ):
-        with pytest.raises(RuntimeError, match="REDIS_MODE=single is configured but Redis is not reachable"):
+        with pytest.raises(
+            RuntimeError,
+            match="REDIS_MODE=single is configured but Redis is not reachable",
+        ):
             await on_tenant_startup()
 
 

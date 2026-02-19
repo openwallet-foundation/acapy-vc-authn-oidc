@@ -162,7 +162,10 @@ class BaseRedisWrapperWithPack:
         if self._db is None:
             # Re-raise a cached connection error until the retry window expires
             if self._connect_error is not None:
-                if time.monotonic() - self._connect_error_time < self._connect_retry_delay:
+                if (
+                    time.monotonic() - self._connect_error_time
+                    < self._connect_retry_delay
+                ):
                     raise self._connect_error
                 # Retry delay elapsed — clear the error and try again
                 self._connect_error = None

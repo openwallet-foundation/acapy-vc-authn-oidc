@@ -613,7 +613,12 @@ class TestCreateSocketManager:
     @patch("api.routers.socketio.can_we_reach_redis")
     @patch("socketio.AsyncRedisManager")
     def test_create_socket_manager_single_mode_with_password(
-        self, mock_redis_manager, mock_can_reach_redis, mock_settings, mock_utils_settings, mock_should_use
+        self,
+        mock_redis_manager,
+        mock_can_reach_redis,
+        mock_settings,
+        mock_utils_settings,
+        mock_should_use,
     ):
         """Test successful Redis manager creation in single mode with password."""
         from api.routers.socketio import create_socket_manager
@@ -646,7 +651,12 @@ class TestCreateSocketManager:
     @patch("api.routers.socketio.can_we_reach_redis")
     @patch("socketio.AsyncRedisManager")
     def test_create_socket_manager_single_mode_without_password(
-        self, mock_redis_manager, mock_can_reach_redis, mock_settings, mock_utils_settings, mock_should_use
+        self,
+        mock_redis_manager,
+        mock_can_reach_redis,
+        mock_settings,
+        mock_utils_settings,
+        mock_should_use,
     ):
         """Test successful Redis manager creation in single mode without password."""
         from api.routers.socketio import create_socket_manager
@@ -713,7 +723,9 @@ class TestCreateSocketManager:
             [("sentinel1", 26379), ("sentinel2", 26379)], "mymaster"
         )
         # AsyncRedisManager is created with sentinel URL (db/service_name order per python-socketio)
-        expected_url = "redis+sentinel://:secret@sentinel1:26379,sentinel2:26379/0/mymaster"
+        expected_url = (
+            "redis+sentinel://:secret@sentinel1:26379,sentinel2:26379/0/mymaster"
+        )
         mock_redis_manager.assert_called_once_with(expected_url)
 
     @patch("api.routers.socketio._should_use_redis_adapter")
@@ -885,8 +897,7 @@ class TestBuildRedisUrl:
 
         # python-socketio parse_redis_sentinel_url expects /db/service_name order
         assert (
-            result
-            == "redis+sentinel://sentinel1:26379,sentinel2:26379/0/redis-master"
+            result == "redis+sentinel://sentinel1:26379,sentinel2:26379/0/redis-master"
         )
 
     @patch("api.core.redis_utils.settings")

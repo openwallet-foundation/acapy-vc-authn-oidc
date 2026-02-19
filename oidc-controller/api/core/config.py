@@ -148,9 +148,7 @@ def _get_redis_mode() -> str:
     # Legacy fallback for backwards compatibility
     use_adapter = os.environ.get("USE_REDIS_ADAPTER", "false")
     if strtobool(use_adapter):
-        logger.warning(
-            "USE_REDIS_ADAPTER is deprecated, use REDIS_MODE=single instead"
-        )
+        logger.warning("USE_REDIS_ADAPTER is deprecated, use REDIS_MODE=single instead")
         return "single"
     return "none"
 
@@ -443,9 +441,7 @@ def validate_redis_config():
     nodes = [n.strip() for n in settings.REDIS_HOST.split(",") if n.strip()]
 
     if not nodes:
-        raise ValueError(
-            f"REDIS_MODE={mode} requires at least one node in REDIS_HOST."
-        )
+        raise ValueError(f"REDIS_MODE={mode} requires at least one node in REDIS_HOST.")
 
     for node in nodes:
         if not host_port_pattern.match(node):

@@ -45,8 +45,6 @@ def pem_file_exists(filepath) -> bool:
     return os.path.isfile(filepath)
 
 
-
-
 if settings.TESTING:
     # Test pem file location /vc-authn-oidc/test-signing-keys.
     SIGNING_KEY_FILEPATH = get_signing_key_dir_path(

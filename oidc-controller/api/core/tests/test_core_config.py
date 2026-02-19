@@ -200,7 +200,9 @@ class TestValidateRedisConfig:
         validate_redis_config()
 
     @patch("api.core.config.settings")
-    def test_validate_redis_config_single_mode_bare_hostname_invalid(self, mock_settings):
+    def test_validate_redis_config_single_mode_bare_hostname_invalid(
+        self, mock_settings
+    ):
         """Test that validate_redis_config rejects a bare hostname (no port).
 
         normalize_redis_config() must be called first to expand bare hostnames.
@@ -214,7 +216,9 @@ class TestValidateRedisConfig:
         assert "Invalid node:" in str(exc.value)
 
     @patch("api.core.config.settings")
-    def test_validate_redis_config_single_mode_with_multiple_hosts_fails(self, mock_settings):
+    def test_validate_redis_config_single_mode_with_multiple_hosts_fails(
+        self, mock_settings
+    ):
         """Test validation fails for single mode with multiple hosts."""
         mock_settings.REDIS_MODE = "single"
         mock_settings.REDIS_HOST = "redis1:6379,redis2:6379"
@@ -242,9 +246,7 @@ class TestValidateRedisConfig:
 
         with pytest.raises(ValueError) as exc:
             validate_redis_config()
-        assert "requires REDIS_HOST as host:port pairs" in str(
-            exc.value
-        )
+        assert "requires REDIS_HOST as host:port pairs" in str(exc.value)
 
     @patch("api.core.config.settings")
     def test_validate_redis_config_cluster_mode_valid(self, mock_settings):

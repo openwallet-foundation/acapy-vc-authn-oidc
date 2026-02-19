@@ -73,9 +73,7 @@ class Token(BaseModel):
                 proof_format = "anoncreds"
             else:
                 # If we reach here, we have a data inconsistency or unsupported format
-                raise ValueError(
-                    "No valid proof format found in presentation exchange"
-                )
+                raise ValueError("No valid proof format found in presentation exchange")
 
         logger.info(
             "Extracted requested attributes from presentation request",
