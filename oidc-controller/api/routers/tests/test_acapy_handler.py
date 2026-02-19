@@ -4,13 +4,12 @@ import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from bson import ObjectId
-from fastapi.testclient import TestClient
-from pymongo.database import Database
-
 from api.authSessions.models import AuthSession, AuthSessionState
 from api.core.config import settings
 from api.routers.acapy_handler import post_topic
+from bson import ObjectId
+from fastapi.testclient import TestClient
+from pymongo.database import Database
 
 
 @pytest.fixture
@@ -467,6 +466,7 @@ class TestConnectionBasedVerificationWebhooks:
         mock_auth_session_no_pres_id.pres_exch_id = None
         mock_auth_session_no_pres_id.connection_id = "test-connection-id"
         mock_auth_session_no_pres_id.multi_use = False
+        mock_auth_session_no_pres_id.ver_config_id = "test-ver-config-id"
         mock_auth_session_no_pres_id.model_dump = MagicMock(
             return_value={
                 "id": "test-session-id",
@@ -1429,3 +1429,162 @@ class TestProverRoleWebhooks:
         mock_client.delete_presentation_record.assert_called_once_with(
             "test-pres-ex-id"
         )
+
+
+# ===================================================================
+# Tests for _extract_credential_schemas / _extract_issuer_dids
+# ===================================================================
+
+from api.routers.acapy_handler import _extract_credential_schemas, _extract_issuer_dids
+
+
+def _make_presentation_data(identifiers, format_key="indy"):
+    """Helper to build a minimal presentation_data dict."""
+    return {
+        "by_format": {
+            format_key: {
+                "pres": {
+                    "identifiers": identifiers,
+                }
+            }
+        }
+    }
+
+
+class TestExtractCredentialSchemas:
+    """Tests for _extract_credential_schemas from presentation data."""
+
+    def test_empty_data(self):
+        assert _extract_credential_schemas({}) == []
+
+    def test_unqualified_did_schema_id(self):
+        """Legacy unqualified DID: DXzMEuV1efR3RbU8vSkMbN:2:Person:1.0"""
+        data = _make_presentation_data(
+            [{"schema_id": "DXzMEuV1efR3RbU8vSkMbN:2:Person:1.0"}]
+        )
+        assert _extract_credential_schemas(data) == ["Person"]
+
+    def test_qualified_did_schema_id(self):
+        """Fully-qualified DID: did:sov:DXzMEuV1efR3RbU8vSkMbN:2:Person:1.0"""
+        data = _make_presentation_data(
+            [{"schema_id": "did:sov:DXzMEuV1efR3RbU8vSkMbN:2:Person:1.0"}]
+        )
+        assert _extract_credential_schemas(data) == ["Person"]
+
+    def test_qualified_did_indy_schema_id(self):
+        """did:indy:sovrin:ABC123:2:HealthCard:2.1"""
+        data = _make_presentation_data(
+            [{"schema_id": "did:indy:sovrin:ABC123:2:HealthCard:2.1"}]
+        )
+        assert _extract_credential_schemas(data) == ["HealthCard"]
+
+    def test_multiple_schemas_deduped_and_sorted(self):
+        data = _make_presentation_data(
+            [
+                {"schema_id": "IssuerA:2:Zebra:1.0"},
+                {"schema_id": "IssuerB:2:Alpha:2.0"},
+                {"schema_id": "IssuerC:2:Zebra:1.0"},
+            ]
+        )
+        assert _extract_credential_schemas(data) == ["Alpha", "Zebra"]
+
+    def test_anoncreds_format(self):
+        data = _make_presentation_data(
+            [{"schema_id": "IssuerA:2:Person:1.0"}], format_key="anoncreds"
+        )
+        assert _extract_credential_schemas(data) == ["Person"]
+
+    def test_no_marker_falls_back_to_raw(self):
+        """When schema_id has no :2: marker, return the raw value."""
+        data = _make_presentation_data([{"schema_id": "some-opaque-id"}])
+        assert _extract_credential_schemas(data) == ["some-opaque-id"]
+
+    def test_missing_identifiers_key(self):
+        data = {"by_format": {"indy": {"pres": {}}}}
+        assert _extract_credential_schemas(data) == []
+
+    def test_missing_schema_id_key(self):
+        data = _make_presentation_data([{"cred_def_id": "something"}])
+        assert _extract_credential_schemas(data) == []
+
+    def test_malformed_by_format(self):
+        assert _extract_credential_schemas({"by_format": "bad"}) == []
+
+    def test_schema_name_only_after_marker(self):
+        """schema_id with only one part after :2: (no version)."""
+        data = _make_presentation_data([{"schema_id": "DID:2:SchemaOnly"}])
+        assert _extract_credential_schemas(data) == ["SchemaOnly"]
+
+
+class TestExtractIssuerDids:
+    """Tests for _extract_issuer_dids from presentation data."""
+
+    def test_empty_data(self):
+        assert _extract_issuer_dids({}) == []
+
+    def test_unqualified_did(self):
+        """Legacy unqualified DID: DXzMEuV1efR3RbU8vSkMbN:3:CL:123:default"""
+        data = _make_presentation_data(
+            [{"cred_def_id": "DXzMEuV1efR3RbU8vSkMbN:3:CL:123:default"}]
+        )
+        assert _extract_issuer_dids(data) == ["DXzMEuV1efR3RbU8vSkMbN"]
+
+    def test_qualified_did_sov(self):
+        """Fully-qualified DID: did:sov:DXzMEuV1efR3RbU8vSkMbN:3:CL:123:default"""
+        data = _make_presentation_data(
+            [{"cred_def_id": "did:sov:DXzMEuV1efR3RbU8vSkMbN:3:CL:123:default"}]
+        )
+        assert _extract_issuer_dids(data) == ["did:sov:DXzMEuV1efR3RbU8vSkMbN"]
+
+    def test_qualified_did_indy(self):
+        """did:indy:sovrin:ABC123:3:CL:456:latest"""
+        data = _make_presentation_data(
+            [{"cred_def_id": "did:indy:sovrin:ABC123:3:CL:456:latest"}]
+        )
+        assert _extract_issuer_dids(data) == ["did:indy:sovrin:ABC123"]
+
+    def test_multiple_issuers_deduped_and_sorted(self):
+        data = _make_presentation_data(
+            [
+                {"cred_def_id": "did:sov:ZZZ:3:CL:1:tag"},
+                {"cred_def_id": "did:sov:AAA:3:CL:2:tag"},
+                {"cred_def_id": "did:sov:ZZZ:3:CL:3:other"},
+            ]
+        )
+        assert _extract_issuer_dids(data) == ["did:sov:AAA", "did:sov:ZZZ"]
+
+    def test_anoncreds_format(self):
+        data = _make_presentation_data(
+            [{"cred_def_id": "IssuerA:3:CL:99:default"}], format_key="anoncreds"
+        )
+        assert _extract_issuer_dids(data) == ["IssuerA"]
+
+    def test_no_marker_falls_back_to_raw(self):
+        """When cred_def_id has no :3:CL: marker, return the raw value."""
+        data = _make_presentation_data([{"cred_def_id": "some-opaque-id"}])
+        assert _extract_issuer_dids(data) == ["some-opaque-id"]
+
+    def test_missing_identifiers_key(self):
+        data = {"by_format": {"indy": {"pres": {}}}}
+        assert _extract_issuer_dids(data) == []
+
+    def test_missing_cred_def_id_key(self):
+        data = _make_presentation_data([{"schema_id": "something"}])
+        assert _extract_issuer_dids(data) == []
+
+    def test_malformed_by_format(self):
+        assert _extract_issuer_dids({"by_format": "bad"}) == []
+
+    def test_both_formats_combined(self):
+        """Identifiers present under both indy and anoncreds."""
+        data = {
+            "by_format": {
+                "indy": {
+                    "pres": {"identifiers": [{"cred_def_id": "did:sov:A:3:CL:1:t"}]}
+                },
+                "anoncreds": {
+                    "pres": {"identifiers": [{"cred_def_id": "did:sov:B:3:CL:2:t"}]}
+                },
+            }
+        }
+        assert _extract_issuer_dids(data) == ["did:sov:A", "did:sov:B"]
