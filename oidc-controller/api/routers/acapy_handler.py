@@ -43,10 +43,19 @@ def _extract_credential_schemas(presentation_data: dict) -> list[str]:
                 identifiers = pres.get("identifiers", [])
                 for identifier in identifiers:
                     if schema_id := identifier.get("schema_id"):
-                        # Extract schema name from schema_id (format: did:schema_name:version)
-                        parts = schema_id.split(":")
-                        if len(parts) >= 3:
-                            schemas.add(parts[-2])  # schema name is second to last
+                        # schema_id format: <issuer_did>:2:<schema_name>:<version>
+                        # The issuer DID may itself contain colons (e.g. did:sov:ABC),
+                        # so we locate the ":2:" marker to split reliably.
+                        marker = ":2:"
+                        marker_pos = schema_id.find(marker)
+                        if marker_pos != -1:
+                            remainder = schema_id[marker_pos + len(marker) :]
+                            # remainder is "<schema_name>:<version>"
+                            rem_parts = remainder.split(":")
+                            if len(rem_parts) >= 2:
+                                schemas.add(rem_parts[0])
+                            else:
+                                schemas.add(remainder)
                         else:
                             schemas.add(schema_id)
     except Exception:
@@ -69,10 +78,15 @@ def _extract_issuer_dids(presentation_data: dict) -> list[str]:
                 identifiers = pres.get("identifiers", [])
                 for identifier in identifiers:
                     if cred_def_id := identifier.get("cred_def_id"):
-                        # Extract issuer DID from cred_def_id (format: did:3:CL:schema:tag)
-                        parts = cred_def_id.split(":")
-                        if len(parts) >= 1:
-                            issuers.add(parts[0])
+                        # cred_def_id format: <issuer_did>:3:CL:<schema_seq_no>:<tag>
+                        # The issuer DID may itself contain colons (e.g. did:sov:ABC),
+                        # so we locate the ":3:CL:" marker to extract the DID prefix.
+                        marker = ":3:CL:"
+                        marker_pos = cred_def_id.find(marker)
+                        if marker_pos != -1:
+                            issuers.add(cred_def_id[:marker_pos])
+                        else:
+                            issuers.add(cred_def_id)
     except Exception:
         pass  # Return empty list if extraction fails
     return sorted(list(issuers))

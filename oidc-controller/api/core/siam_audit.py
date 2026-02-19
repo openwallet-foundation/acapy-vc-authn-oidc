@@ -27,7 +27,7 @@ if TYPE_CHECKING:
     from ..authSessions.models import AuthSession
     from ..verificationConfigs.models import VerificationConfig
 
-logger = structlog.getLogger("siam.audit")
+logger: structlog.typing.FilteringBoundLogger = structlog.getLogger("siam.audit")
 
 
 def _strtobool(val: str | bool) -> bool:
@@ -148,10 +148,14 @@ def _extract_schema_names(ver_config: "VerificationConfig") -> list[str]:
 
     Schema names are safe metadata - they describe what type of credential
     is being requested, not the actual credential contents.
+    Extracts from both requested_attributes and requested_predicates.
     """
     schemas = set()
-    for attr in ver_config.proof_request.requested_attributes:
-        for restriction in attr.restrictions:
+    for item in (
+        *ver_config.proof_request.requested_attributes,
+        *ver_config.proof_request.requested_predicates,
+    ):
+        for restriction in item.restrictions:
             if restriction.schema_name:
                 schemas.add(restriction.schema_name)
     return sorted(list(schemas))
@@ -162,10 +166,14 @@ def _extract_issuer_dids(ver_config: "VerificationConfig") -> list[str]:
     Extract issuer DIDs from verification config restrictions.
 
     Issuer DIDs are public identifiers - safe to log for ecosystem analytics.
+    Extracts from both requested_attributes and requested_predicates.
     """
     issuers = set()
-    for attr in ver_config.proof_request.requested_attributes:
-        for restriction in attr.restrictions:
+    for item in (
+        *ver_config.proof_request.requested_attributes,
+        *ver_config.proof_request.requested_predicates,
+    ):
+        for restriction in item.restrictions:
             if restriction.issuer_did:
                 issuers.add(restriction.issuer_did)
             if restriction.schema_issuer_did:

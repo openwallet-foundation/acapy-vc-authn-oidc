@@ -34,6 +34,19 @@ async def send_connectionless_proof_req(
     If the user scanes the QR code with a mobile camera,
     they will be redirected to a help page.
     """
+    # SIAM Audit: Log QR scan before redirect path split to capture all scans
+    auth_session: AuthSession = await AuthSessionCRUD(db).get_by_pres_exch_id(
+        pres_exch_id
+    )
+    client_ip = req.client.host if req.client else None
+    user_agent = req.headers.get("user-agent")
+    audit_qr_scanned(
+        session_id=str(auth_session.id),
+        scan_method="qr_code",
+        client_ip=client_ip,
+        user_agent=user_agent,
+    )
+
     # First prepare the response depending on the redirect url
     if ".html" in settings.CONTROLLER_CAMERA_REDIRECT_URL:
         response = RedirectResponse(settings.CONTROLLER_CAMERA_REDIRECT_URL)
@@ -43,24 +56,11 @@ async def send_connectionless_proof_req(
             "r",
         ).read()
 
-        auth_session: AuthSession = await AuthSessionCRUD(db).get_by_pres_exch_id(
-            pres_exch_id
-        )
         wallet_deep_link = gen_deep_link(auth_session)
         template = Template(template_file)
 
         # If the qrcode was scanned by mobile phone camera toggle the pending flag
         await toggle_pending(db, auth_session)
-
-        # SIAM Audit: Log QR scan via mobile camera (redirected to deep link)
-        client_ip = req.client.host if req.client else None
-        user_agent = req.headers.get("user-agent")
-        audit_qr_scanned(
-            session_id=str(auth_session.id),
-            scan_method="qr_code",
-            client_ip=client_ip,
-            user_agent=user_agent,
-        )
 
         response = HTMLResponse(template.render({"wallet_deep_link": wallet_deep_link}))
 
