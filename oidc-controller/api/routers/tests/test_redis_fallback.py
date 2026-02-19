@@ -4,7 +4,6 @@ Test Redis fallback behavior to ensure proper handling when USE_REDIS_ADAPTER is
 """
 
 import pytest
-import asyncio
 from unittest.mock import Mock, patch, AsyncMock
 import time
 
@@ -95,28 +94,30 @@ class TestRedisConfiguration:
     """Test Redis configuration and fallback logic."""
 
     @patch("api.routers.socketio.settings")
-    def test_should_use_redis_adapter_disabled(self, mock_settings):
-        """Test Redis adapter is disabled when USE_REDIS_ADAPTER is False."""
-        mock_settings.USE_REDIS_ADAPTER = False
+    def test_should_use_redis_adapter_mode_none(self, mock_settings):
+        """Test Redis adapter is disabled when REDIS_MODE is none."""
+        mock_settings.REDIS_MODE = "none"
         mock_settings.REDIS_HOST = "redis"
 
         result = _should_use_redis_adapter()
         assert not result
 
+    @patch("api.routers.socketio.validate_redis_config")
     @patch("api.routers.socketio.settings")
-    def test_should_use_redis_adapter_no_host(self, mock_settings):
+    def test_should_use_redis_adapter_no_host(self, mock_settings, mock_validate):
         """Test Redis adapter falls back when no REDIS_HOST provided."""
-        mock_settings.USE_REDIS_ADAPTER = True
-        mock_settings.REDIS_HOST = ""
+        mock_settings.REDIS_MODE = "single"
+        mock_validate.side_effect = ValueError("REDIS_HOST required")
 
         result = _should_use_redis_adapter()
         assert not result
 
+    @patch("api.routers.socketio.validate_redis_config")
     @patch("api.routers.socketio.settings")
-    def test_should_use_redis_adapter_enabled(self, mock_settings):
-        """Test Redis adapter is enabled when properly configured."""
-        mock_settings.USE_REDIS_ADAPTER = True
-        mock_settings.REDIS_HOST = "redis"
+    def test_should_use_redis_adapter_single_mode(self, mock_settings, mock_validate):
+        """Test Redis adapter is enabled when REDIS_MODE is single."""
+        mock_settings.REDIS_MODE = "single"
+        mock_validate.return_value = None  # Validation passes
 
         result = _should_use_redis_adapter()
         assert result
@@ -124,24 +125,29 @@ class TestRedisConfiguration:
     @patch("api.routers.socketio.settings")
     def test_create_socket_manager_disabled(self, mock_settings):
         """Test socket manager creation when Redis is disabled."""
-        mock_settings.USE_REDIS_ADAPTER = False
+        mock_settings.REDIS_MODE = "none"
         mock_settings.REDIS_HOST = "redis"
 
         manager = create_socket_manager()
         assert manager is None
 
+    @patch("api.core.redis_utils.settings")
     @patch("api.routers.socketio.settings")
     @patch("api.routers.socketio.can_we_reach_redis")
     @patch("socketio.AsyncRedisManager")
-    def test_create_socket_manager_redis_enabled(
-        self, mock_redis_manager, mock_can_reach_redis, mock_settings
+    def test_create_socket_manager_single_mode_enabled(
+        self,
+        mock_redis_manager,
+        mock_can_reach_redis,
+        mock_settings,
+        mock_utils_settings,
     ):
-        """Test socket manager creates Redis manager when enabled."""
-        mock_settings.USE_REDIS_ADAPTER = True
-        mock_settings.REDIS_HOST = "redis"
-        mock_settings.REDIS_PORT = 6379
-        mock_settings.REDIS_PASSWORD = ""
-        mock_settings.REDIS_DB = 0
+        """Test socket manager creates Redis manager when single mode enabled."""
+        for s in (mock_settings, mock_utils_settings):
+            s.REDIS_MODE = "single"
+            s.REDIS_HOST = "redis:6379"
+            s.REDIS_PASSWORD = ""
+            s.REDIS_DB = 0
 
         # Mock successful validation
         mock_can_reach_redis.return_value = True
@@ -155,17 +161,18 @@ class TestRedisConfiguration:
         mock_can_reach_redis.assert_called_once_with("redis://redis:6379/0")
         mock_redis_manager.assert_called_once_with("redis://redis:6379/0")
 
+    @patch("api.core.redis_utils.settings")
     @patch("api.routers.socketio.settings")
     @patch("api.routers.socketio.can_we_reach_redis")
     def test_create_socket_manager_redis_failure_fallback(
-        self, mock_can_reach_redis, mock_settings
+        self, mock_can_reach_redis, mock_settings, mock_utils_settings
     ):
         """Test socket manager returns None when Redis validation fails before manager creation."""
-        mock_settings.USE_REDIS_ADAPTER = True
-        mock_settings.REDIS_HOST = "redis"
-        mock_settings.REDIS_PORT = 6379
-        mock_settings.REDIS_PASSWORD = ""
-        mock_settings.REDIS_DB = 0
+        for s in (mock_settings, mock_utils_settings):
+            s.REDIS_MODE = "single"
+            s.REDIS_HOST = "redis:6379"
+            s.REDIS_PASSWORD = ""
+            s.REDIS_DB = 0
 
         # Simulate Redis validation failure
         mock_can_reach_redis.return_value = False
@@ -173,19 +180,25 @@ class TestRedisConfiguration:
         manager = create_socket_manager()
         assert manager is None
 
+    @patch("api.core.redis_utils.settings")
     @patch("api.routers.socketio.settings")
     @patch("api.routers.socketio._should_use_redis_adapter")
     @patch("api.routers.socketio.can_we_reach_redis")
     @patch("api.routers.socketio.socketio.AsyncRedisManager")
     def test_create_socket_manager_unexpected_exception(
-        self, mock_manager, mock_can_reach_redis, mock_should_use, mock_settings
+        self,
+        mock_manager,
+        mock_can_reach_redis,
+        mock_should_use,
+        mock_settings,
+        mock_utils_settings,
     ):
         """Test socket manager handles unexpected exceptions during creation."""
-        mock_settings.USE_REDIS_ADAPTER = True
-        mock_settings.REDIS_HOST = "redis"
-        mock_settings.REDIS_PORT = 6379
-        mock_settings.REDIS_PASSWORD = ""
-        mock_settings.REDIS_DB = 0
+        for s in (mock_settings, mock_utils_settings):
+            s.REDIS_MODE = "single"
+            s.REDIS_HOST = "redis:6379"
+            s.REDIS_PASSWORD = ""
+            s.REDIS_DB = 0
 
         # Setup
         mock_should_use.return_value = True
@@ -291,8 +304,9 @@ class TestIntegrationScenarios:
 
     @pytest.mark.asyncio
     @patch("api.routers.socketio.settings")
-    async def test_graceful_degradation_when_adapter_disabled(self, mock_settings):
-        """Test graceful degradation when USE_REDIS_ADAPTER=false and Redis fails."""
+    async def test_graceful_degradation_when_mode_none(self, mock_settings):
+        """Test graceful degradation when REDIS_MODE=none and Redis fails."""
+        mock_settings.REDIS_MODE = "none"
         mock_settings.USE_REDIS_ADAPTER = False
 
         with patch.object(sio, "emit", new_callable=AsyncMock) as mock_emit:
@@ -311,8 +325,9 @@ class TestIntegrationScenarios:
 
     @pytest.mark.asyncio
     @patch("api.routers.socketio.settings")
-    async def test_graceful_degradation_scenario_adapter_disabled(self, mock_settings):
-        """Test graceful degradation when Redis becomes unavailable during runtime and adapter is disabled."""
+    async def test_graceful_degradation_scenario_mode_none(self, mock_settings):
+        """Test graceful degradation when Redis becomes unavailable during runtime and mode is none."""
+        mock_settings.REDIS_MODE = "none"
         mock_settings.USE_REDIS_ADAPTER = False
 
         call_count = 0
@@ -338,8 +353,9 @@ class TestIntegrationScenarios:
 
     @pytest.mark.asyncio
     @patch("api.routers.socketio.settings")
-    async def test_graceful_degradation_scenario_adapter_enabled(self, mock_settings):
-        """Test graceful degradation continues on Redis failure when adapter is enabled."""
+    async def test_graceful_degradation_scenario_single_mode(self, mock_settings):
+        """Test graceful degradation continues on Redis failure when single mode enabled."""
+        mock_settings.REDIS_MODE = "single"
         mock_settings.USE_REDIS_ADAPTER = True
 
         with patch.object(sio, "emit", new_callable=AsyncMock) as mock_emit:

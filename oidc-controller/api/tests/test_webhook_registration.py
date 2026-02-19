@@ -4,7 +4,6 @@ from unittest.mock import patch, MagicMock, AsyncMock
 import requests
 from api.core.webhook_utils import register_tenant_webhook
 from api.main import on_tenant_startup
-from api.core.config import settings
 from api.core.webhook_utils import _register_via_tenant_api
 
 
@@ -19,7 +18,8 @@ def mock_settings():
         mock.ST_ACAPY_ADMIN_API_KEY_NAME = "x-api-key"
         mock.ST_ACAPY_ADMIN_API_KEY = "admin-api-key"
         # Default safe values
-        mock.USE_REDIS_ADAPTER = False
+        mock.REDIS_MODE = "none"  # Disabled by default
+        mock.USE_REDIS_ADAPTER = False  # Computed from REDIS_MODE
         mock.ACAPY_TENANCY = "multi"
         mock.MT_ACAPY_WALLET_KEY = "wallet-key"
         mock.ACAPY_TENANT_WALLET_KEY = "wallet-key"
@@ -361,45 +361,47 @@ async def test_webhook_registration_unexpected_exception(mock_requests_put, mock
 @pytest.mark.asyncio
 async def test_startup_redis_check_success(mock_settings):
     """Test startup logic verifies Redis connection if adapter enabled."""
-    mock_settings.USE_REDIS_ADAPTER = True
-
-    # Mock redis client
-    mock_redis_client = AsyncMock()
-    mock_redis_client.ping.return_value = True
+    mock_settings.REDIS_MODE = "single"  # Enable Redis via REDIS_MODE
 
     with patch("api.main.init_db", new_callable=AsyncMock), patch(
         "api.main.init_provider", new_callable=AsyncMock
     ), patch("api.main.get_db", new_callable=AsyncMock), patch(
-        "api.main.async_redis.from_url", return_value=mock_redis_client
+        "api.main.can_we_reach_redis", return_value=True
+    ) as mock_reach, patch(
+        "api.main.build_redis_url", return_value="redis://localhost"
     ), patch(
-        "api.main._build_redis_url", return_value="redis://localhost"
+        "api.main.normalize_redis_config"
+    ), patch(
+        "api.main.validate_redis_config"
     ):
 
         await on_tenant_startup()
 
-        mock_redis_client.ping.assert_called_once()
-        mock_redis_client.close.assert_called_once()
+        mock_reach.assert_called_once_with("redis://localhost")
 
 
 @pytest.mark.asyncio
 async def test_startup_redis_check_failure(mock_settings):
-    """Test startup logic handles Redis connection failure gracefully."""
-    mock_settings.USE_REDIS_ADAPTER = True
+    """Test startup fails fast when Redis is configured but unreachable."""
+    mock_settings.REDIS_MODE = "single"  # Enable Redis via REDIS_MODE
+    mock_settings.REDIS_HOST = "redis:6379"
 
     with patch("api.main.init_db", new_callable=AsyncMock), patch(
         "api.main.init_provider", new_callable=AsyncMock
     ), patch("api.main.get_db", new_callable=AsyncMock), patch(
-        "api.main.async_redis.from_url", side_effect=Exception("Redis Down")
+        "api.main.can_we_reach_redis", return_value=False
     ), patch(
-        "api.main._build_redis_url", return_value="redis://localhost"
+        "api.main.build_redis_url", return_value="redis://localhost"
     ), patch(
-        "api.main._handle_redis_failure"
-    ) as mock_handler:
-
-        await on_tenant_startup()
-
-        # Should log error but continue startup
-        mock_handler.assert_called_once()
+        "api.main.normalize_redis_config"
+    ), patch(
+        "api.main.validate_redis_config"
+    ):
+        with pytest.raises(
+            RuntimeError,
+            match="REDIS_MODE=single is configured but Redis is not reachable",
+        ):
+            await on_tenant_startup()
 
 
 @pytest.mark.asyncio

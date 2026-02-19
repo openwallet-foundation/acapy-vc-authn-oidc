@@ -9,7 +9,7 @@ from ..authSessions.crud import AuthSessionCRUD
 from ..authSessions.models import AuthSession, AuthSessionState
 
 from ..core.config import settings
-from ..routers.socketio import sio, get_socket_id_for_pid, safe_emit
+from ..routers.socketio import get_socket_id_for_pid, safe_emit
 from ..routers.oidc import gen_deep_link
 from ..db.session import get_db
 

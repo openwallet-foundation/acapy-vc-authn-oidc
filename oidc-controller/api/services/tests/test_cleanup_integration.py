@@ -1,9 +1,8 @@
 """Integration tests for the complete cleanup flow."""
 
-import asyncio
 import json
 from datetime import datetime, timedelta, UTC
-from unittest.mock import Mock, patch, AsyncMock
+from unittest.mock import Mock, patch
 import pytest
 
 from api.services.cleanup import (

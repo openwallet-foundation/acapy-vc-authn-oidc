@@ -2,20 +2,20 @@ import importlib
 import pytest
 import secrets
 from unittest.mock import Mock, patch, MagicMock
-from pyop.storage import StatelessWrapper, RedisWrapper
-from api.core.oidc.provider import RedisWrapperWithPack, DynamicClientDatabase
+from api.core.redis_utils import SingleRedisWrapperWithPack
+from api.core.oidc.provider import DynamicClientDatabase
 from api.core.oidc import provider as provider_module
 from api.core.config import settings as real_settings
 
 
-class TestRedisWrapperWithPack:
-    """Test RedisWrapperWithPack pack() and unpack() methods."""
+class TestSingleRedisWrapperWithPack:
+    """Test SingleRedisWrapperWithPack pack() and unpack() methods."""
 
     @pytest.fixture
     def mock_redis_wrapper(self):
         """Create a mock Redis wrapper for testing."""
         # Create a mock instead of using the actual class
-        wrapper = Mock(spec=RedisWrapperWithPack)
+        wrapper = Mock(spec=SingleRedisWrapperWithPack)
         wrapper._storage = {}
         wrapper.collection = "test_collection"
         wrapper._ttl = 600
@@ -421,8 +421,7 @@ class TestStorageBackendSelection:
         # Create a mock settings object
         mock_settings = Mock()
         mock_settings.USE_REDIS_ADAPTER = True
-        mock_settings.REDIS_HOST = "redis"
-        mock_settings.REDIS_PORT = 6379
+        mock_settings.REDIS_HOST = "redis:6379"
         mock_settings.REDIS_PASSWORD = None
         mock_settings.REDIS_DB = 0
 
@@ -444,55 +443,55 @@ class TestHelperFunctions:
 
     def test_build_redis_url_without_password(self):
         """Test Redis URL building without password."""
-        from api.core.oidc.provider import _build_redis_url
+        from api.core.redis_utils import build_redis_url
         from api.core.config import settings
 
         # Save original values
+        original_mode = settings.REDIS_MODE
         original_host = settings.REDIS_HOST
-        original_port = settings.REDIS_PORT
         original_password = settings.REDIS_PASSWORD
         original_db = settings.REDIS_DB
 
         try:
-            # Set test values
-            settings.REDIS_HOST = "testhost"
-            settings.REDIS_PORT = 6380
+            # Set test values (REDIS_HOST is already host:port)
+            settings.REDIS_MODE = "single"
+            settings.REDIS_HOST = "testhost:6380"
             settings.REDIS_PASSWORD = None
             settings.REDIS_DB = 1
 
-            url = _build_redis_url()
+            url = build_redis_url()
             assert url == "redis://testhost:6380/1"
         finally:
             # Restore original values
+            settings.REDIS_MODE = original_mode
             settings.REDIS_HOST = original_host
-            settings.REDIS_PORT = original_port
             settings.REDIS_PASSWORD = original_password
             settings.REDIS_DB = original_db
 
     def test_build_redis_url_with_password(self):
         """Test Redis URL building with password."""
-        from api.core.oidc.provider import _build_redis_url
+        from api.core.redis_utils import build_redis_url
         from api.core.config import settings
 
         # Save original values
+        original_mode = settings.REDIS_MODE
         original_host = settings.REDIS_HOST
-        original_port = settings.REDIS_PORT
         original_password = settings.REDIS_PASSWORD
         original_db = settings.REDIS_DB
 
         try:
-            # Set test values
-            settings.REDIS_HOST = "securehost"
-            settings.REDIS_PORT = 6379
+            # Set test values (REDIS_HOST is already host:port)
+            settings.REDIS_MODE = "single"
+            settings.REDIS_HOST = "securehost:6379"
             settings.REDIS_PASSWORD = "secret123"
             settings.REDIS_DB = 0
 
-            url = _build_redis_url()
+            url = build_redis_url()
             assert url == "redis://:secret123@securehost:6379/0"
         finally:
             # Restore original values
+            settings.REDIS_MODE = original_mode
             settings.REDIS_HOST = original_host
-            settings.REDIS_PORT = original_port
             settings.REDIS_PASSWORD = original_password
             settings.REDIS_DB = original_db
 
@@ -574,7 +573,7 @@ class TestProviderConfiguration:
         """Test that userinfo_endpoint is conditional based on settings."""
         # Case 1: Enabled
         with patch.object(real_settings, "CONTROLLER_ENABLE_USERINFO_ENDPOINT", True):
-            with patch.object(real_settings, "USE_REDIS_ADAPTER", False):
+            with patch.object(real_settings, "REDIS_MODE", "none"):
                 importlib.reload(provider_module)
                 config = provider_module.configuration_information
                 assert "userinfo_endpoint" in config
@@ -582,7 +581,7 @@ class TestProviderConfiguration:
 
         # Case 2: Disabled
         with patch.object(real_settings, "CONTROLLER_ENABLE_USERINFO_ENDPOINT", False):
-            with patch.object(real_settings, "USE_REDIS_ADAPTER", False):
+            with patch.object(real_settings, "REDIS_MODE", "none"):
                 importlib.reload(provider_module)
                 config = provider_module.configuration_information
                 assert "userinfo_endpoint" not in config
@@ -591,17 +590,16 @@ class TestProviderConfiguration:
 class TestProviderRedisConfiguration:
     """Test Redis configuration logic in provider module."""
 
-    @patch("api.core.oidc.provider._build_redis_url")
-    def test_redis_ttl_synchronization(self, mock_build_url):
+    def test_redis_ttl_synchronization(self):
         """
         Verify that UserInfo Redis TTL is synchronized with Access Token TTL.
         We verify this by inspecting the created objects in the module.
         """
         TEST_TTL = 1000
-        mock_build_url.return_value = "redis://mock"
 
         # Apply settings to the singleton directly so reload picks them up
-        with patch.object(real_settings, "USE_REDIS_ADAPTER", True), patch.object(
+        # REDIS_MODE=single enables Redis adapter (USE_REDIS_ADAPTER property returns True)
+        with patch.object(real_settings, "REDIS_MODE", "single"), patch.object(
             real_settings, "OIDC_ACCESS_TOKEN_TTL", TEST_TTL
         ), patch.object(real_settings, "REDIS_HOST", "localhost"):
 

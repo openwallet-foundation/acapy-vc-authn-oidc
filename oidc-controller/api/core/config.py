@@ -2,13 +2,13 @@ import json
 import logging
 import logging.config
 import os
+import re
 import sys
 from enum import Enum
 from functools import lru_cache
 from pathlib import Path
 from pydantic_settings import BaseSettings
 from pydantic import ConfigDict, field_validator
-from typing import Any
 
 import structlog
 
@@ -133,6 +133,26 @@ class EnvironmentEnum(str, Enum):
     LOCAL = "local"
 
 
+def _get_redis_mode() -> str:
+    """Determine Redis mode with backwards compatibility for USE_REDIS_ADAPTER.
+
+    Priority:
+    1. If REDIS_MODE env var is set, use it directly
+    2. If legacy USE_REDIS_ADAPTER is set to true, return "single" with deprecation warning
+    3. Default to "none" (Redis disabled)
+    """
+    mode = os.environ.get("REDIS_MODE")
+    if mode:
+        return mode.lower()
+
+    # Legacy fallback for backwards compatibility
+    use_adapter = os.environ.get("USE_REDIS_ADAPTER", "false")
+    if strtobool(use_adapter):
+        logger.warning("USE_REDIS_ADAPTER is deprecated, use REDIS_MODE=single instead")
+        return "single"
+    return "none"
+
+
 class GlobalConfig(BaseSettings):
     TITLE: str = os.environ.get(
         "CONTROLLER_APP_TITLE", "acapy-vc-authn-oidc Controller"
@@ -254,8 +274,6 @@ class GlobalConfig(BaseSettings):
             raise ValueError("OIDC_ACCESS_TOKEN_TTL must be a positive integer")
         return v
 
-    model_config = ConfigDict(case_sensitive=True)
-
     OIDC_CLIENT_ID: str = os.environ.get("OIDC_CLIENT_ID", "keycloak")
     OIDC_CLIENT_NAME: str = os.environ.get("OIDC_CLIENT_NAME", "keycloak")
     OIDC_CLIENT_REDIRECT_URI: str = os.environ.get(
@@ -286,11 +304,30 @@ class GlobalConfig(BaseSettings):
     )
 
     # Redis Configuration for multi-pod Socket.IO
+    # REDIS_MODE: "none", "single", "sentinel", or "cluster"
+    # - none: Redis disabled (default for backwards compatibility)
+    # - single: Single Redis instance (REDIS_HOST = "host:port")
+    # - sentinel: Redis Sentinel (REDIS_HOST = "host1:port1,host2:port2")
+    # - cluster: Redis Cluster (REDIS_HOST = "host1:port1,host2:port2")
+    # REDIS_HOST is always comma-separated host:port pairs.
+    # For single mode, only one entry is allowed.
+    REDIS_MODE: str = _get_redis_mode()
     REDIS_HOST: str = os.environ.get("REDIS_HOST", "redis")
+    # REDIS_PORT is deprecated — embed the port in REDIS_HOST (e.g., "redis:6379").
+    # Kept only as fallback when REDIS_HOST has no port in single mode.
     REDIS_PORT: int = int(os.environ.get("REDIS_PORT", 6379))
     REDIS_PASSWORD: str | None = os.environ.get("REDIS_PASSWORD")
     REDIS_DB: int = int(os.environ.get("REDIS_DB", 0))
-    USE_REDIS_ADAPTER: bool = strtobool(os.environ.get("USE_REDIS_ADAPTER", False))
+
+    # Sentinel-specific configuration (only used when REDIS_MODE=sentinel)
+    REDIS_SENTINEL_MASTER_NAME: str = os.environ.get(
+        "REDIS_SENTINEL_MASTER_NAME", "mymaster"
+    )
+
+    @property
+    def USE_REDIS_ADAPTER(self) -> bool:
+        """Backwards compatibility property - derived from REDIS_MODE."""
+        return self.REDIS_MODE.lower() != "none"
 
     # Redis error handling and retry configuration
     REDIS_THREAD_MAX_RETRIES: int = int(os.environ.get("REDIS_THREAD_MAX_RETRIES", 5))
@@ -357,3 +394,71 @@ if settings.ACAPY_TOKEN_CACHE_TTL <= 0:
     raise ValueError(
         f"ACAPY_TOKEN_CACHE_TTL must be a positive integer, got '{settings.ACAPY_TOKEN_CACHE_TTL}'"
     )
+
+
+def normalize_redis_config():
+    """Apply backwards-compatibility transformations to Redis settings.
+
+    If REDIS_MODE=single and REDIS_HOST is a bare hostname with no port,
+    REDIS_PORT is appended automatically with a deprecation warning.
+
+    This mutates the settings singleton and must be called exactly once,
+    before validate_redis_config(), during application startup.
+    """
+    if settings.REDIS_MODE.lower() != "single":
+        return
+    if ":" not in settings.REDIS_HOST:
+        logger.warning(
+            "REDIS_HOST without a port is deprecated. "
+            f"Use REDIS_HOST={settings.REDIS_HOST}:{settings.REDIS_PORT} instead. "
+            "REDIS_PORT will be removed in a future release."
+        )
+        settings.REDIS_HOST = f"{settings.REDIS_HOST}:{settings.REDIS_PORT}"
+
+
+def validate_redis_config():
+    """Validate Redis configuration. Pure — no side effects.
+
+    REDIS_HOST must be comma-separated host:port pairs for all non-none modes.
+    For single mode, exactly one entry is required.
+
+    Call normalize_redis_config() before this if backwards-compat normalization
+    is needed (i.e., at application startup).
+
+    Raises ValueError with a clear message if configuration is invalid.
+    """
+    mode = settings.REDIS_MODE.lower()
+
+    if mode == "none":
+        return
+
+    if mode not in ("single", "sentinel", "cluster"):
+        raise ValueError(
+            f"Invalid REDIS_MODE: '{mode}'. Must be one of: none, single, sentinel, cluster"
+        )
+
+    host_port_pattern = re.compile(r"^[\w.\-]+:\d+$")
+    nodes = [n.strip() for n in settings.REDIS_HOST.split(",") if n.strip()]
+
+    if not nodes:
+        raise ValueError(f"REDIS_MODE={mode} requires at least one node in REDIS_HOST.")
+
+    for node in nodes:
+        if not host_port_pattern.match(node):
+            raise ValueError(
+                f"REDIS_MODE={mode} requires REDIS_HOST as host:port pairs. "
+                f"Invalid node: '{node}'. "
+                f"Expected format: 'host:port' (e.g., 'redis:6379' or 'sentinel1:26379,sentinel2:26379')"
+            )
+
+    if mode == "single" and len(nodes) > 1:
+        raise ValueError(
+            f"REDIS_MODE=single but REDIS_HOST contains multiple hosts: '{settings.REDIS_HOST}'. "
+            f"For single mode, use one host:port (e.g., REDIS_HOST=redis:6379). "
+            f"For multiple nodes, use REDIS_MODE=sentinel or REDIS_MODE=cluster."
+        )
+
+
+# Normalize at import time so any module that imports settings (e.g. socketio.py
+# calling validate_redis_config() at module load) sees host:port format already.
+normalize_redis_config()

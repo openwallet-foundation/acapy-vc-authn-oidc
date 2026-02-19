@@ -7,6 +7,10 @@ import structlog.typing
 from api.clientConfigurations.models import TOKENENDPOINTAUTHMETHODS
 from api.core.config import settings
 from api.core.models import VCUserinfo
+from api.core.redis_utils import (
+    BaseRedisWrapperWithPack,
+    extract_storage_class,
+)
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
@@ -14,7 +18,7 @@ from jwkest.jwk import KEYS, RSAKey, rsa_load
 from pymongo.database import Database
 from pyop.authz_state import AuthorizationState
 from pyop.provider import Provider
-from pyop.storage import RedisWrapper, StatelessWrapper
+from pyop.storage import StatelessWrapper
 from pyop.subject_identifier import HashBasedSubjectIdentifierFactory
 
 logger: structlog.typing.FilteringBoundLogger = structlog.get_logger()
@@ -39,71 +43,6 @@ def save_pem_file(filename, content):
 def pem_file_exists(filepath) -> bool:
     """Check if pem file exists."""
     return os.path.isfile(filepath)
-
-
-def _build_redis_url():
-    """Build Redis connection URL from settings"""
-    if settings.REDIS_PASSWORD:
-        return f"redis://:{settings.REDIS_PASSWORD}@{settings.REDIS_HOST}:{settings.REDIS_PORT}/{settings.REDIS_DB}"
-    else:
-        return (
-            f"redis://{settings.REDIS_HOST}:{settings.REDIS_PORT}/{settings.REDIS_DB}"
-        )
-
-
-class RedisWrapperWithPack(RedisWrapper):
-    """
-    Wrapper around PyOP's RedisWrapper that implements pack() and unpack() methods.
-
-    PyOP's RedisWrapper doesn't implement these methods (raises NotImplementedError),
-    but the application code calls .pack() to regenerate authorization codes.
-
-    This wrapper stores values in Redis (shared across pods) and returns a random key.
-    Unlike StatelessWrapper which encrypts data into the token, this approach uses
-    Redis as a shared data store accessible by all pods.
-    """
-
-    def pack(self, value):
-        """
-        Generate a random key, store the value in Redis, and return the key.
-
-        This enables multi-pod deployments - the value is stored in Redis
-        where all pods can access it.
-        """
-        key = secrets.token_urlsafe(32)
-        self[key] = value
-        logger.debug(
-            "Stored value in Redis",
-            operation="pack",
-            collection=self._collection,
-            key_prefix=key[:8],
-            ttl=self.ttl,
-        )
-        return key
-
-    def unpack(self, key):
-        """
-        Retrieve and return the value for the given key from Redis.
-
-        Raises KeyError if the key doesn't exist in Redis.
-        """
-        try:
-            value = self[key]
-            logger.debug(
-                "Retrieved value from Redis",
-                operation="unpack",
-                collection=self.collection,
-                key_prefix=key[:8],
-            )
-            return value
-        except KeyError:
-            logger.warning(
-                "Key not found in Redis",
-                operation="unpack",
-                collection=self.collection,
-                key_prefix=key[:8],
-            )
-            raise
 
 
 if settings.TESTING:
@@ -141,7 +80,7 @@ if not pem_file_exists(SIGNING_KEY_FILEPATH):
     )
     save_pem_file(SIGNING_KEY_FILEPATH, pem)
 else:
-    logger.info("pem file alrady exists")
+    logger.info("pem file already exists")
 logger.info(f"pem file located at {SIGNING_KEY_FILEPATH}.")
 
 issuer_url = settings.CONTROLLER_URL
@@ -293,37 +232,34 @@ else:
 
 subject_id_factory = HashBasedSubjectIdentifierFactory(settings.SUBJECT_ID_HASH_SALT)
 
+
 # Conditionally create storage backends based on USE_REDIS_ADAPTER setting
 if settings.USE_REDIS_ADAPTER:
     # Redis storage for multi-pod deployments - shared state across all pods
-    redis_url = _build_redis_url()
+    redis_mode = settings.REDIS_MODE.lower()
 
-    authorization_code_storage = RedisWrapperWithPack(
-        db_uri=redis_url,
+    storage_class: type[BaseRedisWrapperWithPack] = extract_storage_class(redis_mode)
+    authorization_code_storage = storage_class(
         collection="pyop_authorization_codes",
         ttl=600,  # 10 minutes
     )
 
-    access_token_storage = RedisWrapperWithPack(
-        db_uri=redis_url,
+    access_token_storage = storage_class(
         collection="pyop_access_tokens",
         ttl=settings.OIDC_ACCESS_TOKEN_TTL,
     )
 
-    refresh_token_storage = RedisWrapperWithPack(
-        db_uri=redis_url,
+    refresh_token_storage = storage_class(
         collection="pyop_refresh_tokens",
         ttl=2592000,  # 30 days
     )
 
-    subject_identifier_storage = RedisWrapperWithPack(
-        db_uri=redis_url,
+    subject_identifier_storage = storage_class(
         collection="pyop_subject_identifiers",
         ttl=3600,  # 1 hour - matches access token lifetime
     )
 
-    userinfo_claims_storage = RedisWrapperWithPack(
-        db_uri=redis_url,
+    userinfo_claims_storage = storage_class(
         collection="pyop_userinfo_claims",
         # Set TTL to match Token TTL.
         # We add a 60 second buffer to ensure the data strictly outlives the token
@@ -332,10 +268,9 @@ if settings.USE_REDIS_ADAPTER:
     )
 
     logger.info(
-        "Initialized Redis storage for PyOP tokens",
+        f"Initialized Redis {storage_class.backend_name} storage for PyOP tokens",
         storage_backend="redis",
         redis_host=settings.REDIS_HOST,
-        redis_port=settings.REDIS_PORT,
         multi_pod_enabled=True,
     )
 else:

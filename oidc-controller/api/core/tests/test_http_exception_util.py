@@ -1,7 +1,7 @@
 """Tests for HTTP exception utilities."""
 
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from pymongo.errors import WriteError
 from fastapi import HTTPException
 from fastapi import status as http_status
