@@ -3,6 +3,7 @@ import pickle
 import redis.asyncio as async_redis
 import redis
 from redis.cluster import RedisCluster, ClusterNode
+from redis.sentinel import Sentinel
 import socketio  # For using websockets
 from socketio.async_pubsub_manager import AsyncPubSubManager
 import structlog
@@ -248,8 +249,6 @@ def can_we_reach_sentinel(sentinel_hosts: list[tuple[str, int]], master_name: st
         bool: True if sentinel and master are reachable, False otherwise
     """
     try:
-        from redis.sentinel import Sentinel
-
         # Create Sentinel connection
         sentinel_kwargs = {}
         if settings.REDIS_PASSWORD:
