@@ -27,6 +27,7 @@ class TestAcapyHandlerCleanup:
         auth_session.connection_id = "test-connection-id"
         auth_session.proof_status = AuthSessionState.NOT_STARTED
         auth_session.multi_use = False
+        auth_session.ver_config_id = "test-ver-config-id"
         auth_session.model_dump.return_value = {
             "id": str(auth_session.id),
             "pres_exch_id": auth_session.pres_exch_id,

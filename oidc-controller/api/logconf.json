@@ -18,6 +18,12 @@
         "stream": "ext://sys.stdout"
       }
     },
-    "loggers": {}
+    "loggers": {
+      "siam.audit": {
+        "level": "INFO",
+        "handlers": ["out"],
+        "propagate": false
+      }
+    }
   }
 }
