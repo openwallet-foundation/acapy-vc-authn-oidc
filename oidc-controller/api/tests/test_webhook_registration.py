@@ -230,14 +230,15 @@ async def test_startup_multi_tenant_injects_fetcher(mock_settings, mock_requests
     mock_settings.USE_REDIS_ADAPTER = False
 
     # Mock MultiTenantAcapy class to verify instantiation
-    with patch("api.main.init_db", new_callable=AsyncMock), patch(
-        "api.main.init_provider", new_callable=AsyncMock
-    ), patch("api.main.get_db", new_callable=AsyncMock), patch(
-        "api.main.MultiTenantAcapy"
-    ) as mock_acapy_class, patch(
-        "api.main.register_tenant_webhook", new_callable=AsyncMock
-    ) as mock_register:
-
+    with (
+        patch("api.main.init_db", new_callable=AsyncMock),
+        patch("api.main.init_provider", new_callable=AsyncMock),
+        patch("api.main.get_db", new_callable=AsyncMock),
+        patch("api.main.MultiTenantAcapy") as mock_acapy_class,
+        patch(
+            "api.main.register_tenant_webhook", new_callable=AsyncMock
+        ) as mock_register,
+    ):
         # Setup mock instance
         mock_acapy_instance = MagicMock()
         mock_acapy_class.return_value = mock_acapy_instance
@@ -263,14 +264,15 @@ async def test_startup_traction_mode_config(mock_settings, mock_requests_put):
     mock_settings.ACAPY_TENANCY = "traction"
     mock_settings.USE_REDIS_ADAPTER = False
 
-    with patch("api.main.init_db", new_callable=AsyncMock), patch(
-        "api.main.init_provider", new_callable=AsyncMock
-    ), patch("api.main.get_db", new_callable=AsyncMock), patch(
-        "api.main.TractionTenantAcapy"
-    ) as mock_traction_class, patch(
-        "api.main.register_tenant_webhook", new_callable=AsyncMock
-    ) as mock_register:
-
+    with (
+        patch("api.main.init_db", new_callable=AsyncMock),
+        patch("api.main.init_provider", new_callable=AsyncMock),
+        patch("api.main.get_db", new_callable=AsyncMock),
+        patch("api.main.TractionTenantAcapy") as mock_traction_class,
+        patch(
+            "api.main.register_tenant_webhook", new_callable=AsyncMock
+        ) as mock_register,
+    ):
         mock_traction_instance = MagicMock()
         mock_traction_class.return_value = mock_traction_instance
         mock_traction_instance.get_wallet_token = "traction-token-fetcher"
@@ -291,12 +293,14 @@ async def test_startup_single_tenant_skips_registration(
     mock_settings.ACAPY_TENANCY = "single"
     mock_settings.USE_REDIS_ADAPTER = False
 
-    with patch("api.main.init_db", new_callable=AsyncMock), patch(
-        "api.main.init_provider", new_callable=AsyncMock
-    ), patch("api.main.get_db", new_callable=AsyncMock), patch(
-        "api.main.register_tenant_webhook", new_callable=AsyncMock
-    ) as mock_register:
-
+    with (
+        patch("api.main.init_db", new_callable=AsyncMock),
+        patch("api.main.init_provider", new_callable=AsyncMock),
+        patch("api.main.get_db", new_callable=AsyncMock),
+        patch(
+            "api.main.register_tenant_webhook", new_callable=AsyncMock
+        ) as mock_register,
+    ):
         await on_tenant_startup()
 
         assert not mock_register.called
@@ -363,18 +367,15 @@ async def test_startup_redis_check_success(mock_settings):
     """Test startup logic verifies Redis connection if adapter enabled."""
     mock_settings.REDIS_MODE = "single"  # Enable Redis via REDIS_MODE
 
-    with patch("api.main.init_db", new_callable=AsyncMock), patch(
-        "api.main.init_provider", new_callable=AsyncMock
-    ), patch("api.main.get_db", new_callable=AsyncMock), patch(
-        "api.main.can_we_reach_redis", return_value=True
-    ) as mock_reach, patch(
-        "api.main.build_redis_url", return_value="redis://localhost"
-    ), patch(
-        "api.main.normalize_redis_config"
-    ), patch(
-        "api.main.validate_redis_config"
+    with (
+        patch("api.main.init_db", new_callable=AsyncMock),
+        patch("api.main.init_provider", new_callable=AsyncMock),
+        patch("api.main.get_db", new_callable=AsyncMock),
+        patch("api.main.can_we_reach_redis", return_value=True) as mock_reach,
+        patch("api.main.build_redis_url", return_value="redis://localhost"),
+        patch("api.main.normalize_redis_config"),
+        patch("api.main.validate_redis_config"),
     ):
-
         await on_tenant_startup()
 
         mock_reach.assert_called_once_with("redis://localhost")
@@ -386,16 +387,14 @@ async def test_startup_redis_check_failure(mock_settings):
     mock_settings.REDIS_MODE = "single"  # Enable Redis via REDIS_MODE
     mock_settings.REDIS_HOST = "redis:6379"
 
-    with patch("api.main.init_db", new_callable=AsyncMock), patch(
-        "api.main.init_provider", new_callable=AsyncMock
-    ), patch("api.main.get_db", new_callable=AsyncMock), patch(
-        "api.main.can_we_reach_redis", return_value=False
-    ), patch(
-        "api.main.build_redis_url", return_value="redis://localhost"
-    ), patch(
-        "api.main.normalize_redis_config"
-    ), patch(
-        "api.main.validate_redis_config"
+    with (
+        patch("api.main.init_db", new_callable=AsyncMock),
+        patch("api.main.init_provider", new_callable=AsyncMock),
+        patch("api.main.get_db", new_callable=AsyncMock),
+        patch("api.main.can_we_reach_redis", return_value=False),
+        patch("api.main.build_redis_url", return_value="redis://localhost"),
+        patch("api.main.normalize_redis_config"),
+        patch("api.main.validate_redis_config"),
     ):
         with pytest.raises(
             RuntimeError,

@@ -599,10 +599,11 @@ class TestProviderRedisConfiguration:
 
         # Apply settings to the singleton directly so reload picks them up
         # REDIS_MODE=single enables Redis adapter (USE_REDIS_ADAPTER property returns True)
-        with patch.object(real_settings, "REDIS_MODE", "single"), patch.object(
-            real_settings, "OIDC_ACCESS_TOKEN_TTL", TEST_TTL
-        ), patch.object(real_settings, "REDIS_HOST", "localhost"):
-
+        with (
+            patch.object(real_settings, "REDIS_MODE", "single"),
+            patch.object(real_settings, "OIDC_ACCESS_TOKEN_TTL", TEST_TTL),
+            patch.object(real_settings, "REDIS_HOST", "localhost"),
+        ):
             # Reload to run the top-level 'if settings.USE_REDIS_ADAPTER:' block
             importlib.reload(provider_module)
 
