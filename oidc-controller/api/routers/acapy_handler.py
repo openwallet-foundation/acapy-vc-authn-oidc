@@ -25,17 +25,16 @@ async def _send_problem_report_safely(
 ) -> None:
     """Send a problem report with error handling."""
     try:
-        client.send_problem_report(pres_ex_id, description)
+        await client.send_problem_report(pres_ex_id, description)
         logger.info(f"Problem report sent for pres_ex_id: {pres_ex_id}")
     except Exception as e:
         logger.error(f"Failed to send problem report: {e}")
 
 
 async def _cleanup_presentation_and_connection(
-    auth_session: AuthSession, pres_ex_id: str, context: str
+    client: AcapyClient, auth_session: AuthSession, pres_ex_id: str, context: str
 ) -> None:
     """Clean up presentation record and connection (if applicable) with proper error handling."""
-    # Determine if connection should also be deleted based on verification type and multi-use flag
     connection_id_to_delete = (
         auth_session.connection_id
         if (
@@ -47,14 +46,12 @@ async def _cleanup_presentation_and_connection(
     )
 
     try:
-        client = AcapyClient()
         presentation_deleted, connection_deleted, errors = (
-            client.delete_presentation_record_and_connection(
+            await client.delete_presentation_record_and_connection(
                 pres_ex_id, connection_id_to_delete
             )
         )
 
-        # Log results for presentation cleanup
         if presentation_deleted:
             logger.info(
                 f"Successfully cleaned up presentation record {pres_ex_id} after {context}"
@@ -64,7 +61,6 @@ async def _cleanup_presentation_and_connection(
                 f"Failed to cleanup presentation record {pres_ex_id} after {context} - will be handled by background cleanup"
             )
 
-        # Log results for connection cleanup (if attempted)
         if connection_deleted:
             logger.info(
                 f"Successfully cleaned up single-use connection {connection_id_to_delete} after {context}"
@@ -82,7 +78,6 @@ async def _cleanup_presentation_and_connection(
                 f"Preserving multi-use connection {auth_session.connection_id} after {context}"
             )
 
-        # Log any errors from the cleanup operation
         if errors:
             logger.warning(f"{context.capitalize()} cleanup errors: {errors}")
 
@@ -118,6 +113,8 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
     """Called by aca-py agent."""
     logger.info(f">>> post_topic : topic={topic}")
     logger.info(f">>> web hook post_body : {await _parse_webhook_body(request)}")
+
+    client = AcapyClient(request.app.state.http_client)
 
     match topic:
         case "connections":
@@ -186,9 +183,8 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                             )
 
                             # Send presentation request to the established connection
-                            client = AcapyClient()
                             try:
-                                pres_response = client.send_presentation_request_by_connection(
+                                pres_response = await client.send_presentation_request_by_connection(
                                     connection_id=connection_id,
                                     presentation_request_configuration=auth_session.proof_request,
                                 )
@@ -236,7 +232,6 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
         case "present_proof_v2_0":
             webhook_body = await _parse_webhook_body(request)
             logger.info(f">>>> pres_exch_id: {webhook_body['pres_ex_id']}")
-            # logger.info(f">>>> web hook: {webhook_body}")
 
             # Check for prover-role (issue #898)
             role = webhook_body.get("role")
@@ -253,7 +248,7 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                 # Clean up presentation records in terminal states
                 if pres_ex_id and state in ["done", "abandoned", "declined"]:
                     try:
-                        deleted = AcapyClient().delete_presentation_record(pres_ex_id)
+                        deleted = await client.delete_presentation_record(pres_ex_id)
                         if not deleted:
                             logger.warning(
                                 f"Failed to delete prover-role presentation record",
@@ -301,8 +296,7 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                     auth_session.proof_status = AuthSessionState.VERIFIED
 
                     # Get presentation data via API call instead of webhook payload
-                    client = AcapyClient()
-                    presentation_data = client.get_presentation_request(
+                    presentation_data = await client.get_presentation_request(
                         webhook_body["pres_ex_id"]
                     )
 
@@ -320,6 +314,7 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
 
                     # Cleanup presentation record and connection after successful verification
                     await _cleanup_presentation_and_connection(
+                        client,
                         auth_session,
                         webhook_body["pres_ex_id"],
                         "successful verification",
@@ -335,7 +330,6 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                         settings.USE_CONNECTION_BASED_VERIFICATION
                         and auth_session.pres_exch_id
                     ):
-                        client = AcapyClient()
                         await _send_problem_report_safely(
                             client,
                             auth_session.pres_exch_id,
@@ -345,8 +339,6 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                 await _update_auth_session(db, auth_session)
 
                 # Connection cleanup is now handled above in the combined cleanup operation
-
-            # abandoned state
             if webhook_body["state"] == "abandoned":
                 logger.info("ABANDONED")
                 logger.info(webhook_body["error_msg"])
@@ -358,7 +350,6 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                     settings.USE_CONNECTION_BASED_VERIFICATION
                     and auth_session.pres_exch_id
                 ):
-                    client = AcapyClient()
                     await _send_problem_report_safely(
                         client,
                         auth_session.pres_exch_id,
@@ -369,7 +360,7 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
 
                 # Cleanup presentation record and connection after abandonment
                 await _cleanup_presentation_and_connection(
-                    auth_session, webhook_body["pres_ex_id"], "abandonment"
+                    client, auth_session, webhook_body["pres_ex_id"], "abandonment"
                 )
 
             # Calcuate the expiration time of the proof
@@ -406,7 +397,6 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                     settings.USE_CONNECTION_BASED_VERIFICATION
                     and auth_session.pres_exch_id
                 ):
-                    client = AcapyClient()
                     await _send_problem_report_safely(
                         client,
                         auth_session.pres_exch_id,
@@ -417,7 +407,7 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
 
                 # Cleanup presentation record and connection after expiration
                 await _cleanup_presentation_and_connection(
-                    auth_session, auth_session.pres_exch_id, "expiration"
+                    client, auth_session, auth_session.pres_exch_id, "expiration"
                 )
 
             pass

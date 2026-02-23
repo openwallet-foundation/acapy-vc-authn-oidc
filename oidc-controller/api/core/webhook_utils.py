@@ -1,7 +1,8 @@
 import asyncio
 import structlog
-import requests
-from typing import Callable
+from typing import Callable, Awaitable
+
+import httpx
 
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
@@ -14,7 +15,8 @@ async def register_tenant_webhook(
     api_key: str | None,
     admin_api_key: str | None,
     admin_api_key_name: str | None,
-    token_fetcher: Callable[[], str] | None = None,
+    http_client: httpx.AsyncClient,
+    token_fetcher: Callable[[], Awaitable[str]] | None = None,
     use_admin_api: bool = True,
 ):
     """
@@ -47,7 +49,6 @@ async def register_tenant_webhook(
         )
         return
 
-    # Prepare URL with Authentication
     # Ensure API key is in the URL if configured.
     # ACA-Py supports this by appending #key to the URL
     if api_key and "#" not in webhook_url:
@@ -81,8 +82,8 @@ async def register_tenant_webhook(
                 target_url = f"{admin_url}/multitenancy/wallet/{wallet_id}"
                 logger.debug(f"Attempting Admin API update at {target_url}")
 
-                response = requests.put(
-                    target_url, json=payload, headers=headers, timeout=5
+                response = await http_client.put(
+                    target_url, json=payload, headers=headers
                 )
 
                 if response.status_code == 200:
@@ -98,7 +99,7 @@ async def register_tenant_webhook(
                     )
                     if token_fetcher:
                         if await _register_via_tenant_api(
-                            admin_url, payload, token_fetcher
+                            admin_url, payload, token_fetcher, http_client
                         ):
                             return
                     else:
@@ -130,11 +131,13 @@ async def register_tenant_webhook(
                     return
 
                 logger.debug("Attempting Direct Tenant API update")
-                if await _register_via_tenant_api(admin_url, payload, token_fetcher):
+                if await _register_via_tenant_api(
+                    admin_url, payload, token_fetcher, http_client
+                ):
                     return
                 logger.warning("Direct Tenant API update failed. Retrying...")
 
-        except requests.exceptions.ConnectionError:
+        except httpx.ConnectError:
             logger.warning(f"ACA-Py Agent unreachable at {admin_url}")
         except Exception as e:
             logger.error(f"Unexpected error during webhook registration: {str(e)}")
@@ -153,24 +156,24 @@ async def register_tenant_webhook(
 
 
 async def _register_via_tenant_api(
-    admin_url: str, payload: dict, token_fetcher: Callable[[], str]
+    admin_url: str,
+    payload: dict,
+    token_fetcher: Callable[[], Awaitable[str]],
+    http_client: httpx.AsyncClient,
 ) -> bool:
     """Fallback/Direct: use /tenant/wallet endpoint with provided token fetcher."""
     try:
-        # 1. Get Token
-        token = token_fetcher()
+        token = await token_fetcher()
 
         if not token:
             logger.error("Tenant Fallback: Token fetcher returned empty token")
             return False
 
-        # 2. Update via Tenant API
-        # Using the standard Traction/ACA-Py Tenant endpoint
         tenant_url = f"{admin_url}/tenant/wallet"
         tenant_headers = {"Authorization": f"Bearer {token}"}
 
-        update_res = requests.put(
-            tenant_url, json=payload, headers=tenant_headers, timeout=5
+        update_res = await http_client.put(
+            tenant_url, json=payload, headers=tenant_headers
         )
 
         if update_res.status_code == 200:

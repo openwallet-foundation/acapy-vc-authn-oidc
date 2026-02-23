@@ -270,6 +270,12 @@ class TestConnectionBasedVerificationWebhooks:
         mock_auth_session_crud.return_value.patch = AsyncMock()
 
         mock_client_instance = MagicMock()
+        mock_client_instance.get_presentation_request = AsyncMock(
+            return_value={"by_format": {"test": "presentation"}}
+        )
+        mock_client_instance.delete_presentation_record_and_connection = AsyncMock(
+            return_value=(True, False, [])
+        )
         mock_acapy_client.return_value = mock_client_instance
 
         mock_get_socket_id.return_value = "test-socket-id"
@@ -537,13 +543,15 @@ class TestConnectionBasedVerificationIntegration:
 
         mock_client_instance = MagicMock()
         # Setup the new wrapper function to return tuples
-        mock_client_instance.get_presentation_request.return_value = {
-            "by_format": {"test": "presentation"}
-        }
-        mock_client_instance.delete_presentation_record_and_connection.return_value = (
-            True,  # presentation_deleted: True
-            True,  # connection_deleted: True
-            [],  # errors: empty list
+        mock_client_instance.get_presentation_request = AsyncMock(
+            return_value={"by_format": {"test": "presentation"}}
+        )
+        mock_client_instance.delete_presentation_record_and_connection = AsyncMock(
+            return_value=(
+                True,  # presentation_deleted: True
+                True,  # connection_deleted: True
+                [],  # errors: empty list
+            )
         )
         mock_acapy_client.return_value = mock_client_instance
 
@@ -882,14 +890,16 @@ class TestAcapyHandlerCleanupFunctions:
         mock_auth_session.multi_use = False
 
         mock_client_instance = MagicMock()
-        mock_client_instance.get_presentation_request.return_value = {
-            "by_format": {"test": "presentation"}
-        }
+        mock_client_instance.get_presentation_request = AsyncMock(
+            return_value={"by_format": {"test": "presentation"}}
+        )
         # Setup cleanup with errors to test error logging
-        mock_client_instance.delete_presentation_record_and_connection.return_value = (
-            True,  # presentation_deleted: True
-            False,  # connection_deleted: False (to trigger error logging)
-            ["Connection deletion failed", "Network timeout"],  # errors
+        mock_client_instance.delete_presentation_record_and_connection = AsyncMock(
+            return_value=(
+                True,  # presentation_deleted: True
+                False,  # connection_deleted: False (to trigger error logging)
+                ["Connection deletion failed", "Network timeout"],  # errors
+            )
         )
         mock_acapy_client.return_value = mock_client_instance
 
@@ -944,12 +954,12 @@ class TestAcapyHandlerCleanupFunctions:
         mock_auth_session.multi_use = False
 
         mock_client_instance = MagicMock()
-        mock_client_instance.get_presentation_request.return_value = {
-            "by_format": {"test": "presentation"}
-        }
+        mock_client_instance.get_presentation_request = AsyncMock(
+            return_value={"by_format": {"test": "presentation"}}
+        )
         # Setup cleanup to raise exception
-        mock_client_instance.delete_presentation_record_and_connection.side_effect = (
-            Exception("Database connection failed")
+        mock_client_instance.delete_presentation_record_and_connection = AsyncMock(
+            side_effect=Exception("Database connection failed")
         )
         mock_acapy_client.return_value = mock_client_instance
 
@@ -1020,14 +1030,16 @@ class TestAcapyHandlerCleanupFunctions:
         mock_auth_session_crud.return_value.patch = AsyncMock()
 
         mock_client_instance = MagicMock()
-        mock_client_instance.get_presentation_request.return_value = {
-            "by_format": {"test": "presentation"}
-        }
+        mock_client_instance.get_presentation_request = AsyncMock(
+            return_value={"by_format": {"test": "presentation"}}
+        )
         # For multi-use, only presentation record is deleted, not connection
-        mock_client_instance.delete_presentation_record_and_connection.return_value = (
-            True,  # presentation_deleted: True
-            False,  # connection_deleted: False (preserved for multi-use)
-            [],  # errors: empty list
+        mock_client_instance.delete_presentation_record_and_connection = AsyncMock(
+            return_value=(
+                True,  # presentation_deleted: True
+                False,  # connection_deleted: False (preserved for multi-use)
+                [],  # errors: empty list
+            )
         )
         mock_acapy_client.return_value = mock_client_instance
 
@@ -1139,13 +1151,11 @@ class TestProverRoleWebhooks:
         mock_auth_session_crud.return_value.patch = AsyncMock()
 
         mock_client_instance = MagicMock()
-        mock_client_instance.get_presentation_request.return_value = {
-            "by_format": {"test": "presentation"}
-        }
-        mock_client_instance.delete_presentation_record_and_connection.return_value = (
-            True,
-            True,
-            [],
+        mock_client_instance.get_presentation_request = AsyncMock(
+            return_value={"by_format": {"test": "presentation"}}
+        )
+        mock_client_instance.delete_presentation_record_and_connection = AsyncMock(
+            return_value=(True, True, [])
         )
         mock_acapy_client.return_value = mock_client_instance
 
@@ -1227,13 +1237,11 @@ class TestProverRoleWebhooks:
         mock_auth_session_crud.return_value.patch = AsyncMock()
 
         mock_client_instance = MagicMock()
-        mock_client_instance.get_presentation_request.return_value = {
-            "by_format": {"test": "presentation"}
-        }
-        mock_client_instance.delete_presentation_record_and_connection.return_value = (
-            True,
-            True,
-            [],
+        mock_client_instance.get_presentation_request = AsyncMock(
+            return_value={"by_format": {"test": "presentation"}}
+        )
+        mock_client_instance.delete_presentation_record_and_connection = AsyncMock(
+            return_value=(True, True, [])
         )
         mock_acapy_client.return_value = mock_client_instance
 

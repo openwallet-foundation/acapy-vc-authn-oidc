@@ -1,7 +1,6 @@
-import json
 from uuid import UUID
 
-import requests
+import httpx
 import structlog
 
 from ..config import settings
@@ -13,10 +12,6 @@ from .config import (
 )
 from .models import CreatePresentationResponse, OobCreateInvitationResponse, WalletDid
 
-# HTTP timeout for all ACA-Py API calls (seconds)
-ACAPY_HTTP_TIMEOUT = 10.0
-
-_client = None
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
 
 WALLET_DID_URI = "/wallet/did"
@@ -35,25 +30,22 @@ class AcapyClient:
     acapy_host = settings.ACAPY_ADMIN_URL
     service_endpoint = settings.ACAPY_AGENT_URL
 
-    wallet_token: str | None = None
     agent_config: AgentConfig
 
-    def __init__(self):
+    def __init__(self, http_client: httpx.AsyncClient):
+        self._http_client = http_client
+
         if settings.ACAPY_TENANCY == "multi":
-            self.agent_config = MultiTenantAcapy()
+            self.agent_config = MultiTenantAcapy(http_client)
         elif settings.ACAPY_TENANCY == "traction":
-            self.agent_config = TractionTenantAcapy()
+            self.agent_config = TractionTenantAcapy(http_client)
         elif settings.ACAPY_TENANCY == "single":
-            self.agent_config = SingleTenantAcapy()
+            self.agent_config = SingleTenantAcapy(http_client)
         else:
             logger.warning("ACAPY_TENANCY not set, assuming SingleTenantAcapy")
-            self.agent_config = SingleTenantAcapy()
+            self.agent_config = SingleTenantAcapy(http_client)
 
-        if _client:
-            return _client
-        super().__init__()
-
-    def create_presentation_request(
+    async def create_presentation_request(
         self, presentation_request_configuration: dict
     ) -> CreatePresentationResponse:
         logger.debug(">>> create_presentation_request")
@@ -63,57 +55,53 @@ class AcapyClient:
             "presentation_request": {format_key: presentation_request_configuration}
         }
 
-        resp_raw = requests.post(
+        resp = await self._http_client.post(
             self.acapy_host + CREATE_PRESENTATION_REQUEST_URL,
-            headers=self.agent_config.get_headers(),
+            headers=await self.agent_config.get_headers(),
             json=present_proof_payload,
         )
 
-        # TODO: Determine if this should assert it received a json object
-        assert resp_raw.status_code == 200, resp_raw.content
+        assert resp.status_code == 200, resp.content
 
-        resp = json.loads(resp_raw.content)
-        result = CreatePresentationResponse.model_validate(resp)
+        result = CreatePresentationResponse.model_validate(resp.json())
 
         logger.debug("<<< create_presenation_request")
         return result
 
-    def get_presentation_request(self, presentation_exchange_id: UUID | str):
+    async def get_presentation_request(self, presentation_exchange_id: UUID | str):
         logger.debug(">>> get_presentation_request")
 
-        resp_raw = requests.get(
+        resp = await self._http_client.get(
             self.acapy_host
             + PRESENT_PROOF_RECORDS
             + "/"
             + str(presentation_exchange_id),
-            headers=self.agent_config.get_headers(),
+            headers=await self.agent_config.get_headers(),
         )
 
-        # TODO: Determine if this should assert it received a json object
-        assert resp_raw.status_code == 200, resp_raw.content
+        assert resp.status_code == 200, resp.content
 
-        resp = json.loads(resp_raw.content)
+        logger.debug(f"<<< get_presentation_request -> {resp.json()}")
+        return resp.json()
 
-        logger.debug(f"<<< get_presentation_request -> {resp}")
-        return resp
-
-    def delete_presentation_record(self, presentation_exchange_id: UUID | str) -> bool:
+    async def delete_presentation_record(
+        self, presentation_exchange_id: UUID | str
+    ) -> bool:
         """Delete a presentation record by ID"""
         logger.debug(f">>> delete_presentation_record: {presentation_exchange_id}")
 
         try:
-            resp_raw = requests.delete(
+            resp = await self._http_client.delete(
                 f"{self.acapy_host}{PRESENT_PROOF_RECORDS}/{presentation_exchange_id}",
-                headers=self.agent_config.get_headers(),
-                timeout=ACAPY_HTTP_TIMEOUT,
+                headers=await self.agent_config.get_headers(),
             )
 
-            success = resp_raw.status_code == 200
+            success = resp.status_code == 200
             if success:
-                logger.debug(f"<<< delete_presentation_record -> Success")
+                logger.debug("<<< delete_presentation_record -> Success")
             else:
                 logger.warning(
-                    f"<<< delete_presentation_record -> Failed: {resp_raw.status_code}, {resp_raw.content}"
+                    f"<<< delete_presentation_record -> Failed: {resp.status_code}, {resp.content}"
                 )
             return success
 
@@ -123,25 +111,23 @@ class AcapyClient:
             )
             return False
 
-    def get_all_presentation_records(self) -> list[dict]:
+    async def get_all_presentation_records(self) -> list[dict]:
         """Get all presentation records for cleanup purposes"""
         logger.debug(">>> get_all_presentation_records")
 
         try:
-            resp_raw = requests.get(
+            resp = await self._http_client.get(
                 f"{self.acapy_host}{PRESENT_PROOF_RECORDS}",
-                headers=self.agent_config.get_headers(),
-                timeout=ACAPY_HTTP_TIMEOUT,
+                headers=await self.agent_config.get_headers(),
             )
 
-            if resp_raw.status_code != 200:
+            if resp.status_code != 200:
                 logger.warning(
-                    f"Failed to get presentation records: {resp_raw.status_code}, {resp_raw.content}"
+                    f"Failed to get presentation records: {resp.status_code}, {resp.content}"
                 )
                 return []
 
-            resp = json.loads(resp_raw.content)
-            records = resp.get("results", [])
+            records = resp.json().get("results", [])
             logger.debug(f"<<< get_all_presentation_records -> {len(records)} records")
             return records
 
@@ -149,37 +135,29 @@ class AcapyClient:
             logger.error(f"Failed to get all presentation records: {e}")
             return []
 
-    def get_wallet_did(self, public=False) -> WalletDid:
+    async def get_wallet_did(self, public=False) -> WalletDid:
         logger.debug(">>> get_wallet_did")
-        url = None
-        if public:
-            url = self.acapy_host + PUBLIC_WALLET_DID_URI
-        else:
-            url = self.acapy_host + WALLET_DID_URI
-
-        resp_raw = requests.get(
-            url,
-            headers=self.agent_config.get_headers(),
+        url = (
+            self.acapy_host + PUBLIC_WALLET_DID_URI
+            if public
+            else self.acapy_host + WALLET_DID_URI
         )
 
-        # TODO: Determine if this should assert it received a json object
-        assert (
-            resp_raw.status_code == 200
-        ), f"{resp_raw.status_code}::{resp_raw.content}"
+        resp = await self._http_client.get(
+            url,
+            headers=await self.agent_config.get_headers(),
+        )
 
-        resp = json.loads(resp_raw.content)
+        assert resp.status_code == 200, f"{resp.status_code}::{resp.content}"
 
-        if public:
-            resp_payload = resp["result"]
-        else:
-            resp_payload = resp["results"][0]
-
+        data = resp.json()
+        resp_payload = data["result"] if public else data["results"][0]
         did = WalletDid.model_validate(resp_payload)
 
         logger.debug(f"<<< get_wallet_did -> {did}")
         return did
 
-    def oob_create_invitation(
+    async def oob_create_invitation(
         self, presentation_exchange: dict, use_public_did: bool
     ) -> OobCreateInvitationResponse:
         logger.debug(">>> oob_create_invitation")
@@ -195,32 +173,24 @@ class AcapyClient:
             "my_label": settings.INVITATION_LABEL,
         }
 
-        resp_raw = requests.post(
+        resp = await self._http_client.post(
             self.acapy_host + OOB_CREATE_INVITATION,
-            headers=self.agent_config.get_headers(),
+            headers=await self.agent_config.get_headers(),
             json=create_invitation_payload,
         )
 
-        assert resp_raw.status_code == 200, resp_raw.content
+        assert resp.status_code == 200, resp.content
 
-        resp = json.loads(resp_raw.content)
-        result = OobCreateInvitationResponse.model_validate(resp)
+        result = OobCreateInvitationResponse.model_validate(resp.json())
 
         logger.debug("<<< oob_create_invitation")
         return result
 
-    def send_presentation_request_by_connection(
+    async def send_presentation_request_by_connection(
         self, connection_id: str, presentation_request_configuration: dict
     ) -> CreatePresentationResponse:
         """
         Send a presentation request to an existing connection.
-
-        Args:
-            connection_id: The ID of the established connection
-            presentation_request_configuration: The presentation request configuration
-
-        Returns:
-            CreatePresentationResponse: The response containing presentation exchange details
         """
         logger.debug(">>> send_presentation_request_by_connection")
 
@@ -230,85 +200,55 @@ class AcapyClient:
             "presentation_request": {format_key: presentation_request_configuration},
         }
 
-        resp_raw = requests.post(
+        resp = await self._http_client.post(
             self.acapy_host + SEND_PRESENTATION_REQUEST_URL,
-            headers=self.agent_config.get_headers(),
+            headers=await self.agent_config.get_headers(),
             json=present_proof_payload,
         )
 
-        assert resp_raw.status_code == 200, resp_raw.content
+        assert resp.status_code == 200, resp.content
 
-        resp = json.loads(resp_raw.content)
-        result = CreatePresentationResponse.model_validate(resp)
+        result = CreatePresentationResponse.model_validate(resp.json())
 
         logger.debug("<<< send_presentation_request_by_connection")
         return result
 
-    def get_connection(self, connection_id: str) -> dict:
-        """
-        Get details of a specific connection.
-
-        Args:
-            connection_id: The ID of the connection to retrieve
-
-        Returns:
-            dict: Connection details
-        """
+    async def get_connection(self, connection_id: str) -> dict:
+        """Get details of a specific connection."""
         logger.debug(">>> get_connection")
 
-        resp_raw = requests.get(
+        resp = await self._http_client.get(
             self.acapy_host + CONNECTIONS_URI + "/" + connection_id,
-            headers=self.agent_config.get_headers(),
+            headers=await self.agent_config.get_headers(),
         )
 
-        assert resp_raw.status_code == 200, resp_raw.content
+        assert resp.status_code == 200, resp.content
 
-        resp = json.loads(resp_raw.content)
-        logger.debug(f"<<< get_connection -> {resp}")
-        return resp
+        logger.debug(f"<<< get_connection -> {resp.json()}")
+        return resp.json()
 
-    def list_connections(self, state: str | None = None) -> list[dict]:
-        """
-        List all connections, optionally filtered by state.
-
-        Args:
-            state: Optional state filter (e.g., "active", "completed")
-
-        Returns:
-            list[dict]: List of connection records
-        """
+    async def list_connections(self, state: str | None = None) -> list[dict]:
+        """List all connections, optionally filtered by state."""
         logger.debug(">>> list_connections")
 
         params = {"state": state} if state else {}
 
-        resp_raw = requests.get(
+        resp = await self._http_client.get(
             self.acapy_host + CONNECTIONS_URI,
-            headers=self.agent_config.get_headers(),
+            headers=await self.agent_config.get_headers(),
             params=params,
         )
 
-        assert resp_raw.status_code == 200, resp_raw.content
+        assert resp.status_code == 200, resp.content
 
-        resp = json.loads(resp_raw.content)
-        connections = resp.get("results", [])
-
+        connections = resp.json().get("results", [])
         logger.debug(f"<<< list_connections -> {len(connections)} connections")
         return connections
 
-    def _get_connections_page(
+    async def _get_connections_page(
         self, state: str | None = None, limit: int = 100, offset: int = 0
     ) -> list[dict]:
-        """
-        Get a page of connections with pagination support.
-
-        Args:
-            state: Optional state filter (e.g., "invitation", "active")
-            limit: Maximum number of connections to return
-            offset: Number of connections to skip
-
-        Returns:
-            list[dict]: List of connection records for this page
-        """
+        """Get a page of connections with pagination support."""
         logger.debug(
             f">>> _get_connections_page: state={state}, limit={limit}, offset={offset}"
         )
@@ -320,22 +260,17 @@ class AcapyClient:
         }
 
         try:
-            resp_raw = requests.get(
+            resp = await self._http_client.get(
                 self.acapy_host + CONNECTIONS_URI,
-                headers=self.agent_config.get_headers(),
+                headers=await self.agent_config.get_headers(),
                 params=params,
-                timeout=ACAPY_HTTP_TIMEOUT,
             )
 
-            if resp_raw.status_code != 200:
-                logger.warning(
-                    f"Failed to get connections page: {resp_raw.status_code}"
-                )
+            if resp.status_code != 200:
+                logger.warning(f"Failed to get connections page: {resp.status_code}")
                 return []
 
-            resp = json.loads(resp_raw.content)
-            connections = resp.get("results", [])
-
+            connections = resp.json().get("results", [])
             logger.debug(f"<<< _get_connections_page -> {len(connections)} connections")
             return connections
 
@@ -343,13 +278,11 @@ class AcapyClient:
             logger.error(f"Error getting connections page: {e}")
             return []
 
-    def get_connections_batched(self, state: str = "invitation", batch_size: int = 100):
+    async def get_connections_batched(
+        self, state: str = "invitation", batch_size: int = 100
+    ):
         """
-        Get connections in batches using iterator pattern for memory efficiency.
-
-        Args:
-            state: State filter for connections (default: "invitation")
-            batch_size: Number of connections per batch (default: 100)
+        Get connections in batches using async iterator pattern for memory efficiency.
 
         Yields:
             list[dict]: Batches of connection records
@@ -362,9 +295,9 @@ class AcapyClient:
         total_yielded = 0
 
         while True:
-            batch = self._get_connections_page(state, batch_size, offset)
+            batch = await self._get_connections_page(state, batch_size, offset)
 
-            if not batch:  # No more results
+            if not batch:
                 break
 
             total_yielded += len(batch)
@@ -373,7 +306,6 @@ class AcapyClient:
             )
             yield batch
 
-            # If we got less than batch_size, we've reached the end
             if len(batch) < batch_size:
                 break
 
@@ -383,26 +315,23 @@ class AcapyClient:
             f"<<< get_connections_batched -> yielded {total_yielded} total connections"
         )
 
-    def get_all_connections(self) -> list[dict]:
+    async def get_all_connections(self) -> list[dict]:
         """Get all connections for cleanup purposes"""
         logger.debug(">>> get_all_connections")
 
         try:
-            resp_raw = requests.get(
+            resp = await self._http_client.get(
                 f"{self.acapy_host}{CONNECTIONS_URI}",
-                headers=self.agent_config.get_headers(),
-                timeout=ACAPY_HTTP_TIMEOUT,
+                headers=await self.agent_config.get_headers(),
             )
 
-            if resp_raw.status_code != 200:
+            if resp.status_code != 200:
                 logger.warning(
-                    f"Failed to get connections: {resp_raw.status_code}, {resp_raw.content}"
+                    f"Failed to get connections: {resp.status_code}, {resp.content}"
                 )
                 return []
 
-            resp = json.loads(resp_raw.content)
-            connections = resp.get("results", [])
-
+            connections = resp.json().get("results", [])
             logger.debug(f"<<< get_all_connections -> {len(connections)} connections")
             return connections
 
@@ -410,31 +339,22 @@ class AcapyClient:
             logger.error(f"Error getting all connections: {e}")
             return []
 
-    def delete_connection(self, connection_id: str) -> bool:
-        """
-        Delete a connection.
-
-        Args:
-            connection_id: The ID of the connection to delete
-
-        Returns:
-            bool: True if deletion was successful
-        """
+    async def delete_connection(self, connection_id: str) -> bool:
+        """Delete a connection."""
         logger.debug(">>> delete_connection", connection_id=connection_id)
 
         try:
-            resp_raw = requests.delete(
+            resp = await self._http_client.delete(
                 self.acapy_host + CONNECTIONS_URI + "/" + connection_id,
-                headers=self.agent_config.get_headers(),
-                timeout=ACAPY_HTTP_TIMEOUT,
+                headers=await self.agent_config.get_headers(),
             )
 
-            success = resp_raw.status_code == 200
+            success = resp.status_code == 200
             if success:
-                logger.debug(f"<<< delete_connection -> Success")
+                logger.debug("<<< delete_connection -> Success")
             else:
                 logger.warning(
-                    f"<<< delete_connection -> Failed: {resp_raw.status_code}, {resp_raw.content}"
+                    f"<<< delete_connection -> Failed: {resp.status_code}, {resp.content}"
                 )
             return success
 
@@ -442,25 +362,17 @@ class AcapyClient:
             logger.error(f"Failed to delete connection {connection_id}: {e}")
             return False
 
-    def delete_presentation_record_and_connection(
+    async def delete_presentation_record_and_connection(
         self, presentation_exchange_id: UUID | str, connection_id: str | None = None
     ) -> tuple[bool, bool | None, list[str]]:
         """
         Delete a presentation record and optionally its associated connection.
 
-        This is the recommended method for cleanup as it handles both the presentation
-        record and connection deletion in the proper order.
-
-        Args:
-            presentation_exchange_id: The presentation exchange ID to delete
-            connection_id: Optional connection ID to delete. If not provided,
-                         only the presentation record will be deleted.
-
         Returns:
-            tuple[bool, bool | None, list[str]]: A tuple containing:
-                - presentation_deleted: bool - True if presentation record was successfully deleted
-                - connection_deleted: bool | None - True/False if connection deletion was attempted, None if not
-                - errors: list[str] - List of error messages from failed operations
+            tuple[bool, bool | None, list[str]]:
+                - presentation_deleted: True if presentation record was successfully deleted
+                - connection_deleted: True/False if attempted, None if not attempted
+                - errors: List of error messages from failed operations
         """
         logger.debug(
             f">>> delete_presentation_record_and_connection: pres_ex={presentation_exchange_id}, conn={connection_id}"
@@ -470,32 +382,26 @@ class AcapyClient:
         connection_deleted = None
         errors = []
 
-        # First, delete the presentation record
         if presentation_exchange_id:
             try:
-                presentation_deleted = self.delete_presentation_record(
+                presentation_deleted = await self.delete_presentation_record(
                     presentation_exchange_id
                 )
-
                 if not presentation_deleted:
                     errors.append(
                         f"Failed to delete presentation record {presentation_exchange_id}"
                     )
-
             except Exception as e:
                 error_msg = f"Error deleting presentation record {presentation_exchange_id}: {e}"
                 errors.append(error_msg)
                 logger.error(error_msg)
 
-        # Second, delete the connection if provided
         # TODO: make mandatory when we drop OOB
         if connection_id:
             try:
-                connection_deleted = self.delete_connection(connection_id)
-
+                connection_deleted = await self.delete_connection(connection_id)
                 if not connection_deleted:
                     errors.append(f"Failed to delete connection {connection_id}")
-
             except Exception as e:
                 error_msg = f"Error deleting connection {connection_id}: {e}"
                 errors.append(error_msg)
@@ -506,35 +412,24 @@ class AcapyClient:
         )
         return presentation_deleted, connection_deleted, errors
 
-    def send_problem_report(self, pres_ex_id: str, description: str) -> bool:
-        """
-        Send a problem report for a presentation exchange.
-
-        Args:
-            pres_ex_id: The presentation exchange ID
-            description: Description of the problem
-
-        Returns:
-            bool: True if problem report was sent successfully
-        """
+    async def send_problem_report(self, pres_ex_id: str, description: str) -> bool:
+        """Send a problem report for a presentation exchange."""
         logger.debug(">>> send_problem_report")
 
-        problem_report_payload = {"description": description}
-
         try:
-            resp_raw = requests.post(
+            resp = await self._http_client.post(
                 self.acapy_host
                 + PRESENT_PROOF_PROBLEM_REPORT_URL.format(pres_ex_id=pres_ex_id),
-                json=problem_report_payload,
-                headers=self.agent_config.get_headers(),
+                json={"description": description},
+                headers=await self.agent_config.get_headers(),
             )
 
-            success = resp_raw.status_code == 200
+            success = resp.status_code == 200
             logger.debug(f"<<< send_problem_report -> {success}")
 
             if not success:
                 logger.error(
-                    f"Failed to send problem report: {resp_raw.status_code} - {resp_raw.content}"
+                    f"Failed to send problem report: {resp.status_code} - {resp.content}"
                 )
 
             return success
@@ -543,7 +438,7 @@ class AcapyClient:
             logger.error(f"Error sending problem report: {e}")
             return False
 
-    def create_connection_invitation(
+    async def create_connection_invitation(
         self,
         multi_use: bool = False,
         presentation_exchange: dict | None = None,
@@ -554,30 +449,16 @@ class AcapyClient:
     ) -> OobCreateInvitationResponse:
         """
         Create an out-of-band invitation for either ephemeral or persistent connections.
-
-        Args:
-            multi_use: Whether this is an non ephemeral (multi_use) connection (default: False)
-            presentation_exchange: Optional presentation exchange to attach to invitation
-            use_public_did: Whether to use public DID for the invitation (default: False)
-            alias: Optional alias for the connection (default: None)
-            auto_accept: Whether to auto-accept the connection (default: None - use configuration)
-            metadata: Optional metadata to attach to the connection (default: None)
-
-        Returns:
-            OobCreateInvitationResponse: The response containing invitation details
         """
         logger.debug(">>> create_connection_invitation")
 
-        # Determine connection type and goal code
         if multi_use:
             goal_code = "aries.vc.verify"
             goal = "Verify credentials for authentication"
-            multi_use = True
         else:
             goal_code = "aries.vc.verify.once"
             goal = "Verify credentials for single-use authentication"
-            multi_use = False
-        # Prepare the payload for the invitation creation
+
         create_invitation_payload = {
             "use_public_did": use_public_did,
             "my_label": settings.INVITATION_LABEL,
@@ -585,14 +466,12 @@ class AcapyClient:
             "goal": goal,
         }
 
-        # Add handshake protocols if no presentation attachment is provided
         if not presentation_exchange:
             create_invitation_payload["handshake_protocols"] = [
                 "https://didcomm.org/didexchange/1.0",
                 "https://didcomm.org/connections/1.0",
             ]
 
-        # Add presentation exchange attachment if provided
         if presentation_exchange:
             create_invitation_payload["attachments"] = [
                 {
@@ -602,31 +481,25 @@ class AcapyClient:
                 }
             ]
 
-        # Add optional body parameters if provided
         if alias is not None:
             create_invitation_payload["alias"] = alias
         if metadata:
             create_invitation_payload["metadata"] = metadata
 
-        # Prepare query parameters
         params = {"multi_use": str(multi_use).lower()}
         if auto_accept is not None:
             params["auto_accept"] = str(auto_accept).lower()
 
-        # Make the request to ACA-Py
-        resp_raw = requests.post(
+        resp = await self._http_client.post(
             self.acapy_host + OOB_CREATE_INVITATION,
-            headers=self.agent_config.get_headers(),
+            headers=await self.agent_config.get_headers(),
             json=create_invitation_payload,
             params=params,
         )
 
-        # Validate the response
-        assert resp_raw.status_code == 200, resp_raw.content
+        assert resp.status_code == 200, resp.content
 
-        # Parse and validate the response
-        resp = json.loads(resp_raw.content)
-        result = OobCreateInvitationResponse.model_validate(resp)
+        result = OobCreateInvitationResponse.model_validate(resp.json())
 
         logger.debug("<<< create_connection_invitation")
         return result

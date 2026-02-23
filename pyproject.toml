@@ -30,6 +30,7 @@ python-socketio = "^5.15.0" # required to run websockets
 redis = "^5.0.0" # required for multi-pod Socket.IO communication
 canonicaljson = "^2.0.0" # used to provide unique consistent user identifiers"
 pydantic-settings = "^2.12.0"
+httpx = "^0.28.1"
 
 [tool.poetry.group.dev.dependencies]
 black = "^25.11.0"
@@ -40,7 +41,7 @@ pytest-cov = "^7.0.0"
 pytest = "^9.0.1"
 requests-mock = "^1.12.1"
 setuptools = "^80.9.0"
-httpx = "^0.28.1"
+respx = "^0.21"
 
 [tool.pytest.ini_options]
 testpaths = "oidc-controller"
