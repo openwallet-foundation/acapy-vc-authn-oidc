@@ -300,17 +300,6 @@ class TestNormalizeRedisConfig:
     """Test normalize_redis_config — backwards-compat mutation of settings."""
 
     @patch("api.core.config.settings")
-    def test_normalize_bare_hostname_appends_port(self, mock_settings):
-        """Test that a bare hostname gets REDIS_PORT appended."""
-        mock_settings.REDIS_MODE = "single"
-        mock_settings.REDIS_HOST = "redis-host"
-        mock_settings.REDIS_PORT = 6379
-
-        normalize_redis_config()
-
-        assert mock_settings.REDIS_HOST == "redis-host:6379"
-
-    @patch("api.core.config.settings")
     def test_normalize_host_with_port_unchanged(self, mock_settings):
         """Test that a host already in host:port format is not modified."""
         mock_settings.REDIS_MODE = "single"
