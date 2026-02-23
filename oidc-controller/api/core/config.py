@@ -313,9 +313,6 @@ class GlobalConfig(BaseSettings):
     # For single mode, only one entry is allowed.
     REDIS_MODE: str = _get_redis_mode()
     REDIS_HOST: str = os.environ.get("REDIS_HOST", "redis")
-    # REDIS_PORT is deprecated — embed the port in REDIS_HOST (e.g., "redis:6379").
-    # Kept only as fallback when REDIS_HOST has no port in single mode.
-    REDIS_PORT: int = int(os.environ.get("REDIS_PORT", 6379))
     REDIS_PASSWORD: str | None = os.environ.get("REDIS_PASSWORD")
     REDIS_DB: int = int(os.environ.get("REDIS_DB", 0))
 
@@ -407,13 +404,6 @@ def normalize_redis_config():
     """
     if settings.REDIS_MODE.lower() != "single":
         return
-    if ":" not in settings.REDIS_HOST:
-        logger.warning(
-            "REDIS_HOST without a port is deprecated. "
-            f"Use REDIS_HOST={settings.REDIS_HOST}:{settings.REDIS_PORT} instead. "
-            "REDIS_PORT will be removed in a future release."
-        )
-        settings.REDIS_HOST = f"{settings.REDIS_HOST}:{settings.REDIS_PORT}"
 
 
 def validate_redis_config():
