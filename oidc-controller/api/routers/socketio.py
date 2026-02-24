@@ -1,5 +1,5 @@
 import asyncio
-import pickle
+import json
 import redis.asyncio as async_redis
 import redis
 from redis.cluster import RedisCluster, ClusterNode
@@ -160,7 +160,7 @@ class AsyncRedisClusterManager(AsyncPubSubManager):
                         password=self._password,
                         **self._redis_options,
                     )
-                return await self.redis.publish(self.channel, pickle.dumps(data))
+                return await self.redis.publish(self.channel, json.dumps(data))
             except Exception:
                 if retry:
                     logger.warning("Redis Cluster publish failed, reconnecting...")
