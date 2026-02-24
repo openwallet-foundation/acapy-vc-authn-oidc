@@ -312,7 +312,7 @@ class GlobalConfig(BaseSettings):
     # REDIS_HOST is always comma-separated host:port pairs.
     # For single mode, only one entry is allowed.
     REDIS_MODE: str = _get_redis_mode()
-    REDIS_HOST: str = os.environ.get("REDIS_HOST", "redis")
+    REDIS_HOST: str = os.environ.get("REDIS_HOST", "redis:6379")
     REDIS_PASSWORD: str | None = os.environ.get("REDIS_PASSWORD")
     REDIS_DB: int = int(os.environ.get("REDIS_DB", 0))
 
