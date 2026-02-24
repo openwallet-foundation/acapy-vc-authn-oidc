@@ -88,7 +88,6 @@ def _should_use_redis_adapter():
     """Single check to determine if Redis adapter should be used.
 
     Delegates to validate_redis_config() for validation.
-    Delegates to validate_redis_config() for validation.
     """
     mode = settings.REDIS_MODE.lower()
 

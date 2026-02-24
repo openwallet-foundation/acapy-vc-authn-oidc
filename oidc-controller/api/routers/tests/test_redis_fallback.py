@@ -307,7 +307,6 @@ class TestIntegrationScenarios:
     async def test_graceful_degradation_when_mode_none(self, mock_settings):
         """Test graceful degradation when REDIS_MODE=none and Redis fails."""
         mock_settings.REDIS_MODE = "none"
-        mock_settings.REDIS_MODE = "none"
 
         with patch.object(sio, "emit", new_callable=AsyncMock) as mock_emit:
             mock_emit.side_effect = Exception("Redis publish failed")
@@ -327,7 +326,6 @@ class TestIntegrationScenarios:
     @patch("api.routers.socketio.settings")
     async def test_graceful_degradation_scenario_mode_none(self, mock_settings):
         """Test graceful degradation when Redis becomes unavailable during runtime and mode is none."""
-        mock_settings.REDIS_MODE = "none"
         mock_settings.REDIS_MODE = "none"
 
         call_count = 0
@@ -355,7 +353,6 @@ class TestIntegrationScenarios:
     @patch("api.routers.socketio.settings")
     async def test_graceful_degradation_scenario_single_mode(self, mock_settings):
         """Test graceful degradation continues on Redis failure when single mode enabled."""
-        mock_settings.REDIS_MODE = "single"
         mock_settings.REDIS_MODE = "single"
 
         with patch.object(sio, "emit", new_callable=AsyncMock) as mock_emit:

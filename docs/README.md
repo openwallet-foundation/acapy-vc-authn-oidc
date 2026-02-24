@@ -393,7 +393,7 @@ REDIS_MODE=cluster
 REDIS_HOST=redis-node1:6379,redis-node2:6379,redis-node3:6379
 ```
 
-**Backwards Compatibility:** The legacy `USE_REDIS_ADAPTER=true` environment variable is still supported and maps to `REDIS_MODE=single`. However, it is deprecated and will be removed in a future release.
+**Note:** The legacy `USE_REDIS_ADAPTER` environment variable has been removed. Use `REDIS_MODE=single` instead.
 
 **Note:** This endpoint is strictly for retrieving the *current session's* claims. It is not a persistent profile store. Once the Access Token expires, the data is evicted or becomes inaccessible.
 

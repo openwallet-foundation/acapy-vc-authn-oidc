@@ -311,10 +311,16 @@ class SingleRedisWrapperWithPack(BaseRedisWrapperWithPack):
 
 
 def extract_storage_class(redis_mode: str) -> type[BaseRedisWrapperWithPack]:
+    """Return the storage wrapper class for the given Redis mode."""
     match redis_mode:
         case "sentinel":
             return SentinelRedisWrapperWithPack
         case "cluster":
             return ClusterRedisWrapperWithPack
+        case "single":
+            return SingleRedisWrapperWithPack
         case _:
+            logger.warning(
+                f"Unrecognised REDIS_MODE '{redis_mode}', falling back to single Redis storage"
+            )
             return SingleRedisWrapperWithPack
