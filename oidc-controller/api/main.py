@@ -36,7 +36,7 @@ from .core.redis_utils import parse_host_port_pairs, build_redis_url
 from api.core.oidc.provider import init_provider
 from api.core.webhook_utils import register_tenant_webhook
 from api.core.acapy.config import MultiTenantAcapy, TractionTenantAcapy
-from api.core.config import normalize_redis_config, validate_redis_config
+from api.core.config import validate_redis_config
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
 
@@ -145,8 +145,6 @@ async def logging_middleware(request: Request, call_next) -> Response:
 @app.on_event("startup")
 async def on_tenant_startup():
     """Register any events we need to respond to."""
-    # Normalize then validate Redis configuration early
-    normalize_redis_config()
     validate_redis_config()
 
     await init_db()

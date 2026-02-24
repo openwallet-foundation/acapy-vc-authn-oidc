@@ -1211,7 +1211,7 @@ class TestSafeEmit:
         from api.routers.socketio import safe_emit
 
         mock_sio.emit = AsyncMock(side_effect=Exception("Redis connection lost"))
-        mock_settings.USE_REDIS_ADAPTER = True
+        mock_settings.REDIS_MODE = "single"
 
         # Should not raise
         await safe_emit("status", {"status": "verified"}, to="socket-id")
@@ -1225,7 +1225,7 @@ class TestSafeEmit:
         from api.routers.socketio import safe_emit
 
         mock_sio.emit = AsyncMock(side_effect=Exception("emit failed"))
-        mock_settings.USE_REDIS_ADAPTER = False
+        mock_settings.REDIS_MODE = "none"
 
         # Should not raise regardless of adapter setting
         await safe_emit("status", {"status": "failed"}, to="socket-id")

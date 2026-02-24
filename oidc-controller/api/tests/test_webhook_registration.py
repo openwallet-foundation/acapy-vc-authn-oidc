@@ -19,7 +19,6 @@ def mock_settings():
         mock.ST_ACAPY_ADMIN_API_KEY = "admin-api-key"
         # Default safe values
         mock.REDIS_MODE = "none"  # Disabled by default
-        mock.USE_REDIS_ADAPTER = False  # Computed from REDIS_MODE
         mock.ACAPY_TENANCY = "multi"
         mock.MT_ACAPY_WALLET_KEY = "wallet-key"
         mock.ACAPY_TENANT_WALLET_KEY = "wallet-key"
@@ -227,7 +226,7 @@ async def test_startup_multi_tenant_injects_fetcher(mock_settings, mock_requests
     """
     mock_settings.ACAPY_TENANCY = "multi"
     mock_settings.ACAPY_TENANT_WALLET_KEY = "wallet-key"
-    mock_settings.USE_REDIS_ADAPTER = False
+    mock_settings.REDIS_MODE = "none"
 
     # Mock MultiTenantAcapy class to verify instantiation
     with (
@@ -262,7 +261,7 @@ async def test_startup_traction_mode_config(mock_settings, mock_requests_put):
     Test startup logic in traction mode: uses TractionTenantAcapy and skips admin API.
     """
     mock_settings.ACAPY_TENANCY = "traction"
-    mock_settings.USE_REDIS_ADAPTER = False
+    mock_settings.REDIS_MODE = "none"
 
     with (
         patch("api.main.init_db", new_callable=AsyncMock),
@@ -291,7 +290,7 @@ async def test_startup_single_tenant_skips_registration(
 ):
     """Test startup logic in single-tenant mode skips registration."""
     mock_settings.ACAPY_TENANCY = "single"
-    mock_settings.USE_REDIS_ADAPTER = False
+    mock_settings.REDIS_MODE = "none"
 
     with (
         patch("api.main.init_db", new_callable=AsyncMock),
@@ -373,7 +372,6 @@ async def test_startup_redis_check_success(mock_settings):
         patch("api.main.get_db", new_callable=AsyncMock),
         patch("api.main.can_we_reach_redis", return_value=True) as mock_reach,
         patch("api.main.build_redis_url", return_value="redis://localhost"),
-        patch("api.main.normalize_redis_config"),
         patch("api.main.validate_redis_config"),
     ):
         await on_tenant_startup()
@@ -393,7 +391,6 @@ async def test_startup_redis_check_failure(mock_settings):
         patch("api.main.get_db", new_callable=AsyncMock),
         patch("api.main.can_we_reach_redis", return_value=False),
         patch("api.main.build_redis_url", return_value="redis://localhost"),
-        patch("api.main.normalize_redis_config"),
         patch("api.main.validate_redis_config"),
     ):
         with pytest.raises(

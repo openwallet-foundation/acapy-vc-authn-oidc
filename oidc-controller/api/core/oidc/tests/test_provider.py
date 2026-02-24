@@ -404,7 +404,7 @@ class TestDynamicClientDatabase:
 
 
 class TestStorageBackendSelection:
-    """Test conditional storage backend initialization based on USE_REDIS_ADAPTER."""
+    """Test conditional storage backend initialization based on REDIS_MODE."""
 
     def test_module_has_storage_instances(self):
         """Test that provider module has storage instances initialized."""
@@ -418,24 +418,17 @@ class TestStorageBackendSelection:
 
     def test_conditional_logic_with_redis_enabled(self):
         """Test that conditional logic correctly selects Redis storage."""
-        # Create a mock settings object
         mock_settings = Mock()
-        mock_settings.USE_REDIS_ADAPTER = True
-        mock_settings.REDIS_HOST = "redis:6379"
-        mock_settings.REDIS_PASSWORD = None
-        mock_settings.REDIS_DB = 0
+        mock_settings.REDIS_MODE = "single"
 
-        # Verify the conditional would select Redis path
-        assert mock_settings.USE_REDIS_ADAPTER is True
+        assert mock_settings.REDIS_MODE.lower() != "none"
 
     def test_conditional_logic_with_redis_disabled(self):
         """Test that conditional logic correctly selects StatelessWrapper."""
-        # Create a mock settings object
         mock_settings = Mock()
-        mock_settings.USE_REDIS_ADAPTER = False
+        mock_settings.REDIS_MODE = "none"
 
-        # Verify the conditional would select StatelessWrapper path
-        assert mock_settings.USE_REDIS_ADAPTER is False
+        assert mock_settings.REDIS_MODE.lower() == "none"
 
 
 class TestHelperFunctions:
@@ -598,13 +591,13 @@ class TestProviderRedisConfiguration:
         TEST_TTL = 1000
 
         # Apply settings to the singleton directly so reload picks them up
-        # REDIS_MODE=single enables Redis adapter (USE_REDIS_ADAPTER property returns True)
+        # REDIS_MODE=single enables Redis storage
         with (
             patch.object(real_settings, "REDIS_MODE", "single"),
             patch.object(real_settings, "OIDC_ACCESS_TOKEN_TTL", TEST_TTL),
             patch.object(real_settings, "REDIS_HOST", "localhost"),
         ):
-            # Reload to run the top-level 'if settings.USE_REDIS_ADAPTER:' block
+            # Reload to run the top-level 'if settings.REDIS_MODE != "none":' block
             importlib.reload(provider_module)
 
             # Inspect the objects created by the module

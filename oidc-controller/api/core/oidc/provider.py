@@ -233,8 +233,8 @@ else:
 subject_id_factory = HashBasedSubjectIdentifierFactory(settings.SUBJECT_ID_HASH_SALT)
 
 
-# Conditionally create storage backends based on USE_REDIS_ADAPTER setting
-if settings.USE_REDIS_ADAPTER:
+# Conditionally create storage backends based on REDIS_MODE setting
+if settings.REDIS_MODE.lower() != "none":
     # Redis storage for multi-pod deployments - shared state across all pods
     redis_mode = settings.REDIS_MODE.lower()
 

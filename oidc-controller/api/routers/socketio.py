@@ -14,7 +14,7 @@ from ..db.session import client
 from ..core.config import settings, validate_redis_config
 from ..core.redis_utils import parse_host_port_pairs, build_redis_url
 
-logger = structlog.getLogger(__name__)
+logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
 
 
 class RedisErrorType:
@@ -88,8 +88,7 @@ def _should_use_redis_adapter():
     """Single check to determine if Redis adapter should be used.
 
     Delegates to validate_redis_config() for validation.
-    For backwards compatibility, also supports legacy USE_REDIS_ADAPTER env var
-    (handled in _get_redis_mode in config.py).
+    Delegates to validate_redis_config() for validation.
     """
     mode = settings.REDIS_MODE.lower()
 
@@ -478,13 +477,13 @@ async def safe_emit(event, data=None, **kwargs):
     """
     Safely emit to Socket.IO with graceful Redis failure handling.
 
-    When USE_REDIS_ADAPTER=true, Redis failures are logged but don't crash the application.
-    When USE_REDIS_ADAPTER=false, Redis is not used and this function simply calls sio.emit.
+    When REDIS_MODE is enabled, Redis failures are logged but don't crash the application.
+    When REDIS_MODE=none, Redis is not used and this function simply calls sio.emit.
     """
     try:
         await sio.emit(event, data, **kwargs)
     except Exception as e:
-        if settings.USE_REDIS_ADAPTER:
+        if settings.REDIS_MODE.lower() != "none":
             # Log the error but continue gracefully - don't crash the application
             error_type = _handle_redis_failure("Socket.IO emit", e)
             logger.warning(f"Socket.IO emit failed (type: {error_type}): {e}")

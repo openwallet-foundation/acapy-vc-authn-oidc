@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Test Redis fallback behavior to ensure proper handling when USE_REDIS_ADAPTER is enabled/disabled.
+Test Redis fallback behavior to ensure proper handling when REDIS_MODE is enabled/disabled.
 """
 
 import pytest
@@ -35,8 +35,8 @@ class TestSafeEmit:
     @pytest.mark.asyncio
     @patch("api.routers.socketio.settings")
     async def test_safe_emit_graceful_failure_adapter_disabled(self, mock_settings):
-        """Test safe_emit continues gracefully when Redis fails and USE_REDIS_ADAPTER=false."""
-        mock_settings.USE_REDIS_ADAPTER = False
+        """Test safe_emit continues gracefully when Redis fails and REDIS_MODE=none."""
+        mock_settings.REDIS_MODE = "none"
 
         with patch.object(sio, "emit", new_callable=AsyncMock) as mock_emit:
             mock_emit.side_effect = Exception("Redis connection failed")
@@ -51,8 +51,8 @@ class TestSafeEmit:
     @pytest.mark.asyncio
     @patch("api.routers.socketio.settings")
     async def test_safe_emit_graceful_failure_adapter_enabled(self, mock_settings):
-        """Test safe_emit continues gracefully when Redis fails and USE_REDIS_ADAPTER=true."""
-        mock_settings.USE_REDIS_ADAPTER = True
+        """Test safe_emit continues gracefully when Redis fails and REDIS_MODE=single."""
+        mock_settings.REDIS_MODE = "single"
 
         with patch.object(sio, "emit", new_callable=AsyncMock) as mock_emit:
             mock_emit.side_effect = Exception("Redis connection failed")
@@ -68,7 +68,7 @@ class TestSafeEmit:
     @patch("api.routers.socketio.settings")
     async def test_safe_emit_handles_various_kwargs(self, mock_settings):
         """Test safe_emit handles various Socket.IO parameters correctly."""
-        mock_settings.USE_REDIS_ADAPTER = False
+        mock_settings.REDIS_MODE = "none"
 
         with patch.object(sio, "emit", new_callable=AsyncMock) as mock_emit:
             mock_emit.return_value = True
@@ -307,7 +307,7 @@ class TestIntegrationScenarios:
     async def test_graceful_degradation_when_mode_none(self, mock_settings):
         """Test graceful degradation when REDIS_MODE=none and Redis fails."""
         mock_settings.REDIS_MODE = "none"
-        mock_settings.USE_REDIS_ADAPTER = False
+        mock_settings.REDIS_MODE = "none"
 
         with patch.object(sio, "emit", new_callable=AsyncMock) as mock_emit:
             mock_emit.side_effect = Exception("Redis publish failed")
@@ -328,7 +328,7 @@ class TestIntegrationScenarios:
     async def test_graceful_degradation_scenario_mode_none(self, mock_settings):
         """Test graceful degradation when Redis becomes unavailable during runtime and mode is none."""
         mock_settings.REDIS_MODE = "none"
-        mock_settings.USE_REDIS_ADAPTER = False
+        mock_settings.REDIS_MODE = "none"
 
         call_count = 0
 
@@ -356,7 +356,7 @@ class TestIntegrationScenarios:
     async def test_graceful_degradation_scenario_single_mode(self, mock_settings):
         """Test graceful degradation continues on Redis failure when single mode enabled."""
         mock_settings.REDIS_MODE = "single"
-        mock_settings.USE_REDIS_ADAPTER = True
+        mock_settings.REDIS_MODE = "single"
 
         with patch.object(sio, "emit", new_callable=AsyncMock) as mock_emit:
             mock_emit.side_effect = Exception("Critical Redis failure")

@@ -17,7 +17,7 @@ from redis.sentinel import Sentinel
 
 from api.core.config import settings
 
-logger = structlog.getLogger(__name__)
+logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
 
 
 def parse_host_port_pairs(hosts_string: str) -> list[tuple[str, int]]:

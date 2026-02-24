@@ -46,7 +46,7 @@ class TestPostTokenAuthSessionUpdate:
             patch("api.routers.oidc.settings") as mock_settings,
         ):
             # Setup mocks
-            mock_settings.USE_REDIS_ADAPTER = True
+            mock_settings.REDIS_MODE = "single"
             mock_settings.ACAPY_PROOF_FORMAT = "anoncreds"
 
             mock_auth_session = MagicMock(spec=AuthSession)
@@ -148,7 +148,7 @@ class TestPostTokenAuthSessionUpdate:
             patch("api.routers.oidc.store_subject_identifier") as mock_store_subject,
         ):
             # Setup
-            mock_settings.USE_REDIS_ADAPTER = True
+            mock_settings.REDIS_MODE = "single"
             mock_settings.ACAPY_PROOF_FORMAT = "anoncreds"
 
             mock_auth_session = MagicMock(spec=AuthSession)
@@ -252,7 +252,7 @@ class TestStoreSubjectIdentifierEdgeCases:
             patch("api.core.config.settings") as mock_settings,
             patch("api.routers.oidc.provider") as mock_provider,
         ):
-            mock_settings.USE_REDIS_ADAPTER = False  # Stateless mode
+            mock_settings.REDIS_MODE = "none"  # Stateless mode
             mock_provider.provider = mock_provider_obj
 
             # Execute - add public subject to user with existing pairwise
@@ -281,7 +281,7 @@ class TestStoreSubjectIdentifierEdgeCases:
             patch("api.core.config.settings") as mock_settings,
             patch("api.routers.oidc.provider") as mock_provider,
         ):
-            mock_settings.USE_REDIS_ADAPTER = False
+            mock_settings.REDIS_MODE = "none"
             mock_provider.provider = mock_provider_obj
 
             # Execute - update public subject for existing user
@@ -307,7 +307,7 @@ class TestStoreSubjectIdentifierEdgeCases:
             patch("api.core.config.settings") as mock_settings,
             patch("api.routers.oidc.provider") as mock_provider,
         ):
-            mock_settings.USE_REDIS_ADAPTER = False
+            mock_settings.REDIS_MODE = "none"
             mock_provider.provider = mock_provider_obj
 
             user_id = "user-123"
@@ -345,7 +345,7 @@ class TestPostTokenIntegration:
             patch("api.routers.oidc.settings") as mock_settings,
         ):
             # Setup mocks
-            mock_settings.USE_REDIS_ADAPTER = True
+            mock_settings.REDIS_MODE = "single"
             mock_settings.ACAPY_PROOF_FORMAT = "anoncreds"
 
             mock_auth_session = MagicMock(spec=AuthSession)

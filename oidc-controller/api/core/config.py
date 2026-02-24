@@ -133,26 +133,6 @@ class EnvironmentEnum(str, Enum):
     LOCAL = "local"
 
 
-def _get_redis_mode() -> str:
-    """Determine Redis mode with backwards compatibility for USE_REDIS_ADAPTER.
-
-    Priority:
-    1. If REDIS_MODE env var is set, use it directly
-    2. If legacy USE_REDIS_ADAPTER is set to true, return "single" with deprecation warning
-    3. Default to "none" (Redis disabled)
-    """
-    mode = os.environ.get("REDIS_MODE")
-    if mode:
-        return mode.lower()
-
-    # Legacy fallback for backwards compatibility
-    use_adapter = os.environ.get("USE_REDIS_ADAPTER", "false")
-    if strtobool(use_adapter):
-        logger.warning("USE_REDIS_ADAPTER is deprecated, use REDIS_MODE=single instead")
-        return "single"
-    return "none"
-
-
 class GlobalConfig(BaseSettings):
     TITLE: str = os.environ.get(
         "CONTROLLER_APP_TITLE", "acapy-vc-authn-oidc Controller"
@@ -311,7 +291,7 @@ class GlobalConfig(BaseSettings):
     # - cluster: Redis Cluster (REDIS_HOST = "host1:port1,host2:port2")
     # REDIS_HOST is always comma-separated host:port pairs.
     # For single mode, only one entry is allowed.
-    REDIS_MODE: str = _get_redis_mode()
+    REDIS_MODE: str = os.environ.get("REDIS_MODE", "none").lower()
     REDIS_HOST: str = os.environ.get("REDIS_HOST", "redis:6379")
     REDIS_PASSWORD: str | None = os.environ.get("REDIS_PASSWORD")
     REDIS_DB: int = int(os.environ.get("REDIS_DB", 0))
@@ -320,11 +300,6 @@ class GlobalConfig(BaseSettings):
     REDIS_SENTINEL_MASTER_NAME: str = os.environ.get(
         "REDIS_SENTINEL_MASTER_NAME", "mymaster"
     )
-
-    @property
-    def USE_REDIS_ADAPTER(self) -> bool:
-        """Backwards compatibility property - derived from REDIS_MODE."""
-        return self.REDIS_MODE.lower() != "none"
 
     # Redis error handling and retry configuration
     REDIS_THREAD_MAX_RETRIES: int = int(os.environ.get("REDIS_THREAD_MAX_RETRIES", 5))
@@ -393,27 +368,11 @@ if settings.ACAPY_TOKEN_CACHE_TTL <= 0:
     )
 
 
-def normalize_redis_config():
-    """Apply backwards-compatibility transformations to Redis settings.
-
-    If REDIS_MODE=single and REDIS_HOST is a bare hostname with no port,
-    REDIS_PORT is appended automatically with a deprecation warning.
-
-    This mutates the settings singleton and must be called exactly once,
-    before validate_redis_config(), during application startup.
-    """
-    if settings.REDIS_MODE.lower() != "single":
-        return
-
-
 def validate_redis_config():
     """Validate Redis configuration. Pure — no side effects.
 
     REDIS_HOST must be comma-separated host:port pairs for all non-none modes.
     For single mode, exactly one entry is required.
-
-    Call normalize_redis_config() before this if backwards-compat normalization
-    is needed (i.e., at application startup).
 
     Raises ValueError with a clear message if configuration is invalid.
     """
@@ -447,8 +406,3 @@ def validate_redis_config():
             f"For single mode, use one host:port (e.g., REDIS_HOST=redis:6379). "
             f"For multiple nodes, use REDIS_MODE=sentinel or REDIS_MODE=cluster."
         )
-
-
-# Normalize at import time so any module that imports settings (e.g. socketio.py
-# calling validate_redis_config() at module load) sees host:port format already.
-normalize_redis_config()
