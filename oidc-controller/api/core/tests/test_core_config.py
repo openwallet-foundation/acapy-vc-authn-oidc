@@ -164,7 +164,7 @@ class TestValidateRedisConfig:
     ):
         """Test that validate_redis_config rejects a bare hostname (no port)."""
         mock_settings.REDIS_MODE = "single"
-        mock_settings.REDIS_HOST = "redis-host"  # no port — not yet normalized
+        mock_settings.REDIS_HOST = "redis-host"  # no port — invalid format
 
         with pytest.raises(ValueError) as exc:
             validate_redis_config()
