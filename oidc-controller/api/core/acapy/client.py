@@ -315,30 +315,6 @@ class AcapyClient:
             f"<<< get_connections_batched -> yielded {total_yielded} total connections"
         )
 
-    async def get_all_connections(self) -> list[dict]:
-        """Get all connections for cleanup purposes"""
-        logger.debug(">>> get_all_connections")
-
-        try:
-            resp = await self._http_client.get(
-                f"{self.acapy_host}{CONNECTIONS_URI}",
-                headers=await self.agent_config.get_headers(),
-            )
-
-            if resp.status_code != 200:
-                logger.warning(
-                    f"Failed to get connections: {resp.status_code}, {resp.content}"
-                )
-                return []
-
-            connections = resp.json().get("results", [])
-            logger.debug(f"<<< get_all_connections -> {len(connections)} connections")
-            return connections
-
-        except Exception as e:
-            logger.error(f"Error getting all connections: {e}")
-            return []
-
     async def delete_connection(self, connection_id: str) -> bool:
         """Delete a connection."""
         logger.debug(">>> delete_connection", connection_id=connection_id)
