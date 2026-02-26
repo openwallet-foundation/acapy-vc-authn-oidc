@@ -143,22 +143,22 @@ class AsyncRedisClusterManager(AsyncPubSubManager):
         super().__init__(channel=channel, write_only=write_only)
 
     async def _publish(self, data):
-        """Publish message to Redis Cluster."""
+        """Publish message to Redis Cluster via a single node connection.
+
+        redis-py 5.x removed pub/sub from the cluster client. In Redis Cluster,
+        PUBLISH is broadcast to all nodes, so publishing to any single node is
+        sufficient for all subscribers to receive the message.
+        """
         retry = True
         while True:
             try:
                 if self.redis is None:
-                    from redis.asyncio.cluster import RedisCluster as AsyncRedisCluster
-
-                    # Create cluster nodes for async client
-                    startup_nodes = [
-                        {"host": host, "port": port}
-                        for host, port in self._startup_nodes_raw
-                    ]
-                    self.redis = AsyncRedisCluster(
-                        startup_nodes=startup_nodes,
+                    # Connect to first node; cluster broadcasts PUBLISH to all nodes
+                    host, port = self._startup_nodes_raw[0]
+                    self.redis = async_redis.Redis(
+                        host=host,
+                        port=port,
                         password=self._password,
-                        **self._redis_options,
                     )
                 return await self.redis.publish(self.channel, json.dumps(data))
             except Exception:
