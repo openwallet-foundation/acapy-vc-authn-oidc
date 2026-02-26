@@ -458,9 +458,9 @@ class TestTimeoutBehaviour:
     @respx.mock
     @pytest.mark.asyncio
     async def test_send_problem_report_timeout_returns_false(self, acapy_client):
-        respx.post(
-            f"{BASE_URL}/present-proof-2.0/records/rec-1/problem-report"
-        ).mock(side_effect=httpx.ReadTimeout("timed out"))
+        respx.post(f"{BASE_URL}/present-proof-2.0/records/rec-1/problem-report").mock(
+            side_effect=httpx.ReadTimeout("timed out")
+        )
         assert await acapy_client.send_problem_report("rec-1", "desc") is False
 
     @respx.mock
