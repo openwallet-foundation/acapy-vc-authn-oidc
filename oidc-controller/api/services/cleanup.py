@@ -8,10 +8,7 @@ import structlog
 
 from ..core.config import settings
 
-if TYPE_CHECKING:
-    from ..core.acapy.client import AcapyClient
-else:
-    from ..core.acapy.client import AcapyClient
+from ..core.acapy.client import AcapyClient
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
 
@@ -110,10 +107,19 @@ def _should_clean_record(record: dict, cutoff_time: datetime) -> bool:
 
 
 async def _cleanup_single_presentation_record(
-    client: "AcapyClient", record: dict, stats: CleanupStats
+    client: "AcapyClient", record: dict, stats: CleanupStats, dry_run: bool
 ) -> None:
     """Clean up a single presentation record and update stats."""
     pres_ex_id = record.get("pres_ex_id")
+
+    if dry_run:
+        stats["cleaned_presentation_records"] += 1
+        logger.info(
+            "dry_run: would delete presentation record",
+            pres_ex_id=pres_ex_id,
+            phase="presentation_records",
+        )
+        return
 
     try:
         presentation_deleted, _, errors = (
@@ -150,14 +156,13 @@ async def _cleanup_single_presentation_record(
 
 
 async def _cleanup_presentation_records(
-    client: "AcapyClient", stats: CleanupStats
+    client: "AcapyClient", stats: CleanupStats, max_records: int, dry_run: bool
 ) -> datetime:
     """Clean up old presentation records phase."""
     phase_start = datetime.now(UTC)
 
     # Get configuration
     retention_hours = settings.CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS
-    max_records = settings.CONTROLLER_CLEANUP_MAX_PRESENTATION_RECORDS
     cutoff_time = datetime.now(UTC) - timedelta(hours=retention_hours)
 
     # Fetch records
@@ -186,7 +191,9 @@ async def _cleanup_presentation_records(
     for record in records:
         try:
             if _should_clean_record(record, cutoff_time):
-                await _cleanup_single_presentation_record(client, record, stats)
+                await _cleanup_single_presentation_record(
+                    client, record, stats, dry_run
+                )
             else:
                 logger.debug(
                     "Record too recent to clean up",
@@ -209,7 +216,11 @@ async def _cleanup_presentation_records(
 
 
 async def _cleanup_single_connection(
-    client: "AcapyClient", connection: dict, cutoff_time: datetime, stats: CleanupStats
+    client: "AcapyClient",
+    connection: dict,
+    cutoff_time: datetime,
+    stats: CleanupStats,
+    dry_run: bool,
 ) -> None:
     """Clean up a single connection and update stats."""
     connection_id = connection.get("connection_id")
@@ -226,6 +237,15 @@ async def _cleanup_single_connection(
         return
 
     if connection_time < cutoff_time:
+        if dry_run:
+            stats["cleaned_connections"] += 1
+            logger.info(
+                "dry_run: would delete connection invitation",
+                connection_id=connection_id,
+                phase="connections",
+            )
+            return
+
         logger.debug(
             "Cleaning up expired connection invitation",
             connection_id=connection_id,
@@ -274,13 +294,16 @@ async def _cleanup_single_connection(
 
 
 async def _cleanup_connections(
-    client: "AcapyClient", stats: CleanupStats, presentation_phase_start: datetime
+    client: "AcapyClient",
+    stats: CleanupStats,
+    presentation_phase_start: datetime,
+    max_connections: int,
+    dry_run: bool,
 ) -> None:
     """Clean up expired connections phase."""
     phase_start = datetime.now(UTC)
 
     # Get configuration
-    max_connections = settings.CONTROLLER_CLEANUP_MAX_CONNECTIONS
     expire_seconds = settings.CONTROLLER_PRESENTATION_EXPIRE_TIME
     cutoff_time = datetime.now(UTC) - timedelta(seconds=expire_seconds)
 
@@ -314,7 +337,9 @@ async def _cleanup_connections(
                 break
 
             processed_connections += 1
-            await _cleanup_single_connection(client, connection, cutoff_time, stats)
+            await _cleanup_single_connection(
+                client, connection, cutoff_time, stats, dry_run
+            )
 
         # Break out of batch loop if we hit the limit
         if stats["hit_connection_limit"]:
@@ -351,7 +376,25 @@ async def perform_cleanup(
         CleanupStats with detailed information about cleanup operations
     """
     start_time = datetime.now(UTC)
-    logger.info("Starting cleanup of old presentation records and expired connections")
+
+    # Resolve effective limits: use caller override if provided, otherwise fall back to settings
+    effective_max_records = (
+        max_presentation_records
+        if max_presentation_records is not None
+        else settings.CONTROLLER_CLEANUP_MAX_PRESENTATION_RECORDS
+    )
+    effective_max_connections = (
+        max_connections
+        if max_connections is not None
+        else settings.CONTROLLER_CLEANUP_MAX_CONNECTIONS
+    )
+
+    logger.info(
+        "Starting cleanup of old presentation records and expired connections",
+        dry_run=dry_run,
+        max_presentation_records=effective_max_records,
+        max_connections=effective_max_connections,
+    )
 
     # Initialize stats tracking
     cleanup_stats: CleanupStats = {
@@ -369,9 +412,15 @@ async def perform_cleanup(
 
     try:
         presentation_phase_start = await _cleanup_presentation_records(
-            client, cleanup_stats
+            client, cleanup_stats, effective_max_records, dry_run
         )
-        await _cleanup_connections(client, cleanup_stats, presentation_phase_start)
+        await _cleanup_connections(
+            client,
+            cleanup_stats,
+            presentation_phase_start,
+            effective_max_connections,
+            dry_run,
+        )
 
     except Exception as e:
         error_msg = f"Cleanup operation failed: {e}"

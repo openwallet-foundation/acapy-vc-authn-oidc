@@ -740,7 +740,7 @@ class TestCleanupResourceLimits:
     @patch("api.services.cleanup.settings")
     @pytest.mark.asyncio
     async def test_perform_cleanup_dry_run_mode(self, mock_settings, mock_client_class):
-        """Test cleanup function with dry-run parameter (currently not implemented)."""
+        """Test dry_run=True reports what would be deleted without calling delete APIs."""
         # Arrange
         mock_settings.CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS = 24
         mock_settings.CONTROLLER_CLEANUP_MAX_PRESENTATION_RECORDS = 1000
@@ -781,19 +781,19 @@ class TestCleanupResourceLimits:
         )
         mock_client.delete_connection = AsyncMock(return_value=True)
 
-        # Act - dry run mode (currently not implemented, so deletions still occur)
+        # Act
         result = await perform_cleanup(MagicMock(), dry_run=True)
 
-        # Assert - Currently behaves the same as regular cleanup since dry-run is not implemented
+        # Assert - counts reflect what would be cleaned, but no actual deletions made
         assert result["total_presentation_records"] == 1
         assert result["cleaned_presentation_records"] == 1
         assert result["total_connections"] == 1
         assert result["cleaned_connections"] == 1
         assert result["failed_cleanups"] == 0
 
-        # Verify deletions were called (because dry-run mode is not yet implemented)
-        mock_client.delete_presentation_record_and_connection.assert_called_once()
-        mock_client.delete_connection.assert_called_once()
+        # Verify no actual deletions were made
+        mock_client.delete_presentation_record_and_connection.assert_not_called()
+        mock_client.delete_connection.assert_not_called()
 
     @patch("api.services.cleanup.AcapyClient")
     @patch("api.services.cleanup.settings")
@@ -801,11 +801,11 @@ class TestCleanupResourceLimits:
     async def test_perform_cleanup_with_custom_limits(
         self, mock_settings, mock_client_class
     ):
-        """Test cleanup function with custom resource limits (currently not implemented)."""
-        # Arrange
+        """Test that caller-provided limits override settings defaults."""
+        # Arrange - settings have high defaults; caller passes lower limits
         mock_settings.CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS = 24
-        mock_settings.CONTROLLER_CLEANUP_MAX_PRESENTATION_RECORDS = 1000  # Default
-        mock_settings.CONTROLLER_CLEANUP_MAX_CONNECTIONS = 2000  # Default
+        mock_settings.CONTROLLER_CLEANUP_MAX_PRESENTATION_RECORDS = 1000
+        mock_settings.CONTROLLER_CLEANUP_MAX_CONNECTIONS = 2000
         mock_settings.CONTROLLER_PRESENTATION_EXPIRE_TIME = 10
 
         mock_client = Mock()
@@ -845,24 +845,21 @@ class TestCleanupResourceLimits:
         )
         mock_client.delete_connection = AsyncMock(return_value=True)
 
-        # Act - with custom limits (currently not implemented, so uses defaults)
+        # Act - caller overrides to lower limits
         result = await perform_cleanup(
             MagicMock(), max_presentation_records=3, max_connections=2
         )
 
-        # Assert - Currently ignores custom limits and cleans all eligible records
+        # Assert - custom limits are respected: only 3 records and 2 connections processed
         assert result["total_presentation_records"] == 5
-        assert (
-            result["cleaned_presentation_records"] == 5
-        )  # Custom limits not implemented
+        assert result["cleaned_presentation_records"] == 3
         assert result["total_connections"] == 5
-        assert result["cleaned_connections"] == 5  # Custom limits not implemented
-        assert result["hit_presentation_limit"] is False
-        assert result["hit_connection_limit"] is False
+        assert result["cleaned_connections"] == 2
+        assert result["hit_presentation_limit"] is True
+        assert result["hit_connection_limit"] is True
 
-        # Verify all deletions were called (custom limits not implemented)
-        assert mock_client.delete_presentation_record_and_connection.call_count == 5
-        assert mock_client.delete_connection.call_count == 5
+        assert mock_client.delete_presentation_record_and_connection.call_count == 3
+        assert mock_client.delete_connection.call_count == 2
 
 
 class TestCleanupServiceErrorScenarios:

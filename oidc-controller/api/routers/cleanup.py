@@ -38,7 +38,7 @@ Production Deployment:
 """
 
 import structlog
-from datetime import datetime
+from datetime import datetime, UTC
 
 from fastapi import APIRouter, Depends, Query, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -134,7 +134,7 @@ async def cleanup_endpoint(
         # Prepare response data
         response_data = {
             "status": "completed",
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "statistics": {
                 "total_presentation_records": stats["total_presentation_records"],
                 "cleaned_presentation_records": stats["cleaned_presentation_records"],
@@ -188,6 +188,6 @@ async def cleanup_health_check():
         content={
             "status": "healthy",
             "service": "cleanup",
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
         },
     )
