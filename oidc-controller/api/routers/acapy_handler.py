@@ -321,7 +321,7 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
             logger.info(
                 f">>>> pres_exch_id: {webhook_body['pres_ex_id']}, state: {state}"
             )
-          
+
             # Check for prover-role (issue #898)
 
             if role == "prover":
