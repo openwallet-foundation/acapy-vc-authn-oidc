@@ -141,7 +141,7 @@ async def logging_middleware(request: Request, call_next) -> Response:
 async def on_tenant_startup():
     """Register any events we need to respond to."""
     app.state.http_client = httpx.AsyncClient(
-        timeout=httpx.Timeout(10.0),
+        timeout=httpx.Timeout(settings.ACAPY_REQUEST_TIMEOUT),
         limits=httpx.Limits(
             max_keepalive_connections=20,
             max_connections=100,

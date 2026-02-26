@@ -228,6 +228,9 @@ class GlobalConfig(BaseSettings):
     # Token Cache Configuration (seconds) - Default 1 hour
     ACAPY_TOKEN_CACHE_TTL: int = int(os.environ.get("ACAPY_TOKEN_CACHE_TTL", 3600))
 
+    # HTTP timeout for ACA-Py requests (seconds) - tune for slow agents
+    ACAPY_REQUEST_TIMEOUT: float = float(os.environ.get("ACAPY_REQUEST_TIMEOUT", 10.0))
+
     ST_ACAPY_ADMIN_API_KEY_NAME: str | None = os.environ.get(
         "ST_ACAPY_ADMIN_API_KEY_NAME"
     )
