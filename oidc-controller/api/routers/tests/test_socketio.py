@@ -1134,7 +1134,7 @@ class TestAsyncRedisClusterManager:
         mock_redis = AsyncMock()
         mock_redis.publish = AsyncMock(return_value=1)
 
-        with patch("redis.asyncio.cluster.RedisCluster", return_value=mock_redis):
+        with patch("api.routers.socketio.async_redis.Redis", return_value=mock_redis):
             await mgr._publish({"event": "test"})
 
         mock_redis.publish.assert_called_once()
@@ -1164,7 +1164,7 @@ class TestAsyncRedisClusterManager:
         mock_redis_second.publish = AsyncMock(return_value=1)
 
         with patch(
-            "redis.asyncio.cluster.RedisCluster",
+            "api.routers.socketio.async_redis.Redis",
             side_effect=[mock_redis_first, mock_redis_second],
         ):
             await mgr._publish({"event": "test"})
@@ -1180,7 +1180,7 @@ class TestAsyncRedisClusterManager:
         mock_redis = AsyncMock()
         mock_redis.publish = AsyncMock(side_effect=ConnectionError("always fails"))
 
-        with patch("redis.asyncio.cluster.RedisCluster", return_value=mock_redis):
+        with patch("api.routers.socketio.async_redis.Redis", return_value=mock_redis):
             with pytest.raises(ConnectionError):
                 await mgr._publish({"event": "test"})
 
