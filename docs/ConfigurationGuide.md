@@ -90,6 +90,73 @@ Several functions in ACAPy VC-AuthN can be tweaked by using the following enviro
 | LOG_WITH_JSON             | bool                                   | If True, logging output should printed as JSON if False it will be pretty printed.                                                                                                                                                                                                                                                                                                                                                                     | Default behavior will print as JSON.                                                                                                    |
 | LOG_TIMESTAMP_FORMAT      | string                                 | determines the timestamp formatting used in logs                                                                                                                                                                                                                                                                                                                                                                                                       | Default is "iso"                                                                                                                        |
 | LOG_LEVEL                 | "DEBUG", "INFO", "WARNING", or "ERROR" | sets the minimum log level that will be printed to standard out                                                                                                                                                                                                                                                                                                                                                                                        | Defaults to DEBUG                                                                                                                       |
+| SIAM_AUDIT_ENABLED        | bool                                   | Enables or disables SIAM audit event logging. When `false`, all audit events (session lifecycle, proof verification, token issuance, etc.) are silently suppressed.                                                                                                                                                                                                                                                                                    | Defaults to `true` (audit logging is **on**).                                                                                           |
+| SIAM_IP_SALT              | string                                 | Salt used for one-way hashing of client IP addresses in SIAM audit logs. Should be rotated periodically. Only relevant when `SIAM_AUDIT_ENABLED` is `true`.                                                                                                                                                                                                                                                                                           | Defaults to a built-in placeholder. **Set a unique value in production.**                                                               |
+
+### SIAM Audit Logging
+
+ACAPy VC-AuthN includes a privacy-preserving audit logger for SIAM (Security Information and Analytics Management) platforms. It emits structured events at key points in the verification flow—session initiation, QR scan, proof verification, token issuance, session expiry, etc.—without ever logging PII or credential attribute values.
+
+#### Audit Events
+
+The following events are emitted by the SIAM audit logger:
+
+| Event                       | Category            | Description                                                        | Key Fields                                                                                      |
+| --------------------------- | ------------------- | ------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
+| `auth_session_initiated`    | Session lifecycle   | An OIDC authorization request created a new auth session.          | `session_id`, `client_id`, `ver_config_id`, `client_ip_hash`, `user_agent_family`, `requested_schemas`, `requested_attributes_count`, `requested_predicates_count` |
+| `proof_request_created`     | Proof request flow  | A proof request was built and is ready for scanning.               | `session_id`, `ver_config_id`, `proof_name`, `requested_schemas`, `expected_issuers`            |
+| `qr_scanned`                | Proof request flow  | The QR code was scanned or the deep link was invoked by a wallet.  | `session_id`, `scan_method` (`qr_code` / `deep_link`), `client_ip_hash`, `user_agent_family`    |
+| `proof_verified`            | Proof request flow  | Proof presentation was successfully verified.                      | `session_id`, `ver_config_id`, `outcome=verified`, `credential_schemas`, `issuer_dids`, `credential_count`, `revocation_checked`, `duration_ms` |
+| `proof_verification_failed` | Proof request flow  | Proof verification failed.                                        | `session_id`, `ver_config_id`, `outcome=failed`, `failure_category`, `duration_ms`              |
+| `session_abandoned`         | Session termination | The user abandoned or declined the proof request.                  | `session_id`, `ver_config_id`, `outcome=abandoned`, `phase`, `duration_ms`                      |
+| `session_expired`           | Session termination | The session expired before the proof flow completed.               | `session_id`, `ver_config_id`, `outcome=expired`, `phase`, `timeout_seconds`                    |
+| `token_issued`              | Token flow          | An OIDC ID token was successfully issued to the relying party.     | `session_id`, `client_id`, `ver_config_id`, `claims_count`, `duration_ms`                       |
+| `webhook_received`          | Security / monitoring | An ACA-Py agent webhook was received.                            | `webhook_topic`, `webhook_state`, `webhook_role`                                                |
+| `invalid_client_request`    | Security / monitoring | A client request failed validation (unknown client, bad params). | `client_id`, `error_type`, `client_ip_hash`                                                     |
+
+All events share a common base structure containing `audit_event_type`, `timestamp`, and `service`. Fields that are `None` are omitted from the log output for cleaner JSON.
+
+> **Privacy note:** No attribute values, subject identifiers, or credential contents are ever included. Only safe metadata (schema names, issuer DIDs, counts, durations, and anonymized IPs) is logged.
+
+**Audit logging is enabled by default.** There are two complementary ways to control it:
+
+#### 1. Feature flag (`SIAM_AUDIT_ENABLED`)
+
+Set the environment variable to `false` to disable all SIAM audit events at the application level. No audit log lines will be emitted regardless of log-level settings.
+
+```yaml
+environment:
+  - SIAM_AUDIT_ENABLED=false        # disable SIAM audit events entirely
+```
+
+To re-enable, remove the variable or set it to `true` (the default).
+
+#### 2. Log-level override (`logconf.json` / `LOG_LEVEL`)
+
+The `siam.audit` logger is configured in `logconf.json` at the `INFO` level. You can raise it to `WARNING` or `CRITICAL` to suppress the `INFO`-level audit messages while keeping the feature flag on—useful if you want to silence routine events but still capture any future warning/error-level audit entries.
+
+```json
+{
+  "loggers": {
+    "siam.audit": {
+      "level": "WARNING",
+      "handlers": ["out"],
+      "propagate": false
+    }
+  }
+}
+```
+
+Alternatively, setting the global `LOG_LEVEL` environment variable to `WARNING` or higher will also suppress the audit messages, but this will affect **all** loggers, not just SIAM.
+
+#### IP anonymization salt
+
+When audit logging is enabled, client IP addresses are one-way hashed before being logged. The hash uses a salt read from the `SIAM_IP_SALT` environment variable. The default salt is a placeholder—**you should set a unique, secret value in production** and rotate it periodically.
+
+```yaml
+environment:
+  - SIAM_IP_SALT=my-unique-production-salt
+```
 
 ### Legacy Variable Support
 
