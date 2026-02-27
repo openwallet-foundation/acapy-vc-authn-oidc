@@ -1,6 +1,5 @@
 """Tests for subject identifier management."""
 
-from contextlib import contextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -39,17 +38,15 @@ class TestPostTokenAuthSessionUpdate:
         self, mock_form_request
     ):
         """Test that AuthSession.pyop_user_id is updated to presentation_sub."""
-        with patch("api.routers.oidc.AuthSessionCRUD") as mock_crud_class, patch(
-            "api.routers.oidc.VerificationConfigCRUD"
-        ) as mock_ver_crud_class, patch(
-            "api.routers.oidc.provider"
-        ) as mock_provider, patch(
-            "api.routers.oidc.Token"
-        ) as mock_token_class, patch(
-            "api.routers.oidc.settings"
-        ) as mock_settings:
+        with (
+            patch("api.routers.oidc.AuthSessionCRUD") as mock_crud_class,
+            patch("api.routers.oidc.VerificationConfigCRUD") as mock_ver_crud_class,
+            patch("api.routers.oidc.provider") as mock_provider,
+            patch("api.routers.oidc.Token") as mock_token_class,
+            patch("api.routers.oidc.settings") as mock_settings,
+        ):
             # Setup mocks
-            mock_settings.USE_REDIS_ADAPTER = True
+            mock_settings.REDIS_MODE = "single"
             mock_settings.ACAPY_PROOF_FORMAT = "anoncreds"
 
             mock_auth_session = MagicMock(spec=AuthSession)
@@ -142,19 +139,16 @@ class TestPostTokenAuthSessionUpdate:
     @pytest.mark.asyncio
     async def test_local_user_id_updated_to_presentation_sub(self, mock_form_request):
         """Test that local user_id variable is updated to presentation_sub for claims storage."""
-        with patch("api.routers.oidc.AuthSessionCRUD") as mock_crud_class, patch(
-            "api.routers.oidc.VerificationConfigCRUD"
-        ) as mock_ver_crud_class, patch(
-            "api.routers.oidc.provider"
-        ) as mock_provider, patch(
-            "api.routers.oidc.Token"
-        ) as mock_token_class, patch(
-            "api.routers.oidc.settings"
-        ) as mock_settings, patch(
-            "api.routers.oidc.store_subject_identifier"
-        ) as mock_store_subject:
+        with (
+            patch("api.routers.oidc.AuthSessionCRUD") as mock_crud_class,
+            patch("api.routers.oidc.VerificationConfigCRUD") as mock_ver_crud_class,
+            patch("api.routers.oidc.provider") as mock_provider,
+            patch("api.routers.oidc.Token") as mock_token_class,
+            patch("api.routers.oidc.settings") as mock_settings,
+            patch("api.routers.oidc.store_subject_identifier") as mock_store_subject,
+        ):
             # Setup
-            mock_settings.USE_REDIS_ADAPTER = True
+            mock_settings.REDIS_MODE = "single"
             mock_settings.ACAPY_PROOF_FORMAT = "anoncreds"
 
             mock_auth_session = MagicMock(spec=AuthSession)
@@ -254,10 +248,11 @@ class TestStoreSubjectIdentifierEdgeCases:
         mock_provider_obj = MagicMock()
         mock_provider_obj.authz_state.subject_identifiers = mock_storage
 
-        with patch("api.core.config.settings") as mock_settings, patch(
-            "api.routers.oidc.provider"
-        ) as mock_provider:
-            mock_settings.USE_REDIS_ADAPTER = False  # Stateless mode
+        with (
+            patch("api.core.config.settings") as mock_settings,
+            patch("api.routers.oidc.provider") as mock_provider,
+        ):
+            mock_settings.REDIS_MODE = "none"  # Stateless mode
             mock_provider.provider = mock_provider_obj
 
             # Execute - add public subject to user with existing pairwise
@@ -282,10 +277,11 @@ class TestStoreSubjectIdentifierEdgeCases:
         mock_provider_obj = MagicMock()
         mock_provider_obj.authz_state.subject_identifiers = mock_storage
 
-        with patch("api.core.config.settings") as mock_settings, patch(
-            "api.routers.oidc.provider"
-        ) as mock_provider:
-            mock_settings.USE_REDIS_ADAPTER = False
+        with (
+            patch("api.core.config.settings") as mock_settings,
+            patch("api.routers.oidc.provider") as mock_provider,
+        ):
+            mock_settings.REDIS_MODE = "none"
             mock_provider.provider = mock_provider_obj
 
             # Execute - update public subject for existing user
@@ -307,10 +303,11 @@ class TestStoreSubjectIdentifierEdgeCases:
         mock_provider_obj = MagicMock()
         mock_provider_obj.authz_state.subject_identifiers = mock_storage
 
-        with patch("api.core.config.settings") as mock_settings, patch(
-            "api.routers.oidc.provider"
-        ) as mock_provider:
-            mock_settings.USE_REDIS_ADAPTER = False
+        with (
+            patch("api.core.config.settings") as mock_settings,
+            patch("api.routers.oidc.provider") as mock_provider,
+        ):
+            mock_settings.REDIS_MODE = "none"
             mock_provider.provider = mock_provider_obj
 
             user_id = "user-123"
@@ -340,17 +337,15 @@ class TestPostTokenIntegration:
         self, mock_form_request
     ):
         """Test that post_token handles edge case where claims are missing."""
-        with patch("api.routers.oidc.AuthSessionCRUD") as mock_crud_class, patch(
-            "api.routers.oidc.VerificationConfigCRUD"
-        ) as mock_ver_crud_class, patch(
-            "api.routers.oidc.provider"
-        ) as mock_provider, patch(
-            "api.routers.oidc.Token"
-        ) as mock_token_class, patch(
-            "api.routers.oidc.settings"
-        ) as mock_settings:
+        with (
+            patch("api.routers.oidc.AuthSessionCRUD") as mock_crud_class,
+            patch("api.routers.oidc.VerificationConfigCRUD") as mock_ver_crud_class,
+            patch("api.routers.oidc.provider") as mock_provider,
+            patch("api.routers.oidc.Token") as mock_token_class,
+            patch("api.routers.oidc.settings") as mock_settings,
+        ):
             # Setup mocks
-            mock_settings.USE_REDIS_ADAPTER = True
+            mock_settings.REDIS_MODE = "single"
             mock_settings.ACAPY_PROOF_FORMAT = "anoncreds"
 
             mock_auth_session = MagicMock(spec=AuthSession)

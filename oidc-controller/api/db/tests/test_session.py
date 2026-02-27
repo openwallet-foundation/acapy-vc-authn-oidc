@@ -2,7 +2,6 @@
 
 import json
 import pytest
-from pathlib import Path
 from unittest.mock import MagicMock, patch, mock_open
 from pymongo import ASCENDING
 from pymongo.collection import Collection
@@ -14,7 +13,6 @@ from api.db.session import (
     init_db,
     get_db,
     get_async_session,
-    client,
 )
 from api.db.collections import COLLECTION_NAMES
 from api.authSessions.models import AuthSessionState

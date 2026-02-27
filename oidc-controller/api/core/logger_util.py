@@ -14,7 +14,7 @@ def log_debug(func: Callable[..., Any]) -> Callable[..., Any]:
         ret_val = func(*args, **kwargs)
         end_time = time.time()
         logger.debug(
-            f" <<<< {func.__name__} and took {end_time-start_time:.3f} seconds"
+            f" <<<< {func.__name__} and took {end_time - start_time:.3f} seconds"
         )
         logger.debug(f" ..with ret_val={{{ret_val}}}")
         return ret_val

@@ -3,7 +3,6 @@
 import asyncio
 import threading
 import time
-from datetime import datetime, timedelta, UTC
 from unittest.mock import patch, Mock
 
 import pytest

@@ -166,7 +166,6 @@ async def cleanup_endpoint(
         return JSONResponse(status_code=200, content=response_data)
 
     except Exception as e:
-        error_msg = f"Cleanup operation failed: {str(e)}"
         logger.error(
             "Cleanup operation failed via HTTP endpoint",
             error=str(e),
