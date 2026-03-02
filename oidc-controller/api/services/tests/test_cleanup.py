@@ -2,12 +2,18 @@
 
 import unittest.mock
 from datetime import datetime, timedelta, UTC
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, MagicMock, patch, AsyncMock
 import pytest
 
 from api.services.cleanup import (
     perform_cleanup,
 )
+
+
+async def _batch_gen(batches):
+    """Async generator helper for mocking get_connections_batched."""
+    for batch in batches:
+        yield batch
 
 
 class TestConstants:
@@ -177,17 +183,17 @@ class TestPerformCleanup(BaseCleanupTest):
         ]
 
         # Mock ACA-Py responses
-        mock_client.get_all_presentation_records.return_value = mock_records
-        mock_client.get_connections_batched.return_value = [mock_connections]
-        mock_client.delete_presentation_record_and_connection.return_value = (
-            True,
-            False,
-            [],
+        mock_client.get_all_presentation_records = AsyncMock(return_value=mock_records)
+        mock_client.get_connections_batched = MagicMock(
+            return_value=_batch_gen([mock_connections])
         )
-        mock_client.delete_connection.return_value = True
+        mock_client.delete_presentation_record_and_connection = AsyncMock(
+            return_value=(True, False, [])
+        )
+        mock_client.delete_connection = AsyncMock(return_value=True)
 
         # Act
-        result = await perform_cleanup()
+        result = await perform_cleanup(MagicMock())
 
         # Assert using utility
         self.assert_cleanup_stats(
@@ -218,11 +224,11 @@ class TestPerformCleanup(BaseCleanupTest):
         # Configure mock client
         mock_client = self.configure_mock_client(mock_client_class)
 
-        mock_client.get_all_presentation_records.return_value = []
-        mock_client.get_connections_batched.return_value = []
+        mock_client.get_all_presentation_records = AsyncMock(return_value=[])
+        mock_client.get_connections_batched = MagicMock(return_value=_batch_gen([]))
 
         # Act
-        result = await perform_cleanup()
+        result = await perform_cleanup(MagicMock())
 
         # Assert using utility
         self.assert_cleanup_stats(
@@ -257,16 +263,16 @@ class TestPerformCleanup(BaseCleanupTest):
             )
         ]
 
-        mock_client.get_all_presentation_records.return_value = mock_records
-        mock_client.get_connections_batched.return_value = []
+        mock_client.get_all_presentation_records = AsyncMock(return_value=mock_records)
+        mock_client.get_connections_batched = MagicMock(return_value=_batch_gen([]))
 
         # Mock deletion failure
-        mock_client.delete_presentation_record_and_connection.side_effect = Exception(
-            "Deletion failed"
+        mock_client.delete_presentation_record_and_connection = AsyncMock(
+            side_effect=Exception("Deletion failed")
         )
 
         # Act
-        result = await perform_cleanup()
+        result = await perform_cleanup(MagicMock())
 
         # Assert using utility
         self.assert_cleanup_stats(
@@ -302,11 +308,11 @@ class TestPerformCleanup(BaseCleanupTest):
             }
         ]
 
-        mock_client.get_all_presentation_records.return_value = mock_records
-        mock_client.get_connections_batched.return_value = []
+        mock_client.get_all_presentation_records = AsyncMock(return_value=mock_records)
+        mock_client.get_connections_batched = MagicMock(return_value=_batch_gen([]))
 
         # Act
-        result = await perform_cleanup()
+        result = await perform_cleanup(MagicMock())
 
         # Assert
         assert result["total_presentation_records"] == 1
@@ -333,10 +339,12 @@ class TestPerformCleanup(BaseCleanupTest):
 
         mock_client = Mock()
         mock_client_class.return_value = mock_client
-        mock_client.get_all_presentation_records.side_effect = Exception("API Error")
+        mock_client.get_all_presentation_records = AsyncMock(
+            side_effect=Exception("API Error")
+        )
 
         # Act
-        result = await perform_cleanup()
+        result = await perform_cleanup(MagicMock())
 
         # Assert - function should handle exception gracefully and return error stats
         assert result["failed_cleanups"] == 0  # No records were processed
@@ -660,16 +668,14 @@ class TestCleanupResourceLimits:
                 }
             )
 
-        mock_client.get_all_presentation_records.return_value = mock_records
-        mock_client.get_connections_batched.return_value = []
-        mock_client.delete_presentation_record_and_connection.return_value = (
-            True,
-            False,
-            [],
+        mock_client.get_all_presentation_records = AsyncMock(return_value=mock_records)
+        mock_client.get_connections_batched = MagicMock(return_value=_batch_gen([]))
+        mock_client.delete_presentation_record_and_connection = AsyncMock(
+            return_value=(True, False, [])
         )
 
         # Act
-        result = await perform_cleanup()
+        result = await perform_cleanup(MagicMock())
 
         # Assert
         assert result["total_presentation_records"] == 5
@@ -710,12 +716,14 @@ class TestCleanupResourceLimits:
                 }
             )
 
-        mock_client.get_all_presentation_records.return_value = []
-        mock_client.get_connections_batched.return_value = [mock_connections]
-        mock_client.delete_connection.return_value = True
+        mock_client.get_all_presentation_records = AsyncMock(return_value=[])
+        mock_client.get_connections_batched = MagicMock(
+            return_value=_batch_gen([mock_connections])
+        )
+        mock_client.delete_connection = AsyncMock(return_value=True)
 
         # Act
-        result = await perform_cleanup()
+        result = await perform_cleanup(MagicMock())
 
         # Assert
         assert result["total_connections"] == 5
@@ -731,7 +739,7 @@ class TestCleanupResourceLimits:
     @patch("api.services.cleanup.settings")
     @pytest.mark.asyncio
     async def test_perform_cleanup_dry_run_mode(self, mock_settings, mock_client_class):
-        """Test cleanup function with dry-run parameter (currently not implemented)."""
+        """Test dry_run=True reports what would be deleted without calling delete APIs."""
         # Arrange
         mock_settings.CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS = 24
         mock_settings.CONTROLLER_CLEANUP_MAX_PRESENTATION_RECORDS = 1000
@@ -763,28 +771,28 @@ class TestCleanupResourceLimits:
             }
         ]
 
-        mock_client.get_all_presentation_records.return_value = mock_records
-        mock_client.get_connections_batched.return_value = [mock_connections]
-        mock_client.delete_presentation_record_and_connection.return_value = (
-            True,
-            False,
-            [],
+        mock_client.get_all_presentation_records = AsyncMock(return_value=mock_records)
+        mock_client.get_connections_batched = MagicMock(
+            return_value=_batch_gen([mock_connections])
         )
-        mock_client.delete_connection.return_value = True
+        mock_client.delete_presentation_record_and_connection = AsyncMock(
+            return_value=(True, False, [])
+        )
+        mock_client.delete_connection = AsyncMock(return_value=True)
 
-        # Act - dry run mode (currently not implemented, so deletions still occur)
-        result = await perform_cleanup(dry_run=True)
+        # Act
+        result = await perform_cleanup(MagicMock(), dry_run=True)
 
-        # Assert - Currently behaves the same as regular cleanup since dry-run is not implemented
+        # Assert - counts reflect what would be cleaned, but no actual deletions made
         assert result["total_presentation_records"] == 1
         assert result["cleaned_presentation_records"] == 1
         assert result["total_connections"] == 1
         assert result["cleaned_connections"] == 1
         assert result["failed_cleanups"] == 0
 
-        # Verify deletions were called (because dry-run mode is not yet implemented)
-        mock_client.delete_presentation_record_and_connection.assert_called_once()
-        mock_client.delete_connection.assert_called_once()
+        # Verify no actual deletions were made
+        mock_client.delete_presentation_record_and_connection.assert_not_called()
+        mock_client.delete_connection.assert_not_called()
 
     @patch("api.services.cleanup.AcapyClient")
     @patch("api.services.cleanup.settings")
@@ -792,11 +800,11 @@ class TestCleanupResourceLimits:
     async def test_perform_cleanup_with_custom_limits(
         self, mock_settings, mock_client_class
     ):
-        """Test cleanup function with custom resource limits (currently not implemented)."""
-        # Arrange
+        """Test that caller-provided limits override settings defaults."""
+        # Arrange - settings have high defaults; caller passes lower limits
         mock_settings.CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS = 24
-        mock_settings.CONTROLLER_CLEANUP_MAX_PRESENTATION_RECORDS = 1000  # Default
-        mock_settings.CONTROLLER_CLEANUP_MAX_CONNECTIONS = 2000  # Default
+        mock_settings.CONTROLLER_CLEANUP_MAX_PRESENTATION_RECORDS = 1000
+        mock_settings.CONTROLLER_CLEANUP_MAX_CONNECTIONS = 2000
         mock_settings.CONTROLLER_PRESENTATION_EXPIRE_TIME = 10
 
         mock_client = Mock()
@@ -827,31 +835,30 @@ class TestCleanupResourceLimits:
                 }
             )
 
-        mock_client.get_all_presentation_records.return_value = mock_records
-        mock_client.get_connections_batched.return_value = [mock_connections]
-        mock_client.delete_presentation_record_and_connection.return_value = (
-            True,
-            False,
-            [],
+        mock_client.get_all_presentation_records = AsyncMock(return_value=mock_records)
+        mock_client.get_connections_batched = MagicMock(
+            return_value=_batch_gen([mock_connections])
         )
-        mock_client.delete_connection.return_value = True
+        mock_client.delete_presentation_record_and_connection = AsyncMock(
+            return_value=(True, False, [])
+        )
+        mock_client.delete_connection = AsyncMock(return_value=True)
 
-        # Act - with custom limits (currently not implemented, so uses defaults)
-        result = await perform_cleanup(max_presentation_records=3, max_connections=2)
+        # Act - caller overrides to lower limits
+        result = await perform_cleanup(
+            MagicMock(), max_presentation_records=3, max_connections=2
+        )
 
-        # Assert - Currently ignores custom limits and cleans all eligible records
+        # Assert - custom limits are respected: only 3 records and 2 connections processed
         assert result["total_presentation_records"] == 5
-        assert (
-            result["cleaned_presentation_records"] == 5
-        )  # Custom limits not implemented
+        assert result["cleaned_presentation_records"] == 3
         assert result["total_connections"] == 5
-        assert result["cleaned_connections"] == 5  # Custom limits not implemented
-        assert result["hit_presentation_limit"] is False
-        assert result["hit_connection_limit"] is False
+        assert result["cleaned_connections"] == 2
+        assert result["hit_presentation_limit"] is True
+        assert result["hit_connection_limit"] is True
 
-        # Verify all deletions were called (custom limits not implemented)
-        assert mock_client.delete_presentation_record_and_connection.call_count == 5
-        assert mock_client.delete_connection.call_count == 5
+        assert mock_client.delete_presentation_record_and_connection.call_count == 3
+        assert mock_client.delete_connection.call_count == 2
 
 
 class TestCleanupServiceErrorScenarios:
@@ -884,16 +891,18 @@ class TestCleanupServiceErrorScenarios:
             }
         ]
 
-        mock_client.get_all_presentation_records.return_value = []
-        mock_client.get_connections_batched.return_value = [mock_connections]
+        mock_client.get_all_presentation_records = AsyncMock(return_value=[])
+        mock_client.get_connections_batched = MagicMock(
+            return_value=_batch_gen([mock_connections])
+        )
 
         # Mock connection deletion failure
-        mock_client.delete_connection.side_effect = Exception(
-            "Connection deletion failed"
+        mock_client.delete_connection = AsyncMock(
+            side_effect=Exception("Connection deletion failed")
         )
 
         # Act
-        result = await perform_cleanup()
+        result = await perform_cleanup(MagicMock())
 
         # Assert
         assert result["total_connections"] == 1
@@ -950,8 +959,10 @@ class TestCleanupServiceErrorScenarios:
             },
         ]
 
-        mock_client.get_all_presentation_records.return_value = mock_records
-        mock_client.get_connections_batched.return_value = [mock_connections]
+        mock_client.get_all_presentation_records = AsyncMock(return_value=mock_records)
+        mock_client.get_connections_batched = MagicMock(
+            return_value=_batch_gen([mock_connections])
+        )
 
         # Mock mixed success/failure for presentations
         def presentation_side_effect(pres_ex_id, connection_id):
@@ -960,8 +971,8 @@ class TestCleanupServiceErrorScenarios:
             else:
                 raise Exception(f"Failed to delete {pres_ex_id}")
 
-        mock_client.delete_presentation_record_and_connection.side_effect = (
-            presentation_side_effect
+        mock_client.delete_presentation_record_and_connection = AsyncMock(
+            side_effect=presentation_side_effect
         )
 
         # Mock mixed success/failure for connections
@@ -971,10 +982,10 @@ class TestCleanupServiceErrorScenarios:
             else:
                 raise Exception(f"Failed to delete {connection_id}")
 
-        mock_client.delete_connection.side_effect = connection_side_effect
+        mock_client.delete_connection = AsyncMock(side_effect=connection_side_effect)
 
         # Act
-        result = await perform_cleanup()
+        result = await perform_cleanup(MagicMock())
 
         # Assert
         assert result["total_presentation_records"] == 2
@@ -1003,11 +1014,11 @@ class TestCleanupServiceErrorScenarios:
         mock_client_class.return_value = mock_client
 
         # Test with empty lists returned
-        mock_client.get_all_presentation_records.return_value = []
-        mock_client.get_connections_batched.return_value = []
+        mock_client.get_all_presentation_records = AsyncMock(return_value=[])
+        mock_client.get_connections_batched = MagicMock(return_value=_batch_gen([]))
 
         # Act
-        result = await perform_cleanup()
+        result = await perform_cleanup(MagicMock())
 
         # Assert
         assert result["total_presentation_records"] == 0
@@ -1044,21 +1055,23 @@ class TestCleanupServiceErrorScenarios:
             }
         ]
 
-        mock_client.get_all_presentation_records.return_value = mock_records
-        mock_client.get_connections_batched.return_value = []
+        mock_client.get_all_presentation_records = AsyncMock(return_value=mock_records)
+        mock_client.get_connections_batched = MagicMock(return_value=_batch_gen([]))
 
         # Mock partial deletion success (presentation deleted, but with errors)
-        mock_client.delete_presentation_record_and_connection.return_value = (
-            True,  # presentation_deleted: True
-            False,  # connection_deleted: False
-            [
-                "Warning: Connection was already deleted",
-                "Minor cleanup issue",
-            ],  # errors
+        mock_client.delete_presentation_record_and_connection = AsyncMock(
+            return_value=(
+                True,  # presentation_deleted: True
+                False,  # connection_deleted: False
+                [
+                    "Warning: Connection was already deleted",
+                    "Minor cleanup issue",
+                ],  # errors
+            )
         )
 
         # Act
-        result = await perform_cleanup()
+        result = await perform_cleanup(MagicMock())
 
         # Assert
         assert result["total_presentation_records"] == 1
@@ -1125,11 +1138,13 @@ class TestCleanupServiceErrorScenarios:
             },
         ]
 
-        mock_client.get_all_presentation_records.return_value = mock_records
-        mock_client.get_connections_batched.return_value = [mock_connections]
+        mock_client.get_all_presentation_records = AsyncMock(return_value=mock_records)
+        mock_client.get_connections_batched = MagicMock(
+            return_value=_batch_gen([mock_connections])
+        )
 
         # Act
-        result = await perform_cleanup()
+        result = await perform_cleanup(MagicMock())
 
         # Assert
         assert result["total_presentation_records"] == 4
@@ -1161,7 +1176,7 @@ class TestCleanupServiceErrorScenarios:
 
         # Act & Assert - Client instantiation failure should raise exception
         with pytest.raises(Exception) as exc_info:
-            await perform_cleanup()
+            await perform_cleanup(MagicMock())
 
         assert "Failed to connect to ACA-Py agent" in str(exc_info.value)
 
@@ -1190,16 +1205,18 @@ class TestCleanupServiceErrorScenarios:
             }
         ]
 
-        mock_client.get_all_presentation_records.return_value = mock_records
-        mock_client.get_connections_batched.return_value = []
+        mock_client.get_all_presentation_records = AsyncMock(return_value=mock_records)
+        mock_client.get_connections_batched = MagicMock(return_value=_batch_gen([]))
 
         # Mock concurrent modification error (record not found during deletion)
-        mock_client.delete_presentation_record_and_connection.side_effect = Exception(
-            "Presentation record not found - may have been deleted by another process"
+        mock_client.delete_presentation_record_and_connection = AsyncMock(
+            side_effect=Exception(
+                "Presentation record not found - may have been deleted by another process"
+            )
         )
 
         # Act
-        result = await perform_cleanup()
+        result = await perform_cleanup(MagicMock())
 
         # Assert
         assert result["total_presentation_records"] == 1
@@ -1239,19 +1256,19 @@ class TestCleanupServiceErrorScenarios:
                 }
             )
 
-        mock_client.get_all_presentation_records.return_value = mock_records
-        mock_client.get_connections_batched.return_value = []
+        mock_client.get_all_presentation_records = AsyncMock(return_value=mock_records)
+        mock_client.get_connections_batched = MagicMock(return_value=_batch_gen([]))
 
         # Mock all deletions to fail
         def deletion_side_effect(pres_ex_id, connection_id):
             raise Exception(f"Deletion failed for {pres_ex_id}")
 
-        mock_client.delete_presentation_record_and_connection.side_effect = (
-            deletion_side_effect
+        mock_client.delete_presentation_record_and_connection = AsyncMock(
+            side_effect=deletion_side_effect
         )
 
         # Act
-        result = await perform_cleanup()
+        result = await perform_cleanup(MagicMock())
 
         # Assert
         assert result["total_presentation_records"] == 10
@@ -1331,17 +1348,17 @@ class TestCleanupBackgroundIntegration:
             },
         ]
 
-        mock_client.get_all_presentation_records.return_value = mock_records
-        mock_client.get_connections_batched.return_value = [mock_connections]
-        mock_client.delete_presentation_record_and_connection.return_value = (
-            True,
-            False,
-            [],
+        mock_client.get_all_presentation_records = AsyncMock(return_value=mock_records)
+        mock_client.get_connections_batched = MagicMock(
+            return_value=_batch_gen([mock_connections])
         )
-        mock_client.delete_connection.return_value = True
+        mock_client.delete_presentation_record_and_connection = AsyncMock(
+            return_value=(True, False, [])
+        )
+        mock_client.delete_connection = AsyncMock(return_value=True)
 
         # Act - Test the core cleanup service
-        result = await perform_cleanup()
+        result = await perform_cleanup(MagicMock())
 
         # Assert - Verify expected cleanup behavior
         assert result["total_presentation_records"] == 3
@@ -1415,17 +1432,17 @@ class TestCleanupBackgroundIntegration:
                 }
             )
 
-        mock_client.get_all_presentation_records.return_value = mock_records
-        mock_client.get_connections_batched.return_value = [mock_connections]
-        mock_client.delete_presentation_record_and_connection.return_value = (
-            True,
-            False,
-            [],
+        mock_client.get_all_presentation_records = AsyncMock(return_value=mock_records)
+        mock_client.get_connections_batched = MagicMock(
+            return_value=_batch_gen([mock_connections])
         )
-        mock_client.delete_connection.return_value = True
+        mock_client.delete_presentation_record_and_connection = AsyncMock(
+            return_value=(True, False, [])
+        )
+        mock_client.delete_connection = AsyncMock(return_value=True)
 
         # Act
-        result = await perform_cleanup()
+        result = await perform_cleanup(MagicMock())
 
         # Assert - Limits should be respected
         assert result["total_presentation_records"] == 3
@@ -1489,8 +1506,10 @@ class TestCleanupBackgroundIntegration:
             },
         ]
 
-        mock_client.get_all_presentation_records.return_value = mock_records
-        mock_client.get_connections_batched.return_value = [mock_connections]
+        mock_client.get_all_presentation_records = AsyncMock(return_value=mock_records)
+        mock_client.get_connections_batched = MagicMock(
+            return_value=_batch_gen([mock_connections])
+        )
 
         # Mock mixed success/failure
         def presentation_side_effect(pres_ex_id, connection_id):
@@ -1505,13 +1524,13 @@ class TestCleanupBackgroundIntegration:
             else:
                 raise Exception(f"Failed to delete {connection_id}")
 
-        mock_client.delete_presentation_record_and_connection.side_effect = (
-            presentation_side_effect
+        mock_client.delete_presentation_record_and_connection = AsyncMock(
+            side_effect=presentation_side_effect
         )
-        mock_client.delete_connection.side_effect = connection_side_effect
+        mock_client.delete_connection = AsyncMock(side_effect=connection_side_effect)
 
         # Act
-        result = await perform_cleanup()
+        result = await perform_cleanup(MagicMock())
 
         # Assert - Should continue processing despite errors
         assert result["total_presentation_records"] == 2
@@ -1545,11 +1564,11 @@ class TestCleanupBackgroundIntegration:
 
         mock_client = Mock()
         mock_client_class.return_value = mock_client
-        mock_client.get_all_presentation_records.return_value = []
-        mock_client.get_connections_batched.return_value = []
+        mock_client.get_all_presentation_records = AsyncMock(return_value=[])
+        mock_client.get_connections_batched = MagicMock(return_value=_batch_gen([]))
 
         # Act
-        result = await perform_cleanup()
+        result = await perform_cleanup(MagicMock())
 
         # Assert - Should complete successfully with valid config
         assert result["total_presentation_records"] == 0
@@ -1576,11 +1595,11 @@ class TestCleanupBackgroundIntegration:
         mock_client_class.return_value = mock_client
 
         # No data scenario
-        mock_client.get_all_presentation_records.return_value = []
-        mock_client.get_connections_batched.return_value = []
+        mock_client.get_all_presentation_records = AsyncMock(return_value=[])
+        mock_client.get_connections_batched = MagicMock(return_value=_batch_gen([]))
 
         # Act
-        result = await perform_cleanup()
+        result = await perform_cleanup(MagicMock())
 
         # Assert - Should complete successfully with no data
         assert result["total_presentation_records"] == 0

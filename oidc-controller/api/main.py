@@ -5,6 +5,7 @@ import time
 import uuid
 from pathlib import Path
 
+import httpx
 import uvicorn
 from api.core.config import settings
 from fastapi import FastAPI
@@ -145,6 +146,15 @@ async def logging_middleware(request: Request, call_next) -> Response:
 @app.on_event("startup")
 async def on_tenant_startup():
     """Register any events we need to respond to."""
+    app.state.http_client = httpx.AsyncClient(
+        timeout=httpx.Timeout(settings.ACAPY_REQUEST_TIMEOUT),
+        limits=httpx.Limits(
+            max_keepalive_connections=20,
+            max_connections=100,
+            keepalive_expiry=30,
+        ),
+    )
+
     validate_redis_config()
 
     await init_db()
@@ -201,7 +211,7 @@ async def on_tenant_startup():
 
         token_fetcher = None
         if settings.ACAPY_TENANT_WALLET_KEY:
-            token_fetcher = MultiTenantAcapy().get_wallet_token
+            token_fetcher = MultiTenantAcapy(app.state.http_client).get_wallet_token
 
         await register_tenant_webhook(
             wallet_id=settings.ACAPY_TENANT_WALLET_ID,
@@ -210,6 +220,7 @@ async def on_tenant_startup():
             api_key=settings.CONTROLLER_API_KEY,
             admin_api_key=settings.ST_ACAPY_ADMIN_API_KEY,
             admin_api_key_name=settings.ST_ACAPY_ADMIN_API_KEY_NAME,
+            http_client=app.state.http_client,
             token_fetcher=token_fetcher,
             use_admin_api=True,
         )
@@ -223,7 +234,7 @@ async def on_tenant_startup():
             webhook_registration="Tenant API (/tenant/wallet)",
         )
 
-        token_fetcher = TractionTenantAcapy().get_wallet_token
+        token_fetcher = TractionTenantAcapy(app.state.http_client).get_wallet_token
 
         await register_tenant_webhook(
             wallet_id=settings.ACAPY_TENANT_WALLET_ID,  # Optional/Unused for traction mode registration
@@ -232,6 +243,7 @@ async def on_tenant_startup():
             api_key=settings.CONTROLLER_API_KEY,
             admin_api_key=None,  # Not used in direct tenant update
             admin_api_key_name=None,
+            http_client=app.state.http_client,
             token_fetcher=token_fetcher,
             use_admin_api=False,
         )
@@ -243,6 +255,8 @@ async def on_tenant_startup():
 async def on_tenant_shutdown():
     """Gracefully shutdown services."""
     logger.info(">>> Shutting down app ...")
+    if hasattr(app.state, "http_client"):
+        await app.state.http_client.aclose()
 
 
 @app.get("/", tags=["liveness", "readiness"])

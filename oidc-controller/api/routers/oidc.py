@@ -126,7 +126,7 @@ async def get_authorize(request: Request, db: Database = Depends(get_db)):
     authn_response = provider.provider.authorize(model, new_user_id)
 
     # retrieve presentation_request config.
-    client = AcapyClient()
+    client = AcapyClient(request.app.state.http_client)
     ver_config_id = model.get("pres_req_conf_id")
     ver_config = await VerificationConfigCRUD(db).get(ver_config_id)
 
@@ -146,7 +146,7 @@ async def get_authorize(request: Request, db: Database = Depends(get_db)):
 
     if settings.USE_CONNECTION_BASED_VERIFICATION:
         # Connection-based verification flow
-        oob_invite_response = client.create_connection_invitation(
+        oob_invite_response = await client.create_connection_invitation(
             multi_use=False,
             presentation_exchange=None,  # No attachment - establish connection first
             use_public_did=use_public_did,
@@ -165,11 +165,11 @@ async def get_authorize(request: Request, db: Database = Depends(get_db)):
         pres_ex_id = f"{oob_invite_response.invi_msg_id}"
     else:
         # EXISTING: Out-of-band verification flow
-        response = client.create_presentation_request(proof_request)
+        response = await client.create_presentation_request(proof_request)
         pres_exch_dict = response.model_dump()
         pres_ex_id = response.pres_ex_id
 
-        oob_invite_response = client.oob_create_invitation(
+        oob_invite_response = await client.oob_create_invitation(
             pres_exch_dict, use_public_did
         )
         msg_contents = oob_invite_response.invitation

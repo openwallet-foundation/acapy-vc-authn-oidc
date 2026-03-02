@@ -38,9 +38,9 @@ Production Deployment:
 """
 
 import structlog
-from datetime import datetime
+from datetime import datetime, UTC
 
-from fastapi import APIRouter, Depends, Query, HTTPException
+from fastapi import APIRouter, Depends, Query, HTTPException, Request
 from fastapi.responses import JSONResponse
 from typing import Optional
 
@@ -60,6 +60,7 @@ router = APIRouter()
 
 @router.delete("/cleanup", dependencies=[Depends(get_api_key)])
 async def cleanup_endpoint(
+    request: Request,
     dry_run: bool = Query(
         False, description="Preview what would be deleted without actually deleting"
     ),
@@ -124,6 +125,7 @@ async def cleanup_endpoint(
 
         # Execute the cleanup
         stats = await perform_cleanup(
+            http_client=request.app.state.http_client,
             dry_run=dry_run,
             max_presentation_records=max_records,
             max_connections=max_connections,
@@ -132,7 +134,7 @@ async def cleanup_endpoint(
         # Prepare response data
         response_data = {
             "status": "completed",
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "statistics": {
                 "total_presentation_records": stats["total_presentation_records"],
                 "cleaned_presentation_records": stats["cleaned_presentation_records"],
@@ -185,6 +187,6 @@ async def cleanup_health_check():
         content={
             "status": "healthy",
             "service": "cleanup",
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
         },
     )

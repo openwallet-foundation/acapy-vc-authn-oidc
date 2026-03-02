@@ -1,12 +1,20 @@
 """Tests for HTTP cleanup router endpoints."""
 
 import json
-from unittest.mock import patch
+from unittest.mock import ANY, MagicMock, patch
 import pytest
 from fastapi import HTTPException, FastAPI
 from fastapi.testclient import TestClient
 
 from api.routers.cleanup import cleanup_endpoint, cleanup_health_check, router
+
+
+@pytest.fixture
+def mock_request():
+    """Mock request fixture with app.state.http_client."""
+    request = MagicMock()
+    request.app = MagicMock()
+    return request
 
 
 class RouterTestConstants:
@@ -121,9 +129,12 @@ class TestCleanupRouter(BaseCleanupRouterTest):
     @pytest.mark.asyncio
     @patch("api.routers.cleanup.perform_cleanup")
     @patch("api.core.auth.get_api_key")
-    @pytest.mark.asyncio
     async def test_cleanup_endpoint_basic_success(
-        self, mock_get_api_key, mock_perform_cleanup, mock_cleanup_stats_no_errors
+        self,
+        mock_get_api_key,
+        mock_perform_cleanup,
+        mock_cleanup_stats_no_errors,
+        mock_request,
     ):
         """Test basic cleanup endpoint success case."""
         # Setup mocks
@@ -132,11 +143,12 @@ class TestCleanupRouter(BaseCleanupRouterTest):
 
         # Call endpoint with explicit default values
         response = await cleanup_endpoint(
-            dry_run=False, max_records=None, max_connections=None
+            mock_request, dry_run=False, max_records=None, max_connections=None
         )
 
         # Verify perform_cleanup called with defaults
         mock_perform_cleanup.assert_called_once_with(
+            http_client=mock_request.app.state.http_client,
             dry_run=False,
             max_presentation_records=None,
             max_connections=None,
@@ -163,9 +175,12 @@ class TestCleanupRouter(BaseCleanupRouterTest):
     @pytest.mark.asyncio
     @patch("api.routers.cleanup.perform_cleanup")
     @patch("api.core.auth.get_api_key")
-    @pytest.mark.asyncio
     async def test_cleanup_endpoint_with_parameters(
-        self, mock_get_api_key, mock_perform_cleanup, mock_cleanup_stats_no_errors
+        self,
+        mock_get_api_key,
+        mock_perform_cleanup,
+        mock_cleanup_stats_no_errors,
+        mock_request,
     ):
         """Test cleanup endpoint with custom parameters."""
         # Setup mocks
@@ -174,11 +189,12 @@ class TestCleanupRouter(BaseCleanupRouterTest):
 
         # Call endpoint with parameters
         response = await cleanup_endpoint(
-            dry_run=True, max_records=500, max_connections=1000
+            mock_request, dry_run=True, max_records=500, max_connections=1000
         )
 
         # Verify perform_cleanup called with custom parameters
         mock_perform_cleanup.assert_called_once_with(
+            http_client=mock_request.app.state.http_client,
             dry_run=True,
             max_presentation_records=500,
             max_connections=1000,
@@ -193,7 +209,11 @@ class TestCleanupRouter(BaseCleanupRouterTest):
     @patch("api.core.auth.get_api_key")
     @pytest.mark.asyncio
     async def test_cleanup_endpoint_with_errors(
-        self, mock_get_api_key, mock_perform_cleanup, mock_cleanup_stats_with_errors
+        self,
+        mock_get_api_key,
+        mock_perform_cleanup,
+        mock_cleanup_stats_with_errors,
+        mock_request,
     ):
         """Test cleanup endpoint when cleanup operation has errors."""
         # Setup mocks
@@ -201,7 +221,7 @@ class TestCleanupRouter(BaseCleanupRouterTest):
         mock_perform_cleanup.return_value = mock_cleanup_stats_with_errors
 
         # Call endpoint
-        response = await cleanup_endpoint()
+        response = await cleanup_endpoint(mock_request)
 
         # Verify response includes error information
         assert response.status_code == 200
@@ -218,7 +238,11 @@ class TestCleanupRouter(BaseCleanupRouterTest):
     @patch("api.core.auth.get_api_key")
     @pytest.mark.asyncio
     async def test_cleanup_endpoint_with_resource_limits(
-        self, mock_get_api_key, mock_perform_cleanup, mock_cleanup_stats_with_limits
+        self,
+        mock_get_api_key,
+        mock_perform_cleanup,
+        mock_cleanup_stats_with_limits,
+        mock_request,
     ):
         """Test cleanup endpoint when resource limits are hit."""
         # Setup mocks
@@ -226,7 +250,7 @@ class TestCleanupRouter(BaseCleanupRouterTest):
         mock_perform_cleanup.return_value = mock_cleanup_stats_with_limits
 
         # Call endpoint
-        response = await cleanup_endpoint()
+        response = await cleanup_endpoint(mock_request)
 
         # Verify response shows limits were hit
         assert response.status_code == 200
@@ -240,7 +264,7 @@ class TestCleanupRouter(BaseCleanupRouterTest):
     @patch("api.core.auth.get_api_key")
     @pytest.mark.asyncio
     async def test_cleanup_endpoint_service_failure(
-        self, mock_get_api_key, mock_perform_cleanup
+        self, mock_get_api_key, mock_perform_cleanup, mock_request
     ):
         """Test cleanup endpoint when cleanup service fails."""
         # Setup mocks
@@ -249,7 +273,7 @@ class TestCleanupRouter(BaseCleanupRouterTest):
 
         # Call endpoint and expect HTTPException
         with pytest.raises(HTTPException) as exc_info:
-            await cleanup_endpoint()
+            await cleanup_endpoint(mock_request)
 
         assert exc_info.value.status_code == 500
         assert "Internal server error during cleanup operation" in str(
@@ -272,7 +296,11 @@ class TestCleanupRouter(BaseCleanupRouterTest):
     @patch("api.core.auth.get_api_key")
     @pytest.mark.asyncio
     async def test_cleanup_endpoint_dry_run_mode(
-        self, mock_get_api_key, mock_perform_cleanup, mock_cleanup_stats_no_errors
+        self,
+        mock_get_api_key,
+        mock_perform_cleanup,
+        mock_cleanup_stats_no_errors,
+        mock_request,
     ):
         """Test cleanup endpoint in dry-run mode."""
         # Setup mocks
@@ -281,11 +309,12 @@ class TestCleanupRouter(BaseCleanupRouterTest):
 
         # Call endpoint in dry-run mode
         response = await cleanup_endpoint(
-            dry_run=True, max_records=None, max_connections=None
+            mock_request, dry_run=True, max_records=None, max_connections=None
         )
 
         # Verify dry-run parameter passed to service
         mock_perform_cleanup.assert_called_once_with(
+            http_client=mock_request.app.state.http_client,
             dry_run=True,
             max_presentation_records=None,
             max_connections=None,
@@ -297,7 +326,11 @@ class TestCleanupRouter(BaseCleanupRouterTest):
     @patch("api.core.auth.get_api_key")
     @pytest.mark.asyncio
     async def test_cleanup_endpoint_custom_limits(
-        self, mock_get_api_key, mock_perform_cleanup, mock_cleanup_stats_no_errors
+        self,
+        mock_get_api_key,
+        mock_perform_cleanup,
+        mock_cleanup_stats_no_errors,
+        mock_request,
     ):
         """Test cleanup endpoint with custom resource limits."""
         # Setup mocks
@@ -306,11 +339,12 @@ class TestCleanupRouter(BaseCleanupRouterTest):
 
         # Call endpoint with custom limits
         response = await cleanup_endpoint(
-            dry_run=False, max_records=250, max_connections=500
+            mock_request, dry_run=False, max_records=250, max_connections=500
         )
 
         # Verify custom limits passed to service
         mock_perform_cleanup.assert_called_once_with(
+            http_client=mock_request.app.state.http_client,
             dry_run=False,
             max_presentation_records=250,
             max_connections=500,
@@ -322,7 +356,11 @@ class TestCleanupRouter(BaseCleanupRouterTest):
     @patch("api.core.auth.get_api_key")
     @pytest.mark.asyncio
     async def test_cleanup_endpoint_all_parameters(
-        self, mock_get_api_key, mock_perform_cleanup, mock_cleanup_stats_no_errors
+        self,
+        mock_get_api_key,
+        mock_perform_cleanup,
+        mock_cleanup_stats_no_errors,
+        mock_request,
     ):
         """Test cleanup endpoint with all parameters provided."""
         # Setup mocks
@@ -331,11 +369,12 @@ class TestCleanupRouter(BaseCleanupRouterTest):
 
         # Call endpoint with all parameters
         response = await cleanup_endpoint(
-            dry_run=True, max_records=100, max_connections=200
+            mock_request, dry_run=True, max_records=100, max_connections=200
         )
 
         # Verify all parameters passed correctly
         mock_perform_cleanup.assert_called_once_with(
+            http_client=mock_request.app.state.http_client,
             dry_run=True,
             max_presentation_records=100,
             max_connections=200,
@@ -352,6 +391,7 @@ class TestCleanupRouterIntegration:
         """FastAPI test client with minimal app setup."""
         app = FastAPI()
         app.include_router(router)
+        app.state.http_client = MagicMock()
         return TestClient(app)
 
     @patch("api.core.auth.API_KEY", "test-api-key")
@@ -426,6 +466,7 @@ class TestCleanupRouterIntegration:
 
         # Verify service called with correct parameters
         mock_perform_cleanup.assert_called_once_with(
+            http_client=ANY,
             dry_run=True,
             max_presentation_records=100,
             max_connections=200,

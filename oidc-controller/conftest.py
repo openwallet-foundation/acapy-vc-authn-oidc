@@ -6,6 +6,13 @@ import logging
 import os
 import tempfile
 
+# respx 0.21 defaults to HTTPCoreMocker (patches httpcore) which encodes request
+# methods as bytes in Python 3.14+, breaking route matching. Override to HTTPXMocker
+# which patches at the httpx level and keeps methods as strings.
+import respx.mocks
+
+respx.mocks.DEFAULT_MOCKER = "httpx"
+
 
 # disable mongodb logging when running tests
 logging.getLogger("pymongo").setLevel(logging.CRITICAL)

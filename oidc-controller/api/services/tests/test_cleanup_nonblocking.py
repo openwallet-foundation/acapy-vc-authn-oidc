@@ -1,155 +1,142 @@
-"""Tests that verify cleanup doesn't block the event loop."""
+"""Tests that verify cleanup uses native async I/O and doesn't block the event loop."""
 
 import asyncio
 import threading
 import time
-from unittest.mock import patch, Mock
+from datetime import datetime, timedelta, UTC
+from unittest.mock import MagicMock, patch, AsyncMock
 
 import pytest
 
 from api.services.cleanup import perform_cleanup
 
 
+async def _batch_gen(batches):
+    """Async generator helper for mocking get_connections_batched."""
+    for batch in batches:
+        yield batch
+
+
 class TestCleanupNonBlocking:
-    """Tests that cleanup runs in a thread pool and doesn't block the event loop."""
+    """Tests that cleanup is natively async and doesn't block the event loop."""
 
-    @patch("api.core.acapy.client.requests.get")
-    @patch("api.core.acapy.client.requests.delete")
+    @patch("api.services.cleanup.AcapyClient")
     @pytest.mark.asyncio
-    async def test_event_loop_remains_responsive_during_cleanup(
-        self, mock_delete, mock_get
+    async def test_perform_cleanup_is_awaitable(self, mock_acapy_class):
+        """Verify that perform_cleanup is a proper coroutine that can be awaited."""
+
+        mock_instance = mock_acapy_class.return_value
+        mock_instance.get_all_presentation_records = AsyncMock(return_value=[])
+        mock_instance.get_connections_batched = MagicMock(return_value=_batch_gen([]))
+
+        # perform_cleanup must be awaitable
+        result = await perform_cleanup(MagicMock())
+
+        assert result is not None
+        assert result["total_presentation_records"] == 0
+        assert result["cleaned_presentation_records"] == 0
+
+    @patch("api.services.cleanup.AcapyClient")
+    @pytest.mark.asyncio
+    async def test_concurrent_cleanup_calls_complete_without_conflict(
+        self, mock_acapy_class
     ):
-        """Verify that async tasks can run while cleanup is executing."""
+        """Verify two concurrent cleanup calls both complete without interfering."""
 
-        # Track which thread the HTTP calls run in
-        cleanup_thread_ids = []
-        main_thread_id = threading.current_thread().ident
+        old_time = datetime.now(UTC) - timedelta(hours=25)
+        mock_records = [
+            {
+                "pres_ex_id": "record-1",
+                "created_at": old_time.isoformat().replace("+00:00", "Z"),
+                "state": "done",
+            }
+        ]
 
-        def slow_get(*args, **kwargs):
-            """Simulate slow HTTP call and record thread ID."""
-            cleanup_thread_ids.append(threading.current_thread().ident)
-            time.sleep(0.3)  # Simulate network latency
-            response = Mock()
-            response.status_code = 200
-            response.content = b'{"results": []}'
-            return response
+        mock_instance = mock_acapy_class.return_value
+        mock_instance.get_all_presentation_records = AsyncMock(
+            return_value=mock_records
+        )
+        mock_instance.get_connections_batched = MagicMock(return_value=_batch_gen([]))
+        mock_instance.delete_presentation_record_and_connection = AsyncMock(
+            return_value=(True, None, [])
+        )
 
-        def slow_delete(*args, **kwargs):
-            """Simulate slow HTTP delete."""
-            cleanup_thread_ids.append(threading.current_thread().ident)
-            time.sleep(0.1)
-            response = Mock()
-            response.status_code = 200
-            return response
+        # Run two concurrent cleanup calls
+        result1, result2 = await asyncio.gather(
+            perform_cleanup(MagicMock()),
+            perform_cleanup(MagicMock()),
+        )
 
-        mock_get.side_effect = slow_get
-        mock_delete.side_effect = slow_delete
+        # Both should complete successfully
+        assert result1["total_presentation_records"] == 1
+        assert result2["total_presentation_records"] == 1
+        assert result1["cleaned_presentation_records"] == 1
+        assert result2["cleaned_presentation_records"] == 1
+        assert result1["failed_cleanups"] == 0
+        assert result2["failed_cleanups"] == 0
 
-        # Track health check response times
+    @patch("api.services.cleanup.AcapyClient")
+    @pytest.mark.asyncio
+    async def test_event_loop_responsive_during_cleanup(self, mock_acapy_class):
+        """Verify that async tasks can interleave while cleanup awaits I/O."""
+
+        async def slow_get_records():
+            """Simulate slow async I/O — suspends the coroutine, freeing the loop."""
+            await asyncio.sleep(0.15)
+            return []
+
+        mock_instance = mock_acapy_class.return_value
+        mock_instance.get_all_presentation_records = slow_get_records
+        mock_instance.get_connections_batched = MagicMock(return_value=_batch_gen([]))
+
         health_check_times = []
         cleanup_done = asyncio.Event()
 
         async def simulated_health_check():
-            """Simulate health checks during cleanup."""
-            checks_completed = 0
-            while not cleanup_done.is_set() and checks_completed < 10:
+            """Simulated health check: should complete quickly because the loop is free."""
+            checks = 0
+            while not cleanup_done.is_set() and checks < 10:
                 start = asyncio.get_event_loop().time()
-                # This simulates what the health endpoint does - just an async sleep
-                # If the event loop were blocked, this would take much longer
-                await asyncio.sleep(0.05)
+                await asyncio.sleep(0.02)
                 elapsed = asyncio.get_event_loop().time() - start
                 health_check_times.append(elapsed)
-                checks_completed += 1
+                checks += 1
 
         async def run_cleanup():
-            """Run cleanup and signal when done."""
             try:
-                await perform_cleanup()
+                await perform_cleanup(MagicMock())
             finally:
                 cleanup_done.set()
 
-        # Run cleanup and health checks concurrently
-        await asyncio.gather(
-            run_cleanup(),
-            simulated_health_check(),
-        )
+        await asyncio.gather(run_cleanup(), simulated_health_check())
 
-        # Assertions
-
-        # 1. HTTP calls should happen in worker threads, not the main thread
-        assert len(cleanup_thread_ids) > 0, "No HTTP calls were made"
-        for thread_id in cleanup_thread_ids:
-            assert thread_id != main_thread_id, (
-                f"HTTP call ran in main thread {main_thread_id} - "
-                "asyncio.to_thread() is not working!"
-            )
-
-        # 2. Health checks should complete quickly (not blocked by cleanup)
-        # If event loop was blocked, sleep(0.05) would take much longer
+        # Health checks should have run — the loop was not blocked
         assert len(health_check_times) > 0, "No health checks completed"
+
+        # Each 20ms sleep should complete in under 100ms if the loop is free
         for elapsed in health_check_times:
-            assert elapsed < 0.2, (
-                f"Health check took {elapsed:.3f}s - event loop was blocked! "
-                "Expected < 0.2s for a 0.05s sleep"
+            assert elapsed < 0.1, (
+                f"Health check took {elapsed:.3f}s — event loop may have been blocked. "
+                "Expected < 0.1s for a 20ms sleep."
             )
 
-    @patch("api.core.acapy.client.requests.get")
-    @patch("api.core.acapy.client.requests.delete")
+    @patch("api.services.cleanup.AcapyClient")
     @pytest.mark.asyncio
-    async def test_cleanup_runs_in_thread_pool(self, mock_delete, mock_get):
-        """Verify cleanup functions execute in a thread pool, not the main thread."""
-
-        execution_thread_ids = set()
-        main_thread_id = threading.current_thread().ident
-
-        def tracking_get(*args, **kwargs):
-            execution_thread_ids.add(threading.current_thread().ident)
-            response = Mock()
-            response.status_code = 200
-            response.content = b'{"results": []}'
-            return response
-
-        def tracking_delete(*args, **kwargs):
-            execution_thread_ids.add(threading.current_thread().ident)
-            response = Mock()
-            response.status_code = 200
-            return response
-
-        mock_get.side_effect = tracking_get
-        mock_delete.side_effect = tracking_delete
-
-        # Run cleanup
-        await perform_cleanup()
-
-        # Verify HTTP calls happened in worker threads
-        assert len(execution_thread_ids) > 0, "No HTTP calls were recorded"
-        assert main_thread_id not in execution_thread_ids, (
-            "Cleanup ran in main thread - would block event loop! "
-            "asyncio.to_thread() should offload to thread pool."
-        )
-
-    @patch("api.core.acapy.client.requests.get")
-    @patch("api.core.acapy.client.requests.delete")
-    @pytest.mark.asyncio
-    async def test_multiple_concurrent_tasks_during_cleanup(
-        self, mock_delete, mock_get
-    ):
+    async def test_multiple_concurrent_tasks_during_cleanup(self, mock_acapy_class):
         """Verify multiple async tasks can run concurrently during cleanup."""
 
-        def slow_get(*args, **kwargs):
-            time.sleep(0.2)
-            response = Mock()
-            response.status_code = 200
-            response.content = b'{"results": []}'
-            return response
+        async def slow_get_records():
+            await asyncio.sleep(0.1)
+            return []
 
-        mock_get.side_effect = slow_get
-        mock_delete.return_value = Mock(status_code=200)
+        mock_instance = mock_acapy_class.return_value
+        mock_instance.get_all_presentation_records = slow_get_records
+        mock_instance.get_connections_batched = MagicMock(return_value=_batch_gen([]))
 
         task_execution_times = []
 
         async def background_task(task_id):
-            """A simple async task that should run during cleanup."""
+            """A simple async task that should complete quickly during cleanup."""
             start = asyncio.get_event_loop().time()
             await asyncio.sleep(0.01)
             elapsed = asyncio.get_event_loop().time() - start
@@ -157,7 +144,7 @@ class TestCleanupNonBlocking:
 
         # Run cleanup with multiple concurrent background tasks
         await asyncio.gather(
-            perform_cleanup(),
+            perform_cleanup(MagicMock()),
             background_task(1),
             background_task(2),
             background_task(3),
@@ -168,4 +155,4 @@ class TestCleanupNonBlocking:
         for task_id, elapsed in task_execution_times:
             assert (
                 elapsed < 0.1
-            ), f"Task {task_id} took {elapsed:.3f}s - event loop was blocked!"
+            ), f"Task {task_id} took {elapsed:.3f}s — event loop was blocked!"

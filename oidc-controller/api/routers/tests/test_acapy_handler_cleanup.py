@@ -1,6 +1,7 @@
 """Tests for updated webhook handler with cleanup functionality."""
 
 import json
+import httpx
 from unittest.mock import AsyncMock, MagicMock, patch, Mock
 import pytest
 from bson import ObjectId
@@ -52,6 +53,7 @@ class TestAcapyHandlerCleanup:
             "verified": "true",
         }
         request.body = AsyncMock(return_value=json.dumps(webhook_body).encode("ascii"))
+        request.app = MagicMock()
         return request
 
     @patch("api.routers.acapy_handler.settings.USE_CONNECTION_BASED_VERIFICATION", True)
@@ -79,14 +81,16 @@ class TestAcapyHandlerCleanup:
         mock_crud_instance.patch = AsyncMock()
 
         mock_client_instance = mock_acapy_client.return_value
-        mock_client_instance.get_presentation_request.return_value = {
-            "by_format": {"test": "presentation_data"}
-        }
+        mock_client_instance.get_presentation_request = AsyncMock(
+            return_value={"by_format": {"test": "presentation_data"}}
+        )
         # Setup mock to handle combined presentation and connection cleanup in single call
-        mock_client_instance.delete_presentation_record_and_connection.return_value = (
-            True,  # presentation_deleted: True
-            False,  # connection_deleted: False (to match expected log output)
-            [],  # errors: empty list
+        mock_client_instance.delete_presentation_record_and_connection = AsyncMock(
+            return_value=(
+                True,  # presentation_deleted: True
+                False,  # connection_deleted: False (to match expected log output)
+                [],  # errors: empty list
+            )
         )
 
         mock_get_socket_id.return_value = "test-socket-id"
@@ -138,8 +142,8 @@ class TestAcapyHandlerCleanup:
         )
 
         mock_client_instance = mock_acapy_client.return_value
-        mock_client_instance.get_presentation_request.return_value = (
-            None  # Simulates failure
+        mock_client_instance.get_presentation_request = AsyncMock(
+            return_value=None  # Simulates failure
         )
 
         mock_get_socket_id.return_value = "test-socket-id"
@@ -180,8 +184,8 @@ class TestAcapyHandlerCleanup:
         )
 
         mock_client_instance = mock_acapy_client.return_value
-        mock_client_instance.get_presentation_request.side_effect = Exception(
-            "API Error"
+        mock_client_instance.get_presentation_request = AsyncMock(
+            side_effect=Exception("API Error")
         )
 
         mock_get_socket_id.return_value = "test-socket-id"
@@ -223,14 +227,16 @@ class TestAcapyHandlerCleanup:
         mock_crud_instance.patch = AsyncMock()
 
         mock_client_instance = mock_acapy_client.return_value
-        mock_client_instance.get_presentation_request.return_value = {
-            "by_format": {"test": "presentation_data"}
-        }
+        mock_client_instance.get_presentation_request = AsyncMock(
+            return_value={"by_format": {"test": "presentation_data"}}
+        )
         # Setup mock to handle combined presentation and connection cleanup failing
-        mock_client_instance.delete_presentation_record_and_connection.return_value = (
-            False,  # presentation_deleted: False (presentation cleanup fails)
-            False,  # connection_deleted: False (connection cleanup also fails)
-            [],  # errors: empty list
+        mock_client_instance.delete_presentation_record_and_connection = AsyncMock(
+            return_value=(
+                False,  # presentation_deleted: False (presentation cleanup fails)
+                False,  # connection_deleted: False (connection cleanup also fails)
+                [],  # errors: empty list
+            )
         )
 
         mock_get_socket_id.return_value = "test-socket-id"
@@ -286,12 +292,12 @@ class TestAcapyHandlerCleanup:
         mock_crud_instance.patch = AsyncMock()
 
         mock_client_instance = mock_acapy_client.return_value
-        mock_client_instance.get_presentation_request.return_value = {
-            "by_format": {"test": "presentation_data"}
-        }
+        mock_client_instance.get_presentation_request = AsyncMock(
+            return_value={"by_format": {"test": "presentation_data"}}
+        )
         # Setup mock to handle combined cleanup throwing exception
-        mock_client_instance.delete_presentation_record_and_connection.side_effect = (
-            Exception("Cleanup error")
+        mock_client_instance.delete_presentation_record_and_connection = AsyncMock(
+            side_effect=Exception("Cleanup error")
         )
 
         mock_get_socket_id.return_value = "test-socket-id"
@@ -332,6 +338,7 @@ class TestAcapyHandlerCleanup:
             "verified": "false",  # Failed verification
         }
         request.body = AsyncMock(return_value=json.dumps(webhook_body).encode("ascii"))
+        request.app = MagicMock()
         return request
 
     @patch("api.routers.acapy_handler.AcapyClient")
@@ -423,14 +430,12 @@ class TestAcapyHandlerCleanup:
         mock_crud_instance.patch = AsyncMock()
 
         mock_client_instance = mock_acapy_client.return_value
-        mock_client_instance.get_presentation_request.return_value = {
-            "by_format": {"test": "presentation_data"}
-        }
+        mock_client_instance.get_presentation_request = AsyncMock(
+            return_value={"by_format": {"test": "presentation_data"}}
+        )
         # Setup mock to handle combined cleanup throwing network timeout
-        import requests
-
-        mock_client_instance.delete_presentation_record_and_connection.side_effect = (
-            requests.Timeout("Network timeout")
+        mock_client_instance.delete_presentation_record_and_connection = AsyncMock(
+            side_effect=httpx.TimeoutException("Network timeout")
         )
 
         mock_get_socket_id.return_value = "test-socket-id"
