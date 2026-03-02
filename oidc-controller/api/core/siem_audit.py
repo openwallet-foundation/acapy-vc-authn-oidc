@@ -1,8 +1,8 @@
 """
-SIAM Audit Logger - Privacy-Preserving Audit Events
+SIEM Audit Logger - Privacy-Preserving Audit Events
 
-This module provides structured logging for SIAM (Security Information and
-Analytics Management) platforms while maintaining the privacy-preserving
+This module provides structured logging for SIEM (Security Information and
+Event Management) platforms while maintaining the privacy-preserving
 principles of verifiable credentials.
 
 PRIVACY GUIDELINES:
@@ -27,7 +27,7 @@ if TYPE_CHECKING:
     from ..authSessions.models import AuthSession
     from ..verificationConfigs.models import VerificationConfig
 
-logger: structlog.typing.FilteringBoundLogger = structlog.getLogger("siam.audit")
+logger: structlog.typing.FilteringBoundLogger = structlog.getLogger("siem.audit")
 
 
 def _strtobool(val: str | bool) -> bool:
@@ -43,14 +43,14 @@ def _strtobool(val: str | bool) -> bool:
         raise ValueError(f"invalid truth value {val}")
 
 
-# Feature flag: set SIAM_AUDIT_ENABLED=false to disable SIAM audit logging.
+# Feature flag: set SIEM_AUDIT_ENABLED=false to disable SIEM audit logging.
 # Enabled by default.
-SIAM_AUDIT_ENABLED: bool = _strtobool(os.environ.get("SIAM_AUDIT_ENABLED", "true"))
+SIEM_AUDIT_ENABLED: bool = _strtobool(os.environ.get("SIEM_AUDIT_ENABLED", "true"))
 
 # Salt for IP anonymization - should be rotated periodically
 # In production, load from environment or secrets manager
 _IP_ANONYMIZATION_SALT = os.environ.get(
-    "SIAM_IP_SALT", "vc-authn-oidc-default-salt-rotate-me"
+    "SIEM_IP_SALT", "vc-authn-oidc-default-salt-rotate-me"
 )
 
 # Audit event types
@@ -197,7 +197,7 @@ def audit_event(
     **extra_safe_fields,
 ) -> None:
     """
-    Log a privacy-preserving audit event for SIAM collection.
+    Log a privacy-preserving audit event for SIEM collection.
 
     This function ensures consistent event structure and privacy guarantees.
 
@@ -216,7 +216,7 @@ def audit_event(
     WARNING: Never pass PII, attribute values, or subject identifiers
     to this function. All extra_safe_fields must be privacy-safe.
     """
-    if not SIAM_AUDIT_ENABLED:
+    if not SIEM_AUDIT_ENABLED:
         return
 
     log_data = {

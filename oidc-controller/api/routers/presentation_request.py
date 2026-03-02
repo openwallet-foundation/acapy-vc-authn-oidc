@@ -9,7 +9,7 @@ from ..authSessions.models import AuthSession, AuthSessionState
 from ..core.config import settings
 from ..routers.socketio import sio, get_socket_id_for_pid, safe_emit
 from ..routers.oidc import gen_deep_link
-from ..core.siam_audit import audit_qr_scanned
+from ..core.siem_audit import audit_qr_scanned
 from ..db.session import get_db
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
@@ -34,7 +34,7 @@ async def send_connectionless_proof_req(
     If the user scanes the QR code with a mobile camera,
     they will be redirected to a help page.
     """
-    # SIAM Audit: Log QR scan before redirect path split to capture all scans
+    # SIEM Audit: Log QR scan before redirect path split to capture all scans
     auth_session: AuthSession = await AuthSessionCRUD(db).get_by_pres_exch_id(
         pres_exch_id
     )
@@ -79,7 +79,7 @@ async def send_connectionless_proof_req(
     if auth_session.proof_status is AuthSessionState.NOT_STARTED:
         await toggle_pending(db, auth_session)
 
-        # SIAM Audit: Log QR scan via wallet deep link
+        # SIEM Audit: Log QR scan via wallet deep link
         client_ip = req.client.host if req.client else None
         user_agent = req.headers.get("user-agent")
         audit_qr_scanned(

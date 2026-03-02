@@ -28,7 +28,7 @@ from ..core.config import settings
 from ..core.logger_util import log_debug
 from ..core.oidc import provider
 from ..core.oidc.issue_token_service import Token
-from ..core.siam_audit import (
+from ..core.siem_audit import (
     audit_auth_session_initiated,
     audit_proof_request_created,
     audit_token_issued,
@@ -196,7 +196,7 @@ async def get_authorize(request: Request, db: Database = Depends(get_db)):
     )
     auth_session = await AuthSessionCRUD(db).create(new_auth_session)
 
-    # SIAM Audit: Log auth session initiation (no PII, safe metadata only)
+    # SIEM Audit: Log auth session initiation (no PII, safe metadata only)
     client_ip = request.client.host if request.client else None
     user_agent = request.headers.get("user-agent")
     audit_auth_session_initiated(
@@ -207,7 +207,7 @@ async def get_authorize(request: Request, db: Database = Depends(get_db)):
         user_agent=user_agent,
     )
 
-    # SIAM Audit: Log proof request creation
+    # SIEM Audit: Log proof request creation
     audit_proof_request_created(
         session_id=str(auth_session.id),
         ver_config=ver_config,
@@ -544,7 +544,7 @@ async def post_token(request: Request, db: Database = Depends(get_db)):
                 all_claims=list(decoded.keys()),
             )
 
-        # SIAM Audit: Log successful token issuance (count only, no claim values)
+        # SIEM Audit: Log successful token issuance (count only, no claim values)
         token_duration_ms = int((time.time() - token_start_time) * 1000)
         audit_token_issued(
             session_id=str(auth_session.id),

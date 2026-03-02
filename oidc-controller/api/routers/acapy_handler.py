@@ -12,7 +12,7 @@ from ..authSessions.models import AuthSession, AuthSessionPatch, AuthSessionStat
 from ..core.acapy.client import AcapyClient
 from ..core.config import settings
 from ..routers.socketio import sio, get_socket_id_for_pid, safe_emit
-from ..core.siam_audit import (
+from ..core.siem_audit import (
     audit_proof_verification_failed,
     audit_proof_verified,
     audit_session_abandoned,
@@ -314,7 +314,7 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
             state = webhook_body.get("state")
             role = webhook_body.get("role")
 
-            # SIAM Audit: Log webhook receipt (safe metadata only)
+            # SIEM Audit: Log webhook receipt (safe metadata only)
             audit_webhook_received(
                 topic="present_proof_v2_0",
                 state=state,
@@ -406,7 +406,7 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                         f"Retrieved presentation data via API for {webhook_body['pres_ex_id']}"
                     )
 
-                    # SIAM Audit: Log successful verification (metadata only, no PII)
+                    # SIEM Audit: Log successful verification (metadata only, no PII)
                     # Extract schema names from presentation for audit
                     credential_schemas = _extract_credential_schemas(presentation_data)
                     issuer_dids = _extract_issuer_dids(presentation_data)
@@ -432,7 +432,7 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                     logger.info("VERIFICATION FAILED")
                     auth_session.proof_status = AuthSessionState.FAILED
 
-                    # SIAM Audit: Log failed verification
+                    # SIEM Audit: Log failed verification
                     audit_proof_verification_failed(
                         session_id=str(auth_session.id),
                         ver_config_id=auth_session.ver_config_id,
@@ -467,7 +467,7 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                 )
                 auth_session.proof_status = AuthSessionState.ABANDONED
 
-                # SIAM Audit: Log session abandonment
+                # SIEM Audit: Log session abandonment
                 duration_ms = int((time.time() - webhook_start_time) * 1000)
                 audit_session_abandoned(
                     session_id=str(auth_session.id),
@@ -525,7 +525,7 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                 logger.info("EXPIRED")
                 auth_session.proof_status = AuthSessionState.EXPIRED
 
-                # SIAM Audit: Log session expiration
+                # SIEM Audit: Log session expiration
                 audit_session_expired(
                     session_id=str(auth_session.id),
                     ver_config_id=auth_session.ver_config_id,

@@ -19,7 +19,7 @@
       }
     },
     "loggers": {
-      "siam.audit": {
+      "siem.audit": {
         "level": "INFO",
         "handlers": ["out"],
         "propagate": false
