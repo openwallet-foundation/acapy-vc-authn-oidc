@@ -281,13 +281,14 @@ sedInPlace() {
 initializeWalletSeed() {
   # Generate a new wallet seed and update it in .env
   _newSeed=$(generateSeed vc-authn-oidc)
-  sedInPlace "s/^AGENT_WALLET_SEED=.*/AGENT_WALLET_SEED=${_newSeed}/" .env
+  # Use | as sed delimiter — base64 seeds may contain / which breaks s///
+  sedInPlace "s|^AGENT_WALLET_SEED=.*|AGENT_WALLET_SEED=${_newSeed}|" .env
   echoSuccess "Generated new AGENT_WALLET_SEED in .env"
 }
 
 resetWalletSeed() {
   # Reset wallet seed to default value in .env
-  sedInPlace "s/^AGENT_WALLET_SEED=.*/AGENT_WALLET_SEED=${DEFAULT_AGENT_WALLET_SEED}/" .env
+  sedInPlace "s|^AGENT_WALLET_SEED=.*|AGENT_WALLET_SEED=${DEFAULT_AGENT_WALLET_SEED}|" .env
   echoInfo "Reset AGENT_WALLET_SEED to default value in .env"
 }
 
