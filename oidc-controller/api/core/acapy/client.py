@@ -191,6 +191,13 @@ class AcapyClient:
     ) -> CreatePresentationResponse:
         """
         Send a presentation request to an existing connection.
+
+        Args:
+            connection_id: The ID of the established connection
+            presentation_request_configuration: The presentation request configuration
+
+        Returns:
+            CreatePresentationResponse: The response containing presentation exchange details
         """
         logger.debug(">>> send_presentation_request_by_connection")
 
@@ -214,7 +221,15 @@ class AcapyClient:
         return result
 
     async def get_connection(self, connection_id: str) -> dict:
-        """Get details of a specific connection."""
+        """
+        Get details of a specific connection.
+
+        Args:
+            connection_id: The ID of the connection to retrieve
+
+        Returns:
+            dict: Connection details
+        """
         logger.debug(">>> get_connection")
 
         resp = await self._http_client.get(
@@ -228,7 +243,15 @@ class AcapyClient:
         return resp.json()
 
     async def list_connections(self, state: str | None = None) -> list[dict]:
-        """List all connections, optionally filtered by state."""
+        """
+        List all connections, optionally filtered by state.
+
+        Args:
+            state: Optional state filter (e.g., "active", "completed")
+
+        Returns:
+            list[dict]: List of connection records
+        """
         logger.debug(">>> list_connections")
 
         params = {"state": state} if state else {}
@@ -316,7 +339,15 @@ class AcapyClient:
         )
 
     async def delete_connection(self, connection_id: str) -> bool:
-        """Delete a connection."""
+        """
+        Delete a connection.
+
+        Args:
+            connection_id: The ID of the connection to delete
+
+        Returns:
+            bool: True if deletion was successful
+        """
         logger.debug(">>> delete_connection", connection_id=connection_id)
 
         try:
@@ -340,22 +371,30 @@ class AcapyClient:
 
     async def delete_presentation_record_and_connection(
         self, presentation_exchange_id: UUID | str, connection_id: str | None = None
-    ) -> tuple[bool, bool | None, list[str]]:
+    ) -> tuple[bool, bool, list[str]]:
         """
         Delete a presentation record and optionally its associated connection.
 
+        This is the recommended method for cleanup as it handles both the presentation
+        record and connection deletion in the proper order.
+
+        Args:
+            presentation_exchange_id: The presentation exchange ID to delete
+            connection_id: Optional connection ID to delete. If not provided,
+                         only the presentation record will be deleted.
+
         Returns:
-            tuple[bool, bool | None, list[str]]:
-                - presentation_deleted: True if presentation record was successfully deleted
-                - connection_deleted: True/False if attempted, None if not attempted
-                - errors: List of error messages from failed operations
+            tuple[bool, bool, list[str]]: A tuple containing:
+                - presentation_deleted: bool - True if presentation record was successfully deleted
+                - connection_deleted: bool - True if connection was successfully deleted or no connection_id was provided, False if deletion failed
+                - errors: list[str] - List of error messages from failed operations
         """
         logger.debug(
             f">>> delete_presentation_record_and_connection: pres_ex={presentation_exchange_id}, conn={connection_id}"
         )
 
         presentation_deleted = False
-        connection_deleted = None
+        connection_deleted = False
         errors = []
 
         if presentation_exchange_id:
@@ -389,7 +428,16 @@ class AcapyClient:
         return presentation_deleted, connection_deleted, errors
 
     async def send_problem_report(self, pres_ex_id: str, description: str) -> bool:
-        """Send a problem report for a presentation exchange."""
+        """
+        Send a problem report for a presentation exchange.
+
+        Args:
+            pres_ex_id: The presentation exchange ID
+            description: Description of the problem
+
+        Returns:
+            bool: True if problem report was sent successfully
+        """
         logger.debug(">>> send_problem_report")
 
         try:
@@ -425,6 +473,17 @@ class AcapyClient:
     ) -> OobCreateInvitationResponse:
         """
         Create an out-of-band invitation for either ephemeral or persistent connections.
+
+        Args:
+            multi_use: Whether this is a non-ephemeral (multi-use) connection (default: False)
+            presentation_exchange: Optional presentation exchange to attach to invitation
+            use_public_did: Whether to use public DID for the invitation (default: False)
+            alias: Optional alias for the connection (default: None)
+            auto_accept: Whether to auto-accept the connection (default: None - use configuration)
+            metadata: Optional metadata to attach to the connection (default: None)
+
+        Returns:
+            OobCreateInvitationResponse: The response containing invitation details
         """
         logger.debug(">>> create_connection_invitation")
 

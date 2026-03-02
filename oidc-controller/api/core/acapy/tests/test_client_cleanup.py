@@ -194,7 +194,7 @@ class TestAcapyClientCleanup:
         )
 
         assert presentation_deleted is True
-        assert connection_deleted is None
+        assert connection_deleted is False
         assert errors == []
 
     @respx.mock
@@ -259,7 +259,7 @@ class TestAcapyClientCleanup:
         ) = await acapy_client.delete_presentation_record_and_connection(None, None)
 
         assert presentation_deleted is False
-        assert connection_deleted is None
+        assert connection_deleted is False
         assert errors == []
 
 
