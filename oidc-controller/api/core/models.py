@@ -175,12 +175,10 @@ class VCUserinfo(Userinfo):
             except KeyError:
                 claims = {}
 
-            logger.debug(f"VCUserinfo.get_claims_for called for " f"user_id: {user_id}")
-            logger.debug(f"  Storage type: " f"{type(self._claims_storage).__name__}")
+            logger.debug(f"VCUserinfo.get_claims_for called for user_id: {user_id}")
+            logger.debug(f"  Storage type: {type(self._claims_storage).__name__}")
             if isinstance(self._claims_storage, dict):
-                logger.debug(
-                    f"  Cached user_ids: " f"{list(self._claims_storage.keys())}"
-                )
+                logger.debug(f"  Cached user_ids: {list(self._claims_storage.keys())}")
             logger.debug(f"  Returning claims keys: {list(claims.keys())}")
 
             return claims

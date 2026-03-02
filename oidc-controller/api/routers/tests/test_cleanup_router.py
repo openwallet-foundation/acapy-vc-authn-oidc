@@ -1,7 +1,7 @@
 """Tests for HTTP cleanup router endpoints."""
 
 import json
-from unittest.mock import ANY, AsyncMock, MagicMock, patch, Mock
+from unittest.mock import ANY, MagicMock, patch
 import pytest
 from fastapi import HTTPException, FastAPI
 from fastapi.testclient import TestClient

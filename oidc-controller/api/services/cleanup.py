@@ -122,9 +122,11 @@ async def _cleanup_single_presentation_record(
         return
 
     try:
-        presentation_deleted, _, errors = (
-            await client.delete_presentation_record_and_connection(pres_ex_id, None)
-        )
+        (
+            presentation_deleted,
+            _,
+            errors,
+        ) = await client.delete_presentation_record_and_connection(pres_ex_id, None)
 
         if presentation_deleted:
             stats["cleaned_presentation_records"] += 1

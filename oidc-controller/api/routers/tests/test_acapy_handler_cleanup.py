@@ -60,7 +60,7 @@ class TestAcapyHandlerCleanup:
     @patch("api.routers.acapy_handler.AcapyClient")
     @patch("api.routers.acapy_handler.AuthSessionCRUD")
     @patch("api.routers.acapy_handler.get_socket_id_for_pid")
-    @patch("api.routers.acapy_handler.sio.emit")
+    @patch("api.routers.acapy_handler.safe_emit")
     @pytest.mark.asyncio
     async def test_present_proof_webhook_successful_cleanup(
         self,
@@ -206,7 +206,7 @@ class TestAcapyHandlerCleanup:
     @patch("api.routers.acapy_handler.AcapyClient")
     @patch("api.routers.acapy_handler.AuthSessionCRUD")
     @patch("api.routers.acapy_handler.get_socket_id_for_pid")
-    @patch("api.routers.acapy_handler.sio.emit")
+    @patch("api.routers.acapy_handler.safe_emit")
     @pytest.mark.asyncio
     async def test_present_proof_webhook_cleanup_failure(
         self,
@@ -271,7 +271,7 @@ class TestAcapyHandlerCleanup:
     @patch("api.routers.acapy_handler.AcapyClient")
     @patch("api.routers.acapy_handler.AuthSessionCRUD")
     @patch("api.routers.acapy_handler.get_socket_id_for_pid")
-    @patch("api.routers.acapy_handler.sio.emit")
+    @patch("api.routers.acapy_handler.safe_emit")
     @pytest.mark.asyncio
     async def test_present_proof_webhook_cleanup_exception(
         self,
@@ -344,7 +344,7 @@ class TestAcapyHandlerCleanup:
     @patch("api.routers.acapy_handler.AcapyClient")
     @patch("api.routers.acapy_handler.AuthSessionCRUD")
     @patch("api.routers.acapy_handler.get_socket_id_for_pid")
-    @patch("api.routers.acapy_handler.sio.emit")
+    @patch("api.routers.acapy_handler.safe_emit")
     @pytest.mark.asyncio
     async def test_present_proof_webhook_failed_verification_no_cleanup(
         self,
@@ -409,7 +409,7 @@ class TestAcapyHandlerCleanup:
     @patch("api.routers.acapy_handler.AcapyClient")
     @patch("api.routers.acapy_handler.AuthSessionCRUD")
     @patch("api.routers.acapy_handler.get_socket_id_for_pid")
-    @patch("api.routers.acapy_handler.sio.emit")
+    @patch("api.routers.acapy_handler.safe_emit")
     @pytest.mark.asyncio
     async def test_present_proof_webhook_network_timeout_during_cleanup(
         self,

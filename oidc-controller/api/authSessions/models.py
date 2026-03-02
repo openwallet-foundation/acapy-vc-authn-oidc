@@ -19,8 +19,10 @@ class AuthSessionState(StrEnum):
 class AuthSessionBase(BaseModel):
     pres_exch_id: str | None = None  # Optional for connection-based flow
     expired_timestamp: datetime = Field(
-        default_factory=lambda: datetime.now(UTC)
-        + timedelta(seconds=settings.CONTROLLER_PRESENTATION_EXPIRE_TIME)
+        default_factory=lambda: (
+            datetime.now(UTC)
+            + timedelta(seconds=settings.CONTROLLER_PRESENTATION_EXPIRE_TIME)
+        )
     )
     ver_config_id: str
     request_parameters: dict

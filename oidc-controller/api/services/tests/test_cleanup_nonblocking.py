@@ -1,6 +1,8 @@
 """Tests that verify cleanup uses native async I/O and doesn't block the event loop."""
 
 import asyncio
+import threading
+import time
 from datetime import datetime, timedelta, UTC
 from unittest.mock import MagicMock, patch, AsyncMock
 

@@ -1,6 +1,5 @@
 """Tests for cleanup functions."""
 
-import asyncio
 import unittest.mock
 from datetime import datetime, timedelta, UTC
 from unittest.mock import Mock, MagicMock, patch, AsyncMock

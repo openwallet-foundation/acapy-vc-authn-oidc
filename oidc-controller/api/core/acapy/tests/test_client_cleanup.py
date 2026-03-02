@@ -3,6 +3,13 @@
 import pytest
 import httpx
 import respx
+import json
+from unittest.mock import Mock, patch
+import pytest
+import requests
+import json
+from unittest.mock import Mock, patch
+import requests
 from uuid import UUID
 
 from api.core.acapy.client import AcapyClient
@@ -156,10 +163,12 @@ class TestAcapyClientCleanup:
             return_value=httpx.Response(200)
         )
 
-        presentation_deleted, connection_deleted, errors = (
-            await acapy_client.delete_presentation_record_and_connection(
-                pres_ex_id, connection_id
-            )
+        (
+            presentation_deleted,
+            connection_deleted,
+            errors,
+        ) = await acapy_client.delete_presentation_record_and_connection(
+            pres_ex_id, connection_id
         )
 
         assert presentation_deleted is True
@@ -176,10 +185,12 @@ class TestAcapyClientCleanup:
             return_value=httpx.Response(200)
         )
 
-        presentation_deleted, connection_deleted, errors = (
-            await acapy_client.delete_presentation_record_and_connection(
-                pres_ex_id, None
-            )
+        (
+            presentation_deleted,
+            connection_deleted,
+            errors,
+        ) = await acapy_client.delete_presentation_record_and_connection(
+            pres_ex_id, None
         )
 
         assert presentation_deleted is True
@@ -200,10 +211,12 @@ class TestAcapyClientCleanup:
             return_value=httpx.Response(404)
         )
 
-        presentation_deleted, connection_deleted, errors = (
-            await acapy_client.delete_presentation_record_and_connection(
-                pres_ex_id, connection_id
-            )
+        (
+            presentation_deleted,
+            connection_deleted,
+            errors,
+        ) = await acapy_client.delete_presentation_record_and_connection(
+            pres_ex_id, connection_id
         )
 
         assert presentation_deleted is True
@@ -225,10 +238,12 @@ class TestAcapyClientCleanup:
             return_value=httpx.Response(404)
         )
 
-        presentation_deleted, connection_deleted, errors = (
-            await acapy_client.delete_presentation_record_and_connection(
-                pres_ex_id, connection_id
-            )
+        (
+            presentation_deleted,
+            connection_deleted,
+            errors,
+        ) = await acapy_client.delete_presentation_record_and_connection(
+            pres_ex_id, connection_id
         )
 
         assert presentation_deleted is False
@@ -237,9 +252,11 @@ class TestAcapyClientCleanup:
 
     @pytest.mark.asyncio
     async def test_delete_presentation_record_and_connection_no_ids(self, acapy_client):
-        presentation_deleted, connection_deleted, errors = (
-            await acapy_client.delete_presentation_record_and_connection(None, None)
-        )
+        (
+            presentation_deleted,
+            connection_deleted,
+            errors,
+        ) = await acapy_client.delete_presentation_record_and_connection(None, None)
 
         assert presentation_deleted is False
         assert connection_deleted is None

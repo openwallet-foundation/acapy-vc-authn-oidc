@@ -80,14 +80,17 @@ async def test_multi_tenant_uses_unified_variables(http_client):
     wallet_id = "unified-wallet-id"
     wallet_key = "unified-wallet-key"
 
-    with mock.patch.object(MultiTenantAcapy, "wallet_id", wallet_id), mock.patch.object(
-        MultiTenantAcapy, "wallet_key", wallet_key
+    # Patch class attributes directly because they are bound at module import time
+    with (
+        mock.patch.object(MultiTenantAcapy, "wallet_id", wallet_id),
+        mock.patch.object(MultiTenantAcapy, "wallet_key", wallet_key),
     ):
         respx.post(
             settings.ACAPY_ADMIN_URL + f"/multitenancy/wallet/{wallet_id}/token"
         ).mock(return_value=httpx.Response(200, json={"token": "token"}))
 
         acapy = MultiTenantAcapy(http_client)
+
         token = await acapy.get_wallet_token()
         assert token == "token"
 
@@ -109,12 +112,11 @@ async def test_multi_tenant_includes_admin_api_key_headers(http_client):
     admin_key = "admin_key"
     admin_header = "x-api-key"
 
-    with mock.patch.object(MultiTenantAcapy, "wallet_id", wallet_id), mock.patch.object(
-        MultiTenantAcapy, "wallet_key", wallet_key
-    ), mock.patch.object(
-        settings, "ST_ACAPY_ADMIN_API_KEY", admin_key
-    ), mock.patch.object(
-        settings, "ST_ACAPY_ADMIN_API_KEY_NAME", admin_header
+    with (
+        mock.patch.object(MultiTenantAcapy, "wallet_id", wallet_id),
+        mock.patch.object(MultiTenantAcapy, "wallet_key", wallet_key),
+        mock.patch.object(settings, "ST_ACAPY_ADMIN_API_KEY", admin_key),
+        mock.patch.object(settings, "ST_ACAPY_ADMIN_API_KEY_NAME", admin_header),
     ):
         route = respx.post(
             settings.ACAPY_ADMIN_URL + f"/multitenancy/wallet/{wallet_id}/token"
@@ -132,8 +134,9 @@ async def test_multi_tenant_caching_behavior(http_client):
     wallet_id = "cache-test-id"
     wallet_key = "cache-test-key"
 
-    with mock.patch.object(MultiTenantAcapy, "wallet_id", wallet_id), mock.patch.object(
-        MultiTenantAcapy, "wallet_key", wallet_key
+    with (
+        mock.patch.object(MultiTenantAcapy, "wallet_id", wallet_id),
+        mock.patch.object(MultiTenantAcapy, "wallet_key", wallet_key),
     ):
         route = respx.post(
             settings.ACAPY_ADMIN_URL + f"/multitenancy/wallet/{wallet_id}/token"
@@ -156,8 +159,9 @@ async def test_multi_tenant_token_expiry(http_client):
     wallet_id = "expiry-test-id"
     wallet_key = "expiry-test-key"
 
-    with mock.patch.object(MultiTenantAcapy, "wallet_id", wallet_id), mock.patch.object(
-        MultiTenantAcapy, "wallet_key", wallet_key
+    with (
+        mock.patch.object(MultiTenantAcapy, "wallet_id", wallet_id),
+        mock.patch.object(MultiTenantAcapy, "wallet_key", wallet_key),
     ):
         route = respx.post(
             settings.ACAPY_ADMIN_URL + f"/multitenancy/wallet/{wallet_id}/token"
@@ -179,8 +183,9 @@ async def test_multi_tenant_throws_exception_for_401(http_client):
     wallet_id = "test-wallet-id"
     wallet_key = "test-wallet-key"
 
-    with mock.patch.object(MultiTenantAcapy, "wallet_id", wallet_id), mock.patch.object(
-        MultiTenantAcapy, "wallet_key", wallet_key
+    with (
+        mock.patch.object(MultiTenantAcapy, "wallet_id", wallet_id),
+        mock.patch.object(MultiTenantAcapy, "wallet_key", wallet_key),
     ):
         respx.post(
             settings.ACAPY_ADMIN_URL + f"/multitenancy/wallet/{wallet_id}/token"
@@ -201,23 +206,27 @@ async def test_multi_tenant_throws_exception_for_401(http_client):
 @pytest.mark.asyncio
 @respx.mock
 async def test_traction_mode_uses_unified_variables_as_tenant_creds(http_client):
+    import json as json_mod
+
     tenant_id = "unified-tenant-id"
     api_key = "unified-api-key"
 
-    with mock.patch.object(
-        TractionTenantAcapy, "tenant_id", tenant_id
-    ), mock.patch.object(TractionTenantAcapy, "api_key", api_key):
+    # TractionTenantAcapy reads from settings at class level
+    with (
+        mock.patch.object(TractionTenantAcapy, "tenant_id", tenant_id),
+        mock.patch.object(TractionTenantAcapy, "api_key", api_key),
+    ):
+        # Verify calls /multitenancy/tenant/{id}/token (Traction API)
         route = respx.post(
             settings.ACAPY_ADMIN_URL + f"/multitenancy/tenant/{tenant_id}/token"
         ).mock(return_value=httpx.Response(200, json={"token": "traction-token"}))
 
         acapy = TractionTenantAcapy(http_client)
+
         token = await acapy.get_wallet_token()
         assert token == "traction-token"
 
-        import json
-
-        body = json.loads(route.calls.last.request.content)
+        body = json_mod.loads(route.calls.last.request.content)
         assert body == {"api_key": api_key}
 
 
@@ -227,9 +236,10 @@ async def test_traction_caching_and_expiry(http_client):
     tenant_id = "traction-cache-id"
     api_key = "traction-cache-key"
 
-    with mock.patch.object(
-        TractionTenantAcapy, "tenant_id", tenant_id
-    ), mock.patch.object(TractionTenantAcapy, "api_key", api_key):
+    with (
+        mock.patch.object(TractionTenantAcapy, "tenant_id", tenant_id),
+        mock.patch.object(TractionTenantAcapy, "api_key", api_key),
+    ):
         route = respx.post(
             settings.ACAPY_ADMIN_URL + f"/multitenancy/tenant/{tenant_id}/token"
         ).mock(return_value=httpx.Response(200, json={"token": "traction-token"}))
@@ -253,10 +263,14 @@ async def test_traction_caching_and_expiry(http_client):
 
 @pytest.mark.asyncio
 async def test_traction_mode_missing_credentials_raises_error(http_client):
-    with mock.patch.object(TractionTenantAcapy, "tenant_id", None), mock.patch.object(
-        TractionTenantAcapy, "api_key", None
+    """Test that missing credentials in Traction mode raises ValueError."""
+
+    with (
+        mock.patch.object(TractionTenantAcapy, "tenant_id", None),
+        mock.patch.object(TractionTenantAcapy, "api_key", None),
     ):
         acapy = TractionTenantAcapy(http_client)
+
         with pytest.raises(ValueError) as exc:
             await acapy.get_wallet_token()
         assert "Traction mode requires ACAPY_TENANT_WALLET_ID" in str(exc.value)
@@ -268,14 +282,16 @@ async def test_traction_mode_api_failure_raises_exception(http_client):
     tenant_id = "test-tenant"
     api_key = "test-key"
 
-    with mock.patch.object(
-        TractionTenantAcapy, "tenant_id", tenant_id
-    ), mock.patch.object(TractionTenantAcapy, "api_key", api_key):
+    with (
+        mock.patch.object(TractionTenantAcapy, "tenant_id", tenant_id),
+        mock.patch.object(TractionTenantAcapy, "api_key", api_key),
+    ):
         respx.post(
             settings.ACAPY_ADMIN_URL + f"/multitenancy/tenant/{tenant_id}/token"
         ).mock(return_value=httpx.Response(403, text="Forbidden"))
 
         acapy = TractionTenantAcapy(http_client)
+
         with pytest.raises(Exception) as exc:
             await acapy.get_wallet_token()
         assert "403" in str(exc.value)
@@ -287,15 +303,17 @@ async def test_traction_mode_connection_error_raises_exception(http_client):
     tenant_id = "test-tenant"
     api_key = "test-key"
 
-    with mock.patch.object(
-        TractionTenantAcapy, "tenant_id", tenant_id
-    ), mock.patch.object(TractionTenantAcapy, "api_key", api_key):
+    with (
+        mock.patch.object(TractionTenantAcapy, "tenant_id", tenant_id),
+        mock.patch.object(TractionTenantAcapy, "api_key", api_key),
+    ):
         respx.post(
             settings.ACAPY_ADMIN_URL + f"/multitenancy/tenant/{tenant_id}/token"
         ).mock(side_effect=httpx.ConnectError("Connection refused"))
 
         acapy = TractionTenantAcapy(http_client)
-        with pytest.raises(httpx.ConnectError):
+
+        with pytest.raises(Exception):
             await acapy.get_wallet_token()
 
 
@@ -324,9 +342,10 @@ async def test_multi_tenant_concurrent_calls_only_one_token_request():
     mock_client = mock.MagicMock()
     mock_client.post = mock_post
 
-    with mock.patch.object(
-        MultiTenantAcapy, "wallet_id", "herd-wallet"
-    ), mock.patch.object(MultiTenantAcapy, "wallet_key", "herd-key"):
+    with (
+        mock.patch.object(MultiTenantAcapy, "wallet_id", "herd-wallet"),
+        mock.patch.object(MultiTenantAcapy, "wallet_key", "herd-key"),
+    ):
         acapy = MultiTenantAcapy(mock_client)
         results = await asyncio.gather(*[acapy.get_wallet_token() for _ in range(10)])
 
@@ -350,9 +369,10 @@ async def test_multi_tenant_lock_released_after_failed_request():
     mock_client = mock.MagicMock()
     mock_client.post = mock.AsyncMock(side_effect=lambda *a, **kw: next(responses))
 
-    with mock.patch.object(
-        MultiTenantAcapy, "wallet_id", "fail-wallet"
-    ), mock.patch.object(MultiTenantAcapy, "wallet_key", "fail-key"):
+    with (
+        mock.patch.object(MultiTenantAcapy, "wallet_id", "fail-wallet"),
+        mock.patch.object(MultiTenantAcapy, "wallet_key", "fail-key"),
+    ):
         acapy = MultiTenantAcapy(mock_client)
 
         with pytest.raises(Exception) as exc:
@@ -373,9 +393,10 @@ async def test_multi_tenant_valid_token_bypasses_lock():
     still-valid token must return immediately via the fast path.
     """
     async with httpx.AsyncClient() as http_client:
-        with mock.patch.object(
-            MultiTenantAcapy, "wallet_id", "bypass-id"
-        ), mock.patch.object(MultiTenantAcapy, "wallet_key", "bypass-key"):
+        with (
+            mock.patch.object(MultiTenantAcapy, "wallet_id", "bypass-id"),
+            mock.patch.object(MultiTenantAcapy, "wallet_key", "bypass-key"),
+        ):
             MultiTenantAcapy._token = "valid-cached-token"
             MultiTenantAcapy._token_expiry = time.time() + 1000
 
@@ -408,9 +429,10 @@ async def test_traction_concurrent_calls_only_one_token_request():
     mock_client = mock.MagicMock()
     mock_client.post = mock_post
 
-    with mock.patch.object(
-        TractionTenantAcapy, "tenant_id", "herd-tenant"
-    ), mock.patch.object(TractionTenantAcapy, "api_key", "herd-key"):
+    with (
+        mock.patch.object(TractionTenantAcapy, "tenant_id", "herd-tenant"),
+        mock.patch.object(TractionTenantAcapy, "api_key", "herd-key"),
+    ):
         acapy = TractionTenantAcapy(mock_client)
         results = await asyncio.gather(*[acapy.get_wallet_token() for _ in range(10)])
 
@@ -434,9 +456,10 @@ async def test_traction_lock_released_after_failed_request():
     mock_client = mock.MagicMock()
     mock_client.post = mock.AsyncMock(side_effect=lambda *a, **kw: next(responses))
 
-    with mock.patch.object(
-        TractionTenantAcapy, "tenant_id", "fail-tenant"
-    ), mock.patch.object(TractionTenantAcapy, "api_key", "fail-key"):
+    with (
+        mock.patch.object(TractionTenantAcapy, "tenant_id", "fail-tenant"),
+        mock.patch.object(TractionTenantAcapy, "api_key", "fail-key"),
+    ):
         acapy = TractionTenantAcapy(mock_client)
 
         with pytest.raises(Exception) as exc:

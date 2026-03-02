@@ -5,7 +5,6 @@ import mongomock
 import logging
 import os
 import tempfile
-import shutil
 
 # respx 0.21 defaults to HTTPCoreMocker (patches httpcore) which encodes request
 # methods as bytes in Python 3.14+, breaking route matching. Override to HTTPXMocker

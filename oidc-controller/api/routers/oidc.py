@@ -95,8 +95,9 @@ def gen_deep_link(auth_session: AuthSession) -> str:
         controller_host + "/url/pres_exch/" + str(auth_session.pres_exch_id)
     )
     WALLET_DEEP_LINK_PREFIX = settings.WALLET_DEEP_LINK_PREFIX
-    wallet_deep_link = f"""{WALLET_DEEP_LINK_PREFIX}?_url={base64.urlsafe_b64encode(
-        url_to_message.encode("utf-8")).decode("utf-8")}"""
+    wallet_deep_link = f"""{WALLET_DEEP_LINK_PREFIX}?_url={
+        base64.urlsafe_b64encode(url_to_message.encode("utf-8")).decode("utf-8")
+    }"""
     return wallet_deep_link
 
 
@@ -401,8 +402,7 @@ async def post_token(request: Request, db: Database = Depends(get_db)):
             raise HTTPException(
                 status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=(
-                    "Missing pyop_user_id in AuthSession; "
-                    "cannot process token request"
+                    "Missing pyop_user_id in AuthSession; cannot process token request"
                 ),
             )
 
@@ -531,7 +531,6 @@ async def post_token(request: Request, db: Database = Depends(get_db)):
 
         # Log the actual sub in the ID token for debugging
         if "id_token" in token_response.to_dict():
-
             # Decode without verification to inspect the token
             decoded = jwt.decode(
                 token_response.to_dict()["id_token"],
