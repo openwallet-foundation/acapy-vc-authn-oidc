@@ -105,57 +105,28 @@ async def _send_problem_report_safely(
         logger.error(f"Failed to send problem report: {e}")
 
 
-async def _cleanup_presentation_and_connection(
+async def _cleanup__connection(
     client: AcapyClient, auth_session: AuthSession, pres_ex_id: str, context: str
 ) -> None:
-    """Clean up presentation record and connection (if applicable) with proper error handling."""
-    connection_id_to_delete = (
-        auth_session.connection_id
-        if (
-            settings.USE_CONNECTION_BASED_VERIFICATION
-            and auth_session.connection_id
-            and not auth_session.multi_use  # Only delete single-use connections
-        )
-        else None
-    )
+    """Clean up connection with proper error handling."""
+    if (
+        settings.USE_CONNECTION_BASED_VERIFICATION
+        and auth_session.connection_id
+        and not auth_session.multi_use  # Only delete single-use connections
+    ):
+        connection_id_to_delete = auth_session.connection_id
+    else:
+        return
 
     try:
-        (
-            presentation_deleted,
-            connection_deleted,
-            errors,
-        ) = await client.delete_presentation_record_and_connection(
-            pres_ex_id, connection_id_to_delete
-        )
-
-        if presentation_deleted:
-            logger.info(
-                f"Successfully cleaned up presentation record {pres_ex_id} after {context}"
-            )
-        else:
-            logger.warning(
-                f"Failed to cleanup presentation record {pres_ex_id} after {context} - will be handled by background cleanup"
-            )
-
-        if connection_deleted:
+        if await client.delete_connection(connection_id_to_delete):
             logger.info(
                 f"Successfully cleaned up single-use connection {connection_id_to_delete} after {context}"
             )
-        elif connection_id_to_delete:
+        else:
             logger.warning(
                 f"Failed to cleanup single-use connection {connection_id_to_delete} after {context}"
             )
-        elif (
-            settings.USE_CONNECTION_BASED_VERIFICATION
-            and auth_session.connection_id
-            and auth_session.multi_use
-        ):
-            logger.info(
-                f"Preserving multi-use connection {auth_session.connection_id} after {context}"
-            )
-
-        if errors:
-            logger.warning(f"{context.capitalize()} cleanup errors: {errors}")
 
     except Exception as cleanup_error:
         logger.warning(
@@ -310,6 +281,7 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
         case "present_proof_v2_0":
             webhook_body = await _parse_webhook_body(request)
 
+            pres_ex_id = str(webhook_body.get("pres_ex_id"))
             state = webhook_body.get("state")
             role = webhook_body.get("role")
 
@@ -328,37 +300,13 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
 
             if role == "prover":
                 # Handle prover-role separately - VC-AuthN is responding to a proof request
-                pres_ex_id = webhook_body.get("pres_ex_id")
                 connection_id = webhook_body.get("connection_id")
                 state = webhook_body.get("state")
-
-                deleted = False
-                delete_error = None
-
-                # Clean up presentation records in terminal states
-                if pres_ex_id and state in ["done", "abandoned", "declined"]:
-                    try:
-                        deleted = await client.delete_presentation_record(pres_ex_id)
-                        if not deleted:
-                            logger.warning(
-                                "Failed to delete prover-role presentation record",
-                                pres_ex_id=pres_ex_id,
-                                state=state,
-                            )
-                    except Exception as e:
-                        delete_error = str(e)
-                        logger.error(
-                            "Error deleting prover-role presentation record",
-                            pres_ex_id=pres_ex_id,
-                            error=delete_error,
-                        )
 
                 logger.info(
                     f"Prover-role webhook received: {state}",
                     pres_ex_id=pres_ex_id,
                     connection_id=connection_id,
-                    deleted=deleted,
-                    delete_error=delete_error,
                     role=role,
                     state=state,
                     timestamp=datetime.now(UTC).isoformat(),
@@ -387,17 +335,7 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                     logger.info("VERIFIED")
                     auth_session.proof_status = AuthSessionState.VERIFIED
 
-                    # Get presentation data via API call instead of webhook payload
-                    presentation_data = await client.get_presentation_request(
-                        webhook_body["pres_ex_id"]
-                    )
-
-                    if not presentation_data:
-                        raise ValueError(
-                            f"Failed to retrieve presentation data for {webhook_body['pres_ex_id']} - record may have been deleted or is inaccessible"
-                        )
-
-                    auth_session.presentation_exchange = presentation_data.get(
+                    auth_session.presentation_exchange = webhook_body.get(
                         "by_format", {}
                     )
                     logger.debug(
@@ -406,8 +344,8 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
 
                     # SIEM Audit: Log successful verification (metadata only, no PII)
                     # Extract schema names from presentation for audit
-                    credential_schemas = _extract_credential_schemas(presentation_data)
-                    issuer_dids = _extract_issuer_dids(presentation_data)
+                    credential_schemas = _extract_credential_schemas(webhook_body)
+                    issuer_dids = _extract_issuer_dids(webhook_body)
 
                     audit_proof_verified(
                         session_id=str(auth_session.id),
@@ -416,14 +354,6 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                         issuer_dids=issuer_dids,
                         duration_ms=duration_ms,
                         revocation_checked=settings.SET_NON_REVOKED,
-                    )
-
-                    # Cleanup presentation record and connection after successful verification
-                    await _cleanup_presentation_and_connection(
-                        client,
-                        auth_session,
-                        webhook_body["pres_ex_id"],
-                        "successful verification",
                     )
 
                     await _emit_status_to_socket(db, auth_session, "verified")
@@ -453,6 +383,9 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                         )
 
                 await _update_auth_session(db, auth_session)
+                await _cleanup__connection(
+                    client, auth_session, pres_ex_id, "connection has been verified"
+                )
 
                 # Connection cleanup is now handled above in the combined cleanup operation
             if webhook_body["state"] == "abandoned":
@@ -484,12 +417,9 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                         auth_session.pres_exch_id,
                         f"Presentation abandoned: {webhook_body.get('error_msg', 'Unknown error')}",
                     )
-
                 await _update_auth_session(db, auth_session)
-
-                # Cleanup presentation record and connection after abandonment
-                await _cleanup_presentation_and_connection(
-                    client, auth_session, webhook_body["pres_ex_id"], "abandonment"
+                await _cleanup__connection(
+                    client, auth_session, pres_ex_id, "connection has been verified"
                 )
 
             # Calcuate the expiration time of the proof
@@ -542,10 +472,8 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                     )
 
                 await _update_auth_session(db, auth_session)
-
-                # Cleanup presentation record and connection after expiration
-                await _cleanup_presentation_and_connection(
-                    client, auth_session, auth_session.pres_exch_id, "expiration"
+                await _cleanup__connection(
+                    client, auth_session, pres_ex_id, "connection has been verified"
                 )
 
             pass
