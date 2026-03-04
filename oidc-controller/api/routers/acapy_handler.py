@@ -419,7 +419,7 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                     )
                 await _update_auth_session(db, auth_session)
                 await _cleanup__connection(
-                    client, auth_session, pres_ex_id, "connection has been verified"
+                    client, auth_session, pres_ex_id, "abandonment"
                 )
 
             # Calcuate the expiration time of the proof
@@ -473,7 +473,7 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
 
                 await _update_auth_session(db, auth_session)
                 await _cleanup__connection(
-                    client, auth_session, pres_ex_id, "connection has been verified"
+                    client, auth_session, pres_ex_id, "expiration"
                 )
 
             pass
