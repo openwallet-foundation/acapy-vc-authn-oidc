@@ -95,7 +95,7 @@ usage() {
               $0 test -v
               $0 test oidc-controller/api/core/tests/
 
-      format - Runs 'black' code formatter on the source code.
+      format - Runs 'ruff' code formatter on the source code.
                Automatically fixes formatting issues.
 
                $0 format
@@ -468,18 +468,18 @@ format)
     -t 'acapy-vc-authn-oidc-tests' \
     -f './oidc-controller/Dockerfile.test' '..'
 
-  # 2. Run black
+  # 2. Run ruff
   # We calculate the absolute path to oidc-controller relative to the script location
   # to ensure the mount works regardless of where you run ./manage from
   PROJECT_ROOT=$(cd "${SCRIPT_HOME}/../" && pwd)
-  
-  echoInfo "Formatting code with Black..."
+
+  echoInfo "Formatting code with ruff..."
   docker run --rm \
     --user $(id -u):$(id -g) \
     -v "${PROJECT_ROOT}/oidc-controller":/app/src/oidc-controller \
-    --entrypoint black \
+    --entrypoint ruff \
     'acapy-vc-authn-oidc-tests' \
-    /app/src/oidc-controller
+    format --no-cache /app/src/oidc-controller
 
   echoSuccess "Formatting complete."
   ;;
