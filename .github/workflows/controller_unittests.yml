@@ -26,10 +26,10 @@ jobs:
         run: |
           pip3 install --no-cache-dir poetry==2.0.0
           poetry install --no-root
-      - name: Lint with black
+      - name: Lint with ruff
         working-directory: ./oidc-controller
         run: |
-          poetry run black --check .
+          poetry run ruff format --check .
       - name: Test with pytest
         working-directory: ./oidc-controller
         run: |

@@ -479,6 +479,6 @@ async def test_webhook_registration_masks_api_key_in_logs(http_client):
 
         expected_log_fragment = f"{base_url}#*****"
         assert any(expected_log_fragment in call for call in info_calls)
-        assert not any(
-            secret_key in call for call in info_calls
-        ), "SECRET KEY LEAKED IN LOGS!"
+        assert not any(secret_key in call for call in info_calls), (
+            "SECRET KEY LEAKED IN LOGS!"
+        )
