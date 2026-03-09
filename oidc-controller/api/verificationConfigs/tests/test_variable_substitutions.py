@@ -32,8 +32,10 @@ def test_get_threshold_years_date():
 
 def test_user_defined_func():
     vsm = VariableSubstitutionMap()
+
     def func(x: int, y) -> int:
         return int(x) + int(y)
+
     vsm.add_variable_substitution(r"\$years since (\d+) (\d+)", func)
     days = 10
     years = 22
