@@ -320,7 +320,7 @@ def create_connection() -> tuple[str, str]:
     # Wait for verifier connection to be established
     if not verifier_conn_id:
         log("Warning: No connection_id in OOB response, searching for connection...")
-        verifier_oob_id = result.get("oob_record", {}).get("oob_id")
+        result.get("oob_record", {}).get("oob_id")
         for attempt in range(15):
             time.sleep(1)
             conn_result = make_request(

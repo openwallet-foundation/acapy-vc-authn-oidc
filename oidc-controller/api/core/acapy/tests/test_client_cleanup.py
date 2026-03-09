@@ -3,13 +3,6 @@
 import pytest
 import httpx
 import respx
-import json
-from unittest.mock import Mock, patch
-import pytest
-import requests
-import json
-from unittest.mock import Mock, patch
-import requests
 from uuid import UUID
 
 from api.core.acapy.client import AcapyClient

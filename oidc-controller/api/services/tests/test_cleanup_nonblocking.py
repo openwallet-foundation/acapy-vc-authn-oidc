@@ -1,8 +1,6 @@
 """Tests that verify cleanup uses native async I/O and doesn't block the event loop."""
 
 import asyncio
-import threading
-import time
 from datetime import datetime, timedelta, UTC
 from unittest.mock import MagicMock, patch, AsyncMock
 
@@ -153,6 +151,6 @@ class TestCleanupNonBlocking:
         # All background tasks should complete quickly
         assert len(task_execution_times) == 3, "Not all background tasks completed"
         for task_id, elapsed in task_execution_times:
-            assert (
-                elapsed < 0.1
-            ), f"Task {task_id} took {elapsed:.3f}s — event loop was blocked!"
+            assert elapsed < 0.1, (
+                f"Task {task_id} took {elapsed:.3f}s — event loop was blocked!"
+            )

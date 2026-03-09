@@ -1,7 +1,6 @@
 """Tests for updated webhook handler with cleanup functionality."""
 
 import json
-import httpx
 from unittest.mock import AsyncMock, MagicMock, patch, Mock
 import pytest
 from bson import ObjectId

@@ -227,14 +227,14 @@ class TestProofStatusForTTLIndex:
         dumped = auth_session.model_dump()
 
         # This is the critical assertion - proof_status MUST exist
-        assert (
-            "proof_status" in dumped
-        ), "proof_status field missing - documents won't be indexed by TTL!"
+        assert "proof_status" in dumped, (
+            "proof_status field missing - documents won't be indexed by TTL!"
+        )
 
         # And it must have the correct default value
-        assert (
-            dumped["proof_status"] == AuthSessionState.NOT_STARTED
-        ), "proof_status has wrong default value"
+        assert dumped["proof_status"] == AuthSessionState.NOT_STARTED, (
+            "proof_status has wrong default value"
+        )
 
     def test_create_serializes_proof_status_correctly(self):
         """Test proof_status serializes to string for MongoDB."""

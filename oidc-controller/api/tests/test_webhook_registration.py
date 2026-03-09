@@ -5,8 +5,6 @@ import httpx
 import respx
 from api.core.webhook_utils import register_tenant_webhook, _register_via_tenant_api
 from api.main import on_tenant_startup
-from api.core.config import settings
-from api.core.webhook_utils import _register_via_tenant_api
 
 
 @pytest.fixture
@@ -222,7 +220,7 @@ async def test_startup_multi_tenant_injects_fetcher(mock_settings):
         assert mock_register.called
         _, kwargs = mock_register.call_args
         assert kwargs["token_fetcher"] == "bound-method-ref"
-        assert kwargs["use_admin_api"] == True
+        assert kwargs["use_admin_api"]
 
 
 @pytest.mark.asyncio
@@ -248,7 +246,7 @@ async def test_startup_traction_mode_config(mock_settings):
         assert mock_register.called
         _, kwargs = mock_register.call_args
         assert kwargs["token_fetcher"] == "traction-token-fetcher"
-        assert kwargs["use_admin_api"] == False
+        assert not kwargs["use_admin_api"]
 
 
 @pytest.mark.asyncio
@@ -479,6 +477,6 @@ async def test_webhook_registration_masks_api_key_in_logs(http_client):
 
         expected_log_fragment = f"{base_url}#*****"
         assert any(expected_log_fragment in call for call in info_calls)
-        assert not any(
-            secret_key in call for call in info_calls
-        ), "SECRET KEY LEAKED IN LOGS!"
+        assert not any(secret_key in call for call in info_calls), (
+            "SECRET KEY LEAKED IN LOGS!"
+        )
