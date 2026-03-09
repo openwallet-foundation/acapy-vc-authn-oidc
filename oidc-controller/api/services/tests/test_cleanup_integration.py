@@ -1,6 +1,5 @@
 """Integration tests for the complete cleanup flow."""
 
-import asyncio
 from datetime import datetime, timedelta, UTC
 from unittest.mock import MagicMock, patch, AsyncMock
 import pytest
@@ -94,8 +93,8 @@ class TestCleanupIntegration:
         )  # Only expired invitation cleaned (not recent)
         assert result["failed_cleanups"] == 0
         assert len(result["errors"]) == 0
-        assert result["hit_presentation_limit"] == False
-        assert result["hit_connection_limit"] == False
+        assert not result["hit_presentation_limit"]
+        assert not result["hit_connection_limit"]
 
         # Verify service-level calls
         assert mock_instance.delete_presentation_record_and_connection.call_count == 2
@@ -156,8 +155,8 @@ class TestCleanupIntegration:
             background_result["cleaned_presentation_records"] == 1
         )  # Background succeeded
         assert background_result["failed_cleanups"] == 0
-        assert background_result["hit_presentation_limit"] == False
-        assert background_result["hit_connection_limit"] == False
+        assert not background_result["hit_presentation_limit"]
+        assert not background_result["hit_connection_limit"]
 
     @patch("api.services.cleanup.settings")
     @patch("api.services.cleanup.AcapyClient")
@@ -286,8 +285,8 @@ class TestCleanupIntegration:
         assert result["failed_cleanups"] == 1  # 1 failed deletion
         assert len(result["errors"]) == 1
         assert "record-fail" in result["errors"][0]
-        assert result["hit_presentation_limit"] == False
-        assert result["hit_connection_limit"] == False
+        assert not result["hit_presentation_limit"]
+        assert not result["hit_connection_limit"]
 
     @patch("api.services.cleanup.AcapyClient")
     @pytest.mark.asyncio
@@ -345,8 +344,8 @@ class TestCleanupIntegration:
         assert result["cleaned_presentation_records"] == 100
         assert result["failed_cleanups"] == 0
         assert mock_instance.delete_presentation_record_and_connection.call_count == 100
-        assert result["hit_presentation_limit"] == False
-        assert result["hit_connection_limit"] == False
+        assert not result["hit_presentation_limit"]
+        assert not result["hit_connection_limit"]
 
     @patch("api.services.cleanup.AcapyClient")
     @pytest.mark.asyncio
@@ -397,8 +396,8 @@ class TestCleanupIntegration:
         assert result["cleaned_connections"] == 2  # Only expired invitations cleaned
         assert result["failed_cleanups"] == 0
         assert len(result["errors"]) == 0
-        assert result["hit_presentation_limit"] == False
-        assert result["hit_connection_limit"] == False
+        assert not result["hit_presentation_limit"]
+        assert not result["hit_connection_limit"]
 
         # Verify only expired invitations were deleted
         assert mock_instance.delete_connection.call_count == 2
@@ -436,5 +435,5 @@ class TestCleanupIntegration:
         assert result["failed_cleanups"] == 1
         assert len(result["errors"]) == 1
         assert "Failed to delete expired connection invitation" in result["errors"][0]
-        assert result["hit_presentation_limit"] == False
-        assert result["hit_connection_limit"] == False
+        assert not result["hit_presentation_limit"]
+        assert not result["hit_connection_limit"]

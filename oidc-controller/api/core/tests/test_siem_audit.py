@@ -1,8 +1,6 @@
 """Tests for the SIEM Audit Logger module."""
 
-import hashlib
-import os
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 from api.verificationConfigs.models import (

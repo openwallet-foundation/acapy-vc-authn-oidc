@@ -26,7 +26,7 @@ class TestSafeEmit:
         with patch.object(sio, "emit", new_callable=AsyncMock) as mock_emit:
             mock_emit.return_value = True
 
-            result = await safe_emit("test_event", {"data": "test"}, to="test_room")
+            await safe_emit("test_event", {"data": "test"}, to="test_room")
 
             mock_emit.assert_called_once_with(
                 "test_event", {"data": "test"}, to="test_room"

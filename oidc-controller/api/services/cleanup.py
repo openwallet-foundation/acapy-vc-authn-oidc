@@ -1,7 +1,7 @@
 """Cleanup functions for presentation records and connections."""
 
 from datetime import datetime, timedelta, UTC
-from typing import TYPE_CHECKING, TypedDict
+from typing import TypedDict
 
 import httpx
 import structlog

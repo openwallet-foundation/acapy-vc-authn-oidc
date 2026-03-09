@@ -1,5 +1,4 @@
 import time
-from typing_extensions import Callable
 import pytest
 from datetime import datetime, timedelta
 from api.verificationConfigs.variableSubstitutions import VariableSubstitutionMap
@@ -33,7 +32,8 @@ def test_get_threshold_years_date():
 
 def test_user_defined_func():
     vsm = VariableSubstitutionMap()
-    func: Callable[[int], int] = lambda x, y: int(x) + int(y)
+    def func(x: int, y) -> int:
+        return int(x) + int(y)
     vsm.add_variable_substitution(r"\$years since (\d+) (\d+)", func)
     days = 10
     years = 22

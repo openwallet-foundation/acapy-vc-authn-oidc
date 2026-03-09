@@ -7,7 +7,7 @@ from pymongo.database import Database
 from ..authSessions.crud import AuthSessionCRUD
 from ..authSessions.models import AuthSession, AuthSessionState
 from ..core.config import settings
-from ..routers.socketio import sio, get_socket_id_for_pid, safe_emit
+from ..routers.socketio import get_socket_id_for_pid, safe_emit
 from ..routers.oidc import gen_deep_link
 from ..core.siem_audit import audit_qr_scanned
 from ..db.session import get_db
@@ -73,7 +73,7 @@ async def send_connectionless_proof_req(
     )
 
     # Get the websocket session
-    sid = await get_socket_id_for_pid(str(auth_session.id), db)
+    await get_socket_id_for_pid(str(auth_session.id), db)
 
     # If the qrcode has been scanned, toggle the pending flag
     if auth_session.proof_status is AuthSessionState.NOT_STARTED:
