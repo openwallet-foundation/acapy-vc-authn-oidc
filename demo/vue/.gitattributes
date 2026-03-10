@@ -1,8 +1,0 @@
-# Autodetect text files and forces unix eols, so Windows does not break them
-* text=auto eol=lf
-
-# Force images/fonts to be handled as binaries
-*.jpg binary
-*.jpeg binary
-*.gif binary
-*.png binary
