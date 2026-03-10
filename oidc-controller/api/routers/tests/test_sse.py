@@ -2,7 +2,7 @@
 
 import asyncio
 import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch, AsyncMock
 
 import pytest
 from fastapi import FastAPI
@@ -14,8 +14,11 @@ from api.routers import sse as sse_module
 from api.routers.sse import (
     TERMINAL_STATES,
     _format_event,
+    _get_initial_state,
     _latest,
+    _next_redis_message,
     _signals,
+    build_async_redis_client,
     notify,
     router,
 )
@@ -250,3 +253,337 @@ class TestSetRedisClient:
         sse_module.set_redis_client(first)
         sse_module.set_redis_client(second)
         assert sse_module._redis_client is second
+
+
+# ---------------------------------------------------------------------------
+# Unit tests: notify() — Redis publish failure
+# ---------------------------------------------------------------------------
+
+
+class TestNotifyRedisFailure:
+    def setup_method(self):
+        _signals.clear()
+        _latest.clear()
+
+    def teardown_method(self):
+        _signals.clear()
+        _latest.clear()
+        sse_module._redis_client = None
+
+    @pytest.mark.asyncio
+    async def test_notify_logs_error_on_redis_publish_exception(self, caplog):
+        """Redis publish failure should be caught and logged, not propagated."""
+        mock_redis = AsyncMock()
+        mock_redis.publish.side_effect = ConnectionError("Redis unavailable")
+        sse_module._redis_client = mock_redis
+
+        with patch.object(sse_module.settings, "REDIS_MODE", "single"):
+            # Should not raise
+            await notify("pid1", "verified")
+            mock_redis.publish.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# Unit tests: _get_initial_state
+# ---------------------------------------------------------------------------
+
+
+class TestGetInitialState:
+    @pytest.mark.asyncio
+    async def test_returns_status_and_terminal_flag_for_known_session(self):
+        mock_db = MagicMock()
+        mock_crud = MagicMock()
+        mock_crud.get = AsyncMock(
+            return_value=_make_auth_session(AuthSessionState.VERIFIED)
+        )
+        with patch("api.routers.sse.AuthSessionCRUD", return_value=mock_crud):
+            status, is_terminal = await _get_initial_state("any-pid", mock_db)
+        assert status == AuthSessionState.VERIFIED
+        assert is_terminal is True
+
+    @pytest.mark.asyncio
+    async def test_returns_none_false_when_session_not_found(self):
+        """DB lookup failure (session doesn't exist yet) should not raise."""
+        mock_db = MagicMock()
+        mock_crud = MagicMock()
+        mock_crud.get = AsyncMock(side_effect=Exception("not found"))
+        with patch("api.routers.sse.AuthSessionCRUD", return_value=mock_crud):
+            status, is_terminal = await _get_initial_state("missing-pid", mock_db)
+        assert status is None
+        assert is_terminal is False
+
+    @pytest.mark.asyncio
+    async def test_non_terminal_status_returns_false(self):
+        mock_db = MagicMock()
+        mock_crud = MagicMock()
+        mock_crud.get = AsyncMock(
+            return_value=_make_auth_session(AuthSessionState.PENDING)
+        )
+        with patch("api.routers.sse.AuthSessionCRUD", return_value=mock_crud):
+            status, is_terminal = await _get_initial_state("pid1", mock_db)
+        assert status == AuthSessionState.PENDING
+        assert is_terminal is False
+
+
+# ---------------------------------------------------------------------------
+# Unit tests: _single_pod_stream — live update loop
+# ---------------------------------------------------------------------------
+
+
+class TestSinglePodStream:
+    def setup_method(self):
+        _signals.clear()
+        _latest.clear()
+        sse_module._redis_client = None
+
+    def teardown_method(self):
+        _signals.clear()
+        _latest.clear()
+
+    @pytest.mark.asyncio
+    async def test_stream_delivers_pending_then_terminal(self):
+        """Non-terminal update followed by terminal update yields both events then closes."""
+        mock_db = MagicMock()
+        mock_crud = MagicMock()
+        mock_crud.get = AsyncMock(
+            return_value=_make_auth_session(AuthSessionState.NOT_STARTED)
+        )
+
+        mock_request = MagicMock()
+        mock_request.is_disconnected = AsyncMock(return_value=False)
+
+        collected = []
+
+        async def consume():
+            with patch("api.routers.sse.AuthSessionCRUD", return_value=mock_crud):
+                with patch.object(sse_module.settings, "REDIS_MODE", "none"):
+                    async for chunk in sse_module._single_pod_stream(
+                        "live-pid", mock_request, mock_db
+                    ):
+                        collected.append(chunk)
+
+        async def produce():
+            await asyncio.sleep(0.05)
+            # Directly trigger the in-process signal (same event loop as consume)
+            event = _signals.get("live-pid")
+            if event:
+                _latest["live-pid"] = "pending"
+                event.set()
+            await asyncio.sleep(0.02)
+            event = _signals.get("live-pid")
+            if event:
+                _latest["live-pid"] = "verified"
+                event.set()
+
+        await asyncio.gather(consume(), produce())
+
+        content = "".join(collected)
+        assert "not_started" in content
+        assert "pending" in content
+        assert "verified" in content
+
+    def test_stream_yields_no_initial_event_when_session_not_found(self):
+        """If session missing from DB, stream opens and waits (returns on disconnect)."""
+        app = _make_app()
+        mock_crud = MagicMock()
+        mock_crud.get = AsyncMock(side_effect=Exception("not found"))
+
+        with patch("api.routers.sse.AuthSessionCRUD", return_value=mock_crud):
+            with patch("api.routers.sse.settings") as mock_settings:
+                mock_settings.REDIS_MODE = "none"
+
+                # Immediately fire a terminal status so the stream closes
+                import threading, time
+
+                def _fire():
+                    time.sleep(0.05)
+                    pid = "507f1f77bcf86cd799439011"
+                    event = _signals.get(pid)
+                    if event:
+                        _latest[pid] = "verified"
+                        event.set()
+
+                t = threading.Thread(target=_fire, daemon=True)
+                t.start()
+                client = TestClient(app, raise_server_exceptions=False)
+                resp = client.get("/sse/status/507f1f77bcf86cd799439011")
+                t.join(timeout=5)
+
+        assert b"not_started" not in resp.content
+        assert b"verified" in resp.content
+
+
+# ---------------------------------------------------------------------------
+# Unit tests: _next_redis_message
+# ---------------------------------------------------------------------------
+
+
+class TestNextRedisMessage:
+    @pytest.mark.asyncio
+    async def test_returns_parsed_json_from_message(self):
+        async def fake_listen():
+            yield {"type": "subscribe", "data": 1}  # skipped
+            yield {"type": "message", "data": json.dumps({"status": "verified"})}
+
+        mock_pubsub = MagicMock()
+        mock_pubsub.listen = fake_listen
+        result = await _next_redis_message(mock_pubsub)
+        assert result == {"status": "verified"}
+
+    @pytest.mark.asyncio
+    async def test_raises_connection_error_when_stream_closes(self):
+        """Pubsub closing without a message should raise ConnectionError."""
+
+        async def fake_listen():
+            return
+            yield  # make it an async generator
+
+        mock_pubsub = MagicMock()
+        mock_pubsub.listen = fake_listen
+        with pytest.raises(ConnectionError):
+            await _next_redis_message(mock_pubsub)
+
+    @pytest.mark.asyncio
+    async def test_skips_non_message_events(self):
+        """subscribe/psubscribe/pong frames should be skipped."""
+
+        async def fake_listen():
+            yield {"type": "subscribe", "data": 1}
+            yield {"type": "pong", "data": None}
+            yield {"type": "message", "data": json.dumps({"status": "failed"})}
+
+        mock_pubsub = MagicMock()
+        mock_pubsub.listen = fake_listen
+        result = await _next_redis_message(mock_pubsub)
+        assert result == {"status": "failed"}
+
+
+# ---------------------------------------------------------------------------
+# Unit tests: build_async_redis_client
+# ---------------------------------------------------------------------------
+
+
+class TestBuildAsyncRedisClient:
+    @pytest.mark.asyncio
+    async def test_single_mode_returns_redis_client(self):
+        with (
+            patch.object(sse_module.settings, "REDIS_MODE", "single"),
+            patch.object(sse_module.settings, "REDIS_HOST", "redis:6379"),
+            patch.object(sse_module.settings, "REDIS_PASSWORD", ""),
+            patch.object(sse_module.settings, "REDIS_DB", 0),
+            patch("api.routers.sse.async_redis.Redis") as mock_cls,
+        ):
+            await build_async_redis_client()
+            mock_cls.assert_called_once_with(
+                host="redis", port=6379, password=None, db=0
+            )
+
+    @pytest.mark.asyncio
+    async def test_cluster_mode_returns_redis_client(self):
+        with (
+            patch.object(sse_module.settings, "REDIS_MODE", "cluster"),
+            patch.object(sse_module.settings, "REDIS_HOST", "node1:6379,node2:6380"),
+            patch.object(sse_module.settings, "REDIS_PASSWORD", ""),
+            patch("api.routers.sse.async_redis.Redis") as mock_cls,
+        ):
+            await build_async_redis_client()
+            # Cluster mode connects to the first node only
+            mock_cls.assert_called_once_with(
+                host="node1", port=6379, password=None
+            )
+
+    @pytest.mark.asyncio
+    async def test_unsupported_mode_raises(self):
+        with patch.object(sse_module.settings, "REDIS_MODE", "bogus"):
+            with pytest.raises(ValueError, match="Unsupported REDIS_MODE"):
+                await build_async_redis_client()
+
+    @pytest.mark.asyncio
+    async def test_sentinel_mode_calls_sentinel(self):
+        mock_sentinel_cls = MagicMock()
+        mock_sentinel_instance = MagicMock()
+        mock_sentinel_cls.return_value = mock_sentinel_instance
+        mock_sentinel_instance.master_for.return_value = MagicMock()
+
+        with (
+            patch.object(sse_module.settings, "REDIS_MODE", "sentinel"),
+            patch.object(sse_module.settings, "REDIS_HOST", "sentinel1:26379"),
+            patch.object(sse_module.settings, "REDIS_PASSWORD", ""),
+            patch.object(
+                sse_module.settings, "REDIS_SENTINEL_MASTER_NAME", "mymaster"
+            ),
+            patch("api.routers.sse.async_redis.sentinel.Sentinel", mock_sentinel_cls),
+        ):
+            await build_async_redis_client()
+            mock_sentinel_instance.master_for.assert_called_once_with(
+                "mymaster", password=None
+            )
+
+
+# ---------------------------------------------------------------------------
+# Integration tests: SSE endpoint routing
+# ---------------------------------------------------------------------------
+
+
+class TestSseEndpointRouting:
+    def setup_method(self):
+        _signals.clear()
+        _latest.clear()
+        sse_module._redis_client = None
+
+    def teardown_method(self):
+        _signals.clear()
+        _latest.clear()
+        sse_module._redis_client = None
+
+    def test_uses_multi_pod_stream_when_redis_client_set(self):
+        """When _redis_client is set and REDIS_MODE != none, multi-pod path is used."""
+        app = _make_app()
+        auth_session = _make_auth_session(AuthSessionState.VERIFIED)
+        mock_crud = MagicMock()
+        mock_crud.get = AsyncMock(return_value=auth_session)
+
+        # pubsub() is a synchronous method on the Redis client — use MagicMock so
+        # calling it returns mock_pubsub directly (not a coroutine).
+        mock_redis = MagicMock()
+        mock_pubsub = MagicMock()
+        mock_redis.pubsub.return_value = mock_pubsub
+        mock_pubsub.subscribe = AsyncMock()
+        mock_pubsub.unsubscribe = AsyncMock()
+        mock_pubsub.aclose = AsyncMock()
+
+        # Terminal state from DB causes return before entering the Redis listen loop.
+        async def empty_listen():
+            return
+            yield
+
+        mock_pubsub.listen = empty_listen
+        sse_module._redis_client = mock_redis
+
+        with patch("api.routers.sse.AuthSessionCRUD", return_value=mock_crud):
+            with patch("api.routers.sse.settings") as mock_settings:
+                mock_settings.REDIS_MODE = "single"
+                client = TestClient(app, raise_server_exceptions=False)
+                resp = client.get("/sse/status/507f1f77bcf86cd799439011")
+
+        assert resp.status_code == 200
+        assert b"verified" in resp.content
+        # subscribe was called — confirms multi-pod path was taken
+        mock_pubsub.subscribe.assert_awaited_once_with("sse:507f1f77bcf86cd799439011")
+
+    def test_falls_back_to_single_pod_when_redis_client_none(self):
+        """When REDIS_MODE != none but _redis_client is None, fall back with warning."""
+        app = _make_app()
+        auth_session = _make_auth_session(AuthSessionState.VERIFIED)
+        mock_crud = MagicMock()
+        mock_crud.get = AsyncMock(return_value=auth_session)
+
+        with patch("api.routers.sse.AuthSessionCRUD", return_value=mock_crud):
+            with patch("api.routers.sse.settings") as mock_settings:
+                mock_settings.REDIS_MODE = "single"
+                # _redis_client is None (not initialized)
+                client = TestClient(app, raise_server_exceptions=False)
+                resp = client.get("/sse/status/507f1f77bcf86cd799439011")
+
+        assert resp.status_code == 200
+        assert b"verified" in resp.content
