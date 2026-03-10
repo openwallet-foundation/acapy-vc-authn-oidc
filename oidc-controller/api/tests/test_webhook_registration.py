@@ -342,6 +342,8 @@ async def test_startup_redis_check_success(mock_settings):
         patch("api.main.can_we_reach_redis", return_value=True) as mock_reach,
         patch("api.main.build_redis_url", return_value="redis://localhost"),
         patch("api.main.validate_redis_config"),
+        patch("api.main.build_async_redis_client", new_callable=AsyncMock),
+        patch("api.main.set_redis_client"),
     ):
         await on_tenant_startup()
 

@@ -75,14 +75,12 @@ class TestAuthSessionCreate:
             response_url="http://test.com/callback",
             pres_exch_id="test-pres-ex-id",
             connection_id="test-connection-id",
-            socket_id="test-socket-id",
             proof_request={"test": "proof"},
             multi_use=True,
         )
 
         assert auth_session.pres_exch_id == "test-pres-ex-id"
         assert auth_session.connection_id == "test-connection-id"
-        assert auth_session.socket_id == "test-socket-id"
         assert auth_session.proof_request == {"test": "proof"}
         assert auth_session.multi_use is True
         # Still has the default proof_status

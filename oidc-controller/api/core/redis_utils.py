@@ -1,7 +1,7 @@
 """Shared Redis utilities for connection management across modules.
 
 Used by:
-- api/routers/socketio.py (Socket.IO Redis adapter)
+- api/routers/sse.py (SSE Redis pub/sub)
 - api/core/oidc/provider.py (PyOP token storage)
 - api/main.py (startup health checks)
 """
@@ -55,8 +55,8 @@ def build_redis_url() -> str | None:
         - sentinel: redis+sentinel://[:password@]host1:port1,host2:port2/db/master_name
         - cluster: Returns None (uses parse_host_port_pairs instead)
 
-    Note: python-socketio's parse_redis_sentinel_url expects /db/service_name order,
-    not /service_name/db. See socketio/redis_manager.py:parse_redis_sentinel_url.
+    Note: For Sentinel URLs, the /db/service_name order is required,
+    not /service_name/db, for compatibility with Redis Sentinel URL parsing.
     """
     mode = settings.REDIS_MODE.lower()
 
@@ -308,6 +308,137 @@ class SingleRedisWrapperWithPack(BaseRedisWrapperWithPack):
 
     def _connect(self):
         return _get_single_redis_client()
+
+
+# --- Redis connectivity checks (used during startup) ---
+
+
+class RedisErrorType:
+    """Error type classification for Redis failures"""
+
+    CONNECTION = "connection"
+    CONFIGURATION = "configuration"
+    OPERATION = "operation"
+
+
+def _classify_redis_error(operation: str, error: Exception) -> str:
+    """Classify Redis error type based on operation and error details."""
+    error_str = str(error).lower()
+
+    if any(
+        keyword in error_str
+        for keyword in [
+            "connection refused",
+            "connection failed",
+            "connection timeout",
+            "network is unreachable",
+            "no route to host",
+            "connection reset",
+        ]
+    ):
+        return RedisErrorType.CONNECTION
+
+    if any(
+        keyword in error_str
+        for keyword in [
+            "authentication failed",
+            "wrong number of arguments",
+            "unknown command",
+            "invalid password",
+            "no password is set",
+        ]
+    ):
+        return RedisErrorType.CONFIGURATION
+
+    return RedisErrorType.CONNECTION
+
+
+def _handle_redis_failure(operation: str, error: Exception) -> str:
+    """Handle Redis failures with classification and graceful degradation.
+
+    Args:
+        operation: Description of the operation that failed
+        error: The exception that occurred
+
+    Returns:
+        Error type classification string
+    """
+    error_type = _classify_redis_error(operation, error)
+    logger.error(f"Redis {operation} failed: {error}")
+    logger.error(f"Error classified as: {error_type}")
+    logger.warning(f"Redis {operation} failed, falling back to degraded mode")
+    return error_type
+
+
+def can_we_reach_redis(redis_url: str) -> bool:
+    """Test if we can reach a single Redis instance.
+
+    Returns:
+        bool: True if Redis is available, False otherwise
+    """
+    try:
+        redis_client = redis.from_url(redis_url)
+        redis_client.ping()
+        redis_client.close()
+        return True
+    except Exception as e:
+        _handle_redis_failure("connectivity test before manager creation", e)
+        return False
+
+
+def can_we_reach_sentinel(
+    sentinel_hosts: list[tuple[str, int]], master_name: str
+) -> bool:
+    """Test Redis Sentinel connectivity.
+
+    Args:
+        sentinel_hosts: List of (host, port) tuples for sentinel nodes
+        master_name: Name of the master to discover (e.g., 'mymaster')
+
+    Returns:
+        bool: True if sentinel and master are reachable, False otherwise
+    """
+    try:
+        sentinel_kwargs = {}
+        if settings.REDIS_PASSWORD:
+            sentinel_kwargs["password"] = settings.REDIS_PASSWORD
+
+        sentinel = Sentinel(sentinel_hosts, sentinel_kwargs=sentinel_kwargs)
+        master = sentinel.master_for(master_name, password=settings.REDIS_PASSWORD)
+        master.ping()
+        master.close()
+
+        logger.info(
+            f"Successfully connected to Redis via Sentinel (master: {master_name})"
+        )
+        return True
+    except Exception as e:
+        _handle_redis_failure("sentinel connectivity test", e)
+        return False
+
+
+def can_we_reach_cluster(startup_nodes: list[tuple[str, int]]) -> bool:
+    """Test Redis Cluster connectivity.
+
+    Args:
+        startup_nodes: List of (host, port) tuples
+
+    Returns:
+        bool: True if cluster is reachable, False otherwise
+    """
+    try:
+        from redis.cluster import RedisCluster, ClusterNode
+
+        nodes = [ClusterNode(host, port) for host, port in startup_nodes]
+        cluster_client = RedisCluster(
+            startup_nodes=nodes, password=settings.REDIS_PASSWORD
+        )
+        cluster_client.ping()
+        cluster_client.close()
+        return True
+    except Exception as e:
+        _handle_redis_failure("cluster connectivity test", e)
+        return False
 
 
 def extract_storage_class(redis_mode: str) -> type[BaseRedisWrapperWithPack]:

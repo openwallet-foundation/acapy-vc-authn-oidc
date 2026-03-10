@@ -26,14 +26,19 @@ from .routers import (
 )
 from .verificationConfigs.router import router as ver_configs_router
 from .clientConfigurations.router import router as client_config_router
-from .routers.socketio import (
-    sio_app,
+from .routers.sse import (
+    router as sse_router,
+    set_redis_client,
+    build_async_redis_client,
+)
+from .core.redis_utils import (
+    parse_host_port_pairs,
+    build_redis_url,
     _handle_redis_failure,
     can_we_reach_redis,
     can_we_reach_cluster,
     can_we_reach_sentinel,
 )
-from .core.redis_utils import parse_host_port_pairs, build_redis_url
 from api.core.oidc.provider import init_provider
 from api.core.webhook_utils import register_tenant_webhook
 from api.core.acapy.config import MultiTenantAcapy, TractionTenantAcapy
@@ -80,14 +85,12 @@ app.include_router(
 app.include_router(acapy_handler.router, prefix="/webhooks", include_in_schema=False)
 app.include_router(presentation_request.router, include_in_schema=False)
 app.include_router(cleanup.router, tags=["cleanup"])
+app.include_router(sse_router, include_in_schema=False)
 
 # DEPRECATED PATHS - For backwards compatibility with vc-authn-oidc 1.0
 app.include_router(
     oidc.router, prefix="/vc/connect", tags=["oidc-deprecated"], include_in_schema=False
 )
-
-# Connect the websocket server to run within the FastAPI app
-app.mount("/ws", sio_app)
 
 origins = ["*"]
 
@@ -160,13 +163,13 @@ async def on_tenant_startup():
     await init_db()
     await init_provider(await get_db())
 
-    # Check Redis availability if adapter is enabled.
-    # Redis is required for both Socket.IO cross-pod messaging AND PyOP token
+    # Check Redis availability if enabled.
+    # Redis is required for both SSE cross-pod messaging AND PyOP token
     # storage — if it's unreachable the entire auth flow is broken, so we fail
     # fast here rather than starting and crashing on every request.
     mode = settings.REDIS_MODE.lower()
     if mode == "none":
-        logger.debug("Redis adapter disabled (REDIS_MODE=none)")
+        logger.debug("Redis disabled (REDIS_MODE=none)")
     else:
         try:
             reachable = False
@@ -182,7 +185,12 @@ async def on_tenant_startup():
                 reachable = can_we_reach_cluster(hosts)
 
             if reachable:
-                logger.info(f"Redis adapter is available and ready (mode={mode})")
+                logger.info(f"Redis is available and ready (mode={mode})")
+                # Initialize async Redis client for SSE pub/sub
+                redis_client = await build_async_redis_client()
+                app.state.redis_client = redis_client
+                set_redis_client(redis_client)
+                logger.info(f"SSE Redis pub/sub client initialized (mode={mode})")
             else:
                 raise RuntimeError(
                     f"REDIS_MODE={mode} is configured but Redis is not reachable "
@@ -257,6 +265,8 @@ async def on_tenant_shutdown():
     logger.info(">>> Shutting down app ...")
     if hasattr(app.state, "http_client"):
         await app.state.http_client.aclose()
+    if hasattr(app.state, "redis_client"):
+        await app.state.redis_client.aclose()
 
 
 @app.get("/", tags=["liveness", "readiness"])

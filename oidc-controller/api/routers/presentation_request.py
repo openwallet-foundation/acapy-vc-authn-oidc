@@ -7,7 +7,7 @@ from pymongo.database import Database
 from ..authSessions.crud import AuthSessionCRUD
 from ..authSessions.models import AuthSession, AuthSessionState
 from ..core.config import settings
-from ..routers.socketio import get_socket_id_for_pid, safe_emit
+from ..routers.sse import notify
 from ..routers.oidc import gen_deep_link
 from ..core.siem_audit import audit_qr_scanned
 from ..db.session import get_db
@@ -21,9 +21,7 @@ async def toggle_pending(db, auth_session: AuthSession):
     # We need to set this to pending now
     auth_session.proof_status = AuthSessionState.PENDING
     await AuthSessionCRUD(db).patch(auth_session.id, auth_session)
-    sid = await get_socket_id_for_pid(str(auth_session.id), db)
-    if sid:
-        await safe_emit("status", {"status": "pending"}, to=sid)
+    await notify(str(auth_session.id), "pending")
 
 
 @router.get("/url/pres_exch/{pres_exch_id}")
@@ -71,9 +69,6 @@ async def send_connectionless_proof_req(
     auth_session: AuthSession = await AuthSessionCRUD(db).get_by_pres_exch_id(
         pres_exch_id
     )
-
-    # Get the websocket session
-    await get_socket_id_for_pid(str(auth_session.id), db)
 
     # If the qrcode has been scanned, toggle the pending flag
     if auth_session.proof_status is AuthSessionState.NOT_STARTED:

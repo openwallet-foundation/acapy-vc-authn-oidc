@@ -11,7 +11,7 @@ from ..authSessions.crud import AuthSessionCRUD
 from ..authSessions.models import AuthSession, AuthSessionPatch, AuthSessionState
 from ..core.acapy.client import AcapyClient
 from ..core.config import settings
-from ..routers.socketio import get_socket_id_for_pid, safe_emit
+from ..routers.sse import notify
 from ..core.siem_audit import (
     audit_proof_verification_failed,
     audit_proof_verified,
@@ -140,16 +140,6 @@ async def _update_auth_session(db: Database, auth_session: AuthSession) -> None:
     )
 
 
-async def _emit_status_to_socket(
-    db: Database, auth_session: AuthSession, status: str
-) -> None:
-    """Emit status update to socket if session ID exists."""
-    pid = str(auth_session.id)
-    sid = await get_socket_id_for_pid(pid, db)
-    if sid:
-        await safe_emit("status", {"status": status}, to=sid)
-
-
 async def _parse_webhook_body(request: Request) -> dict[Any, Any]:
     return json.loads((await request.body()).decode("ascii"))
 
@@ -267,7 +257,7 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                                     )
 
                                 # Emit failure status to frontend
-                                await _emit_status_to_socket(db, auth_session, "failed")
+                                await notify(str(auth_session.id), "failed")
                         else:
                             logger.debug(
                                 f"Auth session found but no proof_request: {auth_session.id}"
@@ -319,10 +309,7 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                 webhook_body["pres_ex_id"]
             )
 
-            # Get the saved websocket session
             pid = str(auth_session.id)
-            sid = await get_socket_id_for_pid(pid, db)
-            logger.debug(f"sid: {sid} found for pid: {pid}")
 
             if webhook_body["state"] == "presentation-received":
                 logger.info("presentation-received")
@@ -355,7 +342,7 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                         revocation_checked=settings.SET_NON_REVOKED,
                     )
 
-                    await _emit_status_to_socket(db, auth_session, "verified")
+                    await notify(str(auth_session.id), "verified")
                 else:
                     logger.info("VERIFICATION FAILED")
                     auth_session.proof_status = AuthSessionState.FAILED
@@ -368,7 +355,7 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                         duration_ms=duration_ms,
                     )
 
-                    await _emit_status_to_socket(db, auth_session, "failed")
+                    await notify(str(auth_session.id), "failed")
 
                     # Send problem report for failed verification in connection-based flow
                     if (
@@ -404,7 +391,7 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                     duration_ms=duration_ms,
                 )
 
-                await _emit_status_to_socket(db, auth_session, "abandoned")
+                await notify(str(auth_session.id), "abandoned")
 
                 # Send problem report for abandoned presentation in connection-based flow
                 if (
@@ -457,7 +444,7 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                     timeout_seconds=settings.CONTROLLER_PRESENTATION_EXPIRE_TIME,
                 )
 
-                await _emit_status_to_socket(db, auth_session, "expired")
+                await notify(str(auth_session.id), "expired")
 
                 # Send problem report for expired presentation in connection-based flow
                 if (

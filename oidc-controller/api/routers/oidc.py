@@ -35,8 +35,7 @@ from ..core.siem_audit import (
 )
 from ..db.session import get_db
 
-# Access to the websocket
-from ..routers.socketio import get_socket_id_for_pid, safe_emit
+from ..routers.sse import notify
 from ..verificationConfigs.crud import VerificationConfigCRUD
 from ..verificationConfigs.helpers import VariableSubstitutionError
 from ..verificationConfigs.models import MetaData
@@ -62,7 +61,6 @@ async def poll_pres_exch_complete(pid: str, db: Database = Depends(get_db)):
     auth_session = await AuthSessionCRUD(db).get(pid)
 
     pid = str(auth_session.id)
-    sid = await get_socket_id_for_pid(pid, db)
 
     """
      Check if proof is expired. But only if the proof has not been started.
@@ -82,9 +80,7 @@ async def poll_pres_exch_complete(pid: str, db: Database = Depends(get_db)):
         await AuthSessionCRUD(db).patch(
             str(auth_session.id), AuthSessionPatch(**auth_session.model_dump())
         )
-        # Send message through the websocket.
-        if sid:
-            await safe_emit("status", {"status": "expired"}, to=sid)
+        await notify(pid, "expired")
 
     return {"proof_status": auth_session.proof_status}
 
