@@ -1,0 +1,30 @@
+name: "Code scanning - action"
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: "0 19 * * 0"
+
+jobs:
+  CodeQL-Build:
+    # CodeQL runs on ubuntu-latest and windows-latest
+    runs-on: ubuntu-latest
+    if: (github.event_name == 'pull_request' && github.repository == 'openwallet-foundation/acapy-vc-authn-oidc') || (github.event_name != 'pull_request')
+
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+
+      # Initializes the CodeQL tools for scanning.
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@c793b717bc78562f491db7b0e93a3a178b099162 # v3.29.5
+        with:
+          languages: python
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@c793b717bc78562f491db7b0e93a3a178b099162 # v3.29.5
