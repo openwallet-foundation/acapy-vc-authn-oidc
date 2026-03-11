@@ -1,0 +1,46 @@
+:root {
+  --owf-primary: rgb(0, 148, 255);
+  --owf-dark: rgb(10, 20, 47);
+  --owf-gold: #fcba19;
+}
+
+.owf-header {
+  background-color: #ffffff;
+  border-bottom: 2px solid var(--owf-gold);
+}
+
+.owf-header h1 {
+  font-size: 1.15rem;
+  color: var(--owf-dark);
+}
+
+.owf-footer {
+  background-color: var(--owf-dark);
+  border-top: 2px solid var(--owf-gold);
+}
+
+.btn-primary {
+  background-color: var(--owf-primary);
+  border-color: var(--owf-primary);
+}
+
+.btn-primary:hover {
+  background-color: rgb(0, 125, 215);
+  border-color: rgb(0, 125, 215);
+}
+
+.owf-footer a:hover {
+  text-decoration: underline !important;
+}
+
+.token-raw {
+  word-break: break-all;
+  white-space: pre-wrap;
+  font-size: 0.8rem;
+}
+
+.token-decoded {
+  white-space: pre-wrap;
+  font-size: 0.85rem;
+  margin-bottom: 0;
+}

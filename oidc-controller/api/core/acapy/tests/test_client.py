@@ -1,8 +1,8 @@
 import json
+from unittest import mock
 
-import mock
-import pytest
 import httpx
+import pytest
 import respx
 from api.core.acapy.client import (
     CONNECTIONS_URI,

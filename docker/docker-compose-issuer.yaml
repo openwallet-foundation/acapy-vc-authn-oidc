@@ -1,6 +1,6 @@
 services:
   issuer-aca-py:
-    image: ghcr.io/openwallet-foundation/acapy-agent:py3.12-1.4.0
+    image: ghcr.io/openwallet-foundation/acapy-agent:py3.13-1.5.1
     environment:
       - ACAPY_LABEL=${ISSUER_AGENT_NAME:-Trusted Verifier Issuer}
       - ACAPY_ENDPOINT=${ISSUER_AGENT_ENDPOINT:-http://issuer-aca-py:8031}
@@ -36,7 +36,7 @@ services:
       ]
 
   issuer-wallet-db:
-    image: postgres:15.1-alpine
+    image: postgres:15-alpine
     environment:
       - POSTGRES_USER=${ISSUER_POSTGRESQL_WALLET_USER:-issuer_wallet_user}
       - POSTGRES_PASSWORD=${ISSUER_POSTGRESQL_WALLET_PASSWORD:-issuer_wallet_password}

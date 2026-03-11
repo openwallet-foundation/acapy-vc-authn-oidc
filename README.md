@@ -172,7 +172,7 @@ This is a sample debugger launch configuration for VSCode that can be used by ad
         },
         {
           "localRoot": "${workspaceFolder}/.venv/Lib/site-packages",
-          "remoteRoot": "/usr/local/lib/python3.12/site-packages"
+          "remoteRoot": "/usr/local/lib/python3.13/site-packages"
         }
       ],
       "justMyCode": false
