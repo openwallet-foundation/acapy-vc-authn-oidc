@@ -855,23 +855,6 @@ files = [
 ]
 
 [[package]]
-name = "mock"
-version = "5.2.0"
-description = "Rolling backport of unittest.mock for all Pythons"
-optional = false
-python-versions = ">=3.6"
-groups = ["dev"]
-files = [
-    {file = "mock-5.2.0-py3-none-any.whl", hash = "sha256:7ba87f72ca0e915175596069dbbcc7c75af7b5e9b9bc107ad6349ede0819982f"},
-    {file = "mock-5.2.0.tar.gz", hash = "sha256:4e460e818629b4b173f32d08bf30d3af8123afbb8e04bb5707a1fd4799e503f0"},
-]
-
-[package.extras]
-build = ["blurb", "twine", "wheel"]
-docs = ["sphinx"]
-test = ["pytest", "pytest-cov"]
-
-[[package]]
 name = "mongomock"
 version = "4.3.0"
 description = "Fake pymongo stub for testing simple MongoDB-dependent code"
@@ -2224,4 +2207,4 @@ h11 = ">=0.16.0,<1"
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.13,<4.0"
-content-hash = "243cf21668ce8b1b05a3316ac34593e3143a2f2f4dc88dcc734603c6995088fc"
+content-hash = "c91fd6529fd110e835e368fa03289558ffc3f1aa843dc9f13b8143490507dca8"
