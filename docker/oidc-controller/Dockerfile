@@ -1,4 +1,4 @@
-FROM python:3.12 AS main
+FROM python:3.13 AS main
 
 WORKDIR /app/src
 
@@ -13,7 +13,7 @@ LABEL org.opencontainers.image.licenses="Apache-2.0"
 LABEL org.opencontainers.image.authors="OpenWallet Foundation"
 
 ENV POETRY_VIRTUALENVS_CREATE=false
-RUN pip3 install --no-cache-dir poetry==2.0
+RUN pip3 install --no-cache-dir poetry==2.3.2
 
 COPY pyproject.toml poetry.lock README.md ./
 RUN poetry install --no-root --only main

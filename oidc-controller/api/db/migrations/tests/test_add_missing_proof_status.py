@@ -1,10 +1,9 @@
 """Tests for add_missing_proof_status migration."""
 
-import pytest
 from unittest.mock import MagicMock, patch
 
-from api.db.migrations.add_missing_proof_status import migrate_missing_proof_status
 from api.authSessions.models import AuthSessionState
+from api.db.migrations.add_missing_proof_status import migrate_missing_proof_status
 
 
 def make_mock_db(count_without_status, modified_count):

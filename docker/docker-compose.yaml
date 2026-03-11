@@ -128,7 +128,7 @@ services:
       - vc_auth
 
   keycloak:
-    image: quay.io/keycloak/keycloak:26.0
+    image: quay.io/keycloak/keycloak:26.5
     command: start-dev --import-realm
     ports:
       - 8880:8080
@@ -207,7 +207,7 @@ services:
       ]
 
   wallet-db:
-    image: postgres:15.1-alpine
+    image: postgres:15-alpine
     environment:
       - POSTGRES_USER=${POSTGRESQL_WALLET_USER}
       - POSTGRES_PASSWORD=${POSTGRESQL_WALLET_PASSWORD}
