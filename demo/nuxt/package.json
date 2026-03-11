@@ -1,0 +1,16 @@
+{
+  "name": "oidc-demo-nuxt",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "nuxt dev",
+    "build": "nuxt build",
+    "preview": "nuxt preview",
+    "start": "node .output/server/index.mjs"
+  },
+  "dependencies": {
+    "bootstrap": "^5.3.3",
+    "nuxt": "^4.3.0",
+    "nuxt-oidc-auth": "^1.0.0-beta.10"
+  }
+}

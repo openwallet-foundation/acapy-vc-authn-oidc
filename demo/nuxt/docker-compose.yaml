@@ -1,0 +1,14 @@
+services:
+  nuxt-app:
+    ports:
+      - "${IP:-0.0.0.0}:8080:8080"
+    build: .
+    extra_hosts:
+      - "localhost:host-gateway"
+    environment:
+      PORT: "8080"
+      NUXT_OIDC_PROVIDERS_KEYCLOAK_BASE_URL: "http://localhost:8880/auth/realms/vc-authn"
+      NUXT_OIDC_PROVIDERS_KEYCLOAK_CLIENT_ID: "vue-fe"
+      NUXT_OIDC_PROVIDERS_KEYCLOAK_CLIENT_SECRET: "r7Sc7iw2deFz3olSXlFiVoaaODIZf3vp"
+      NUXT_OIDC_PROVIDERS_KEYCLOAK_REDIRECT_URI: "http://localhost:8080/auth/keycloak/callback"
+      NUXT_PUBLIC_PRES_REQ_CONF_ID: "showcase-person"

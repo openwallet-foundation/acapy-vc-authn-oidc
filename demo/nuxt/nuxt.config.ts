@@ -1,0 +1,37 @@
+export default defineNuxtConfig({
+  future: { compatibilityVersion: 4 },
+
+  modules: ['nuxt-oidc-auth'],
+
+  imports: {
+    autoImport: true
+  },
+
+  css: ['bootstrap/dist/css/bootstrap.min.css', '~/assets/css/main.css'],
+
+  runtimeConfig: {
+    public: {
+      presReqConfId: '',
+    },
+  },
+
+  oidc: {
+    providers: {
+      keycloak: {
+        baseUrl: process.env.NUXT_OIDC_PROVIDERS_KEYCLOAK_BASE_URL || 'http://localhost:8880/auth/realms/vc-authn',
+        clientId: '',
+        clientSecret: '',
+        redirectUri: '',
+        exposeAccessToken: true,
+        allowedClientAuthParameters: ['pres_req_conf_id'],
+        logoutRedirectUri: process.env.NUXT_OIDC_PROVIDERS_KEYCLOAK_LOGOUT_REDIRECT_URI || 'http://localhost:8080',
+      },
+    },
+    middleware: {
+      globalMiddlewareEnabled: true,
+    },
+  },
+
+  telemetry: false,
+  devtools: { enabled: false },
+})
