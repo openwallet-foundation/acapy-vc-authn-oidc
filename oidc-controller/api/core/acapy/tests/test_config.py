@@ -1,8 +1,9 @@
 import asyncio
-import mock
-import pytest
 import time
+from unittest import mock
+
 import httpx
+import pytest
 import respx
 from api.core.acapy.config import (
     MultiTenantAcapy,
