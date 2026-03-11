@@ -12,7 +12,7 @@
       <button
         v-if="!loggedIn"
         class="btn btn-primary btn-sm"
-        @click="login('keycloak')"
+        @click="doLogin"
       >
         Login
       </button>
@@ -29,4 +29,9 @@
 
 <script setup>
 const { loggedIn, login, logout } = useOidcAuth()
+const { presReqConfId } = useRuntimeConfig().public
+
+function doLogin() {
+  login('keycloak', { pres_req_conf_id: presReqConfId })
+}
 </script>

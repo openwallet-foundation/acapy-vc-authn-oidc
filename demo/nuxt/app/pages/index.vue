@@ -13,7 +13,7 @@
           Demonstrates OpenID Connect authentication with Keycloak
           using Verifiable Credentials.
         </p>
-        <button class="btn btn-primary btn-lg" @click="login('keycloak')">
+        <button class="btn btn-primary btn-lg" @click="doLogin">
           Login with Keycloak
         </button>
       </div>
@@ -25,6 +25,11 @@
 definePageMeta({ oidcAuth: { enabled: false } })
 
 const { loggedIn, login } = useOidcAuth()
+const { presReqConfId } = useRuntimeConfig().public
+
+function doLogin() {
+  login('keycloak', { pres_req_conf_id: presReqConfId })
+}
 
 // Redirect to dashboard if already logged in
 if (loggedIn.value) {

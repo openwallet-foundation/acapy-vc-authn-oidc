@@ -23,10 +23,8 @@ export default defineNuxtConfig({
         clientSecret: '',
         redirectUri: '',
         exposeAccessToken: true,
+        allowedClientAuthParameters: ['pres_req_conf_id'],
         logoutRedirectUri: process.env.NUXT_OIDC_PROVIDERS_KEYCLOAK_LOGOUT_REDIRECT_URI || 'http://localhost:8080',
-        additionalAuthParameters: {
-          pres_req_conf_id: process.env.NUXT_PUBLIC_PRES_REQ_CONF_ID || '',
-        },
       },
     },
     middleware: {
