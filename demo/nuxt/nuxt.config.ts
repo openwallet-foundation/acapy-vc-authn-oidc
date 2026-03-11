@@ -18,7 +18,7 @@ export default defineNuxtConfig({
   oidc: {
     providers: {
       keycloak: {
-        baseUrl: '',
+        baseUrl: process.env.NUXT_OIDC_PROVIDERS_KEYCLOAK_BASE_URL || 'http://localhost:8880/auth/realms/vc-authn',
         clientId: '',
         clientSecret: '',
         redirectUri: '',
