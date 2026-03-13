@@ -1,7 +1,7 @@
 """SSE (Server-Sent Events) router for real-time proof status notifications.
 
 Replaces the previous Socket.IO implementation with a simpler, unidirectional
-server→browser push mechanism that requires no client-side JS library.
+server -> browser push mechanism that requires no client-side JS library.
 
 Single-pod mode (REDIS_MODE=none):
     Uses in-process asyncio.Event signaling. Only one SSE subscriber per pid
@@ -17,9 +17,10 @@ Multi-pod mode (REDIS_MODE=single/sentinel/cluster):
     for better performance at scale.
 
 Sentinel failover: If a Sentinel failover occurs mid-session, the pub/sub
-    connection drops and listen() raises ConnectionError. The browser's native
-    EventSource auto-reconnects, starting a fresh generator that re-subscribes
-    via Sentinel discovery. No explicit retry logic is needed in the generator.
+    connection drops and get_message() raises ConnectionError. The SSE generator
+    catches this and returns cleanly. The browser's native EventSource
+    auto-reconnects, starting a fresh generator that re-subscribes via Sentinel
+    discovery. No explicit retry logic is needed in the generator.
 """
 
 import asyncio
@@ -29,7 +30,7 @@ from typing import AsyncGenerator
 
 import redis.asyncio as async_redis
 import structlog
-from fastapi import APIRouter, Depends, Header, Request
+from fastapi import APIRouter, Depends, Request
 from pymongo.database import Database
 from starlette.responses import StreamingResponse
 
@@ -163,12 +164,14 @@ def _format_event(data: dict, event: str = "status", id: str | None = None) -> s
 
 async def _get_initial_state(
     pid: str, db: Database
-) -> tuple[str | None, bool, datetime | None]:
+) -> tuple[str | None, bool, datetime | None, object]:
     """Fetch current proof_status from DB for the initial SSE event on connect.
 
-    Returns (status, is_terminal, expired_timestamp). Returns (None, False, None)
-    if session not found. Called on every (re)connect so the browser is immediately
-    up-to-date even if the webhook fired before the browser connected.
+    Returns (status, is_terminal, expired_timestamp, auth_session). Returns
+    (None, False, None, None) if session not found. Called on every (re)connect
+    so the browser is immediately up-to-date even if the webhook fired before
+    the browser connected. The auth_session is returned to avoid a second DB
+    read in the connect-time expiry check.
     """
     try:
         auth_session = await AuthSessionCRUD(db).get(pid)
@@ -176,9 +179,10 @@ async def _get_initial_state(
             auth_session.proof_status,
             auth_session.proof_status in TERMINAL_STATES,
             auth_session.expired_timestamp,
+            auth_session,
         )
     except Exception:
-        return None, False, None
+        return None, False, None, None
 
 
 def _seconds_until_expiry(expired_timestamp: datetime | None) -> float:
@@ -194,15 +198,16 @@ def _seconds_until_expiry(expired_timestamp: datetime | None) -> float:
     return min(30.0, max(1.0, remaining))
 
 
-async def _expire_if_needed(pid: str, db: Database) -> bool:
+async def _expire_if_needed(pid: str, db: Database, auth_session=None) -> bool:
     """Transition a NOT_STARTED session to EXPIRED if its deadline has passed.
 
-    Called on connect (one extra DB read after _get_initial_state — accepted
-    trade-off to keep expiry logic in one place) and on every keepalive tick.
+    Called on connect (passing the auth_session from _get_initial_state to avoid
+    a second DB read) and on every keepalive tick (auth_session=None, re-fetches).
     Returns True if the session was just expired, False otherwise.
     """
     try:
-        auth_session = await AuthSessionCRUD(db).get(pid)
+        if auth_session is None:
+            auth_session = await AuthSessionCRUD(db).get(pid)
         if auth_session.proof_status != AuthSessionState.NOT_STARTED:
             logger.debug(
                 "SSE expiry check: status is not NOT_STARTED, skipping",
@@ -237,7 +242,9 @@ async def _single_pod_stream(
     """Generate SSE events for single-pod mode using in-process asyncio.Event."""
     seq = 0
 
-    status, is_terminal, expired_timestamp = await _get_initial_state(pid, db)
+    status, is_terminal, expired_timestamp, auth_session = await _get_initial_state(
+        pid, db
+    )
     if status is not None:
         yield _format_event({"status": status}, id=str(seq))
         seq += 1
@@ -246,12 +253,20 @@ async def _single_pod_stream(
 
     # Check expiry immediately on connect in case the deadline already passed.
     # Guard on NOT_STARTED: any other status means expiry can't apply, skip the DB read.
-    if status == AuthSessionState.NOT_STARTED and await _expire_if_needed(pid, db):
+    if status == AuthSessionState.NOT_STARTED and await _expire_if_needed(
+        pid, db, auth_session=auth_session
+    ):
         yield _format_event({"status": "expired"}, id=str(seq))
         seq += 1
         return
 
     event = asyncio.Event()
+    if pid in _signals:
+        logger.warning(
+            "SSE single-pod: overwriting existing subscriber for pid "
+            "(second tab or reconnect race — previous connection will stall)",
+            pid=pid,
+        )
     _signals[pid] = event
     try:
         while not await request.is_disconnected():
@@ -282,20 +297,19 @@ async def _single_pod_stream(
         _latest.pop(pid, None)
 
 
-async def _next_redis_message(pubsub) -> dict:
-    """Consume pubsub.listen() until a data message arrives.
+async def _poll_redis_pubsub(pubsub) -> dict | None:
+    """Non-blocking poll of a Redis pubsub channel. Cancel-safe.
 
-    Blocks efficiently at the Redis socket read — no spin loop.
-    asyncio.wait_for raises TimeoutError after 30s, which allows the outer
-    loop to send a keepalive comment and re-check for disconnect.
-
-    Raises ConnectionError if the pubsub stream closes without delivering
-    a message (e.g., on Sentinel failover), so the caller can handle it.
+    Returns parsed JSON payload if a data message is available, None otherwise.
+    Raises ConnectionError if the pubsub connection has been closed (e.g., on
+    Sentinel failover), so the caller can handle it.
     """
-    async for msg in pubsub.listen():
-        if msg["type"] == "message":
-            return json.loads(msg["data"])
-    raise ConnectionError("Redis pubsub closed without delivering a message")
+    msg = await pubsub.get_message(ignore_subscribe_messages=True, timeout=0)
+    if msg is None:
+        return None
+    if msg.get("type") == "message":
+        return json.loads(msg["data"])
+    return None
 
 
 async def _multi_pod_stream(
@@ -305,14 +319,16 @@ async def _multi_pod_stream(
 
     Subscribes BEFORE reading DB state to close the race window where a webhook
     fires between the DB check and the subscription setup. Any notification
-    published in that window is queued and delivered when listen() starts.
+    published in that window is queued and delivered when get_message() polls.
     """
     pubsub = _redis_client.pubsub()
     await pubsub.subscribe(f"sse:{pid}")
     seq = 0
     try:
         # Emit current state from DB on (re)connect
-        status, is_terminal, expired_timestamp = await _get_initial_state(pid, db)
+        status, is_terminal, expired_timestamp, auth_session = await _get_initial_state(
+            pid, db
+        )
         if status is not None:
             yield _format_event({"status": status}, id=str(seq))
             seq += 1
@@ -321,26 +337,40 @@ async def _multi_pod_stream(
 
         # Check expiry immediately on connect in case the deadline already passed.
         # Guard on NOT_STARTED: any other status means expiry can't apply, skip the DB read.
-        if status == AuthSessionState.NOT_STARTED and await _expire_if_needed(pid, db):
+        if status == AuthSessionState.NOT_STARTED and await _expire_if_needed(
+            pid, db, auth_session=auth_session
+        ):
             yield _format_event({"status": "expired"}, id=str(seq))
             seq += 1
             return
 
         while not await request.is_disconnected():
-            try:
-                payload = await asyncio.wait_for(
-                    _next_redis_message(pubsub),
-                    timeout=_seconds_until_expiry(expired_timestamp),
-                )
-            except asyncio.TimeoutError:
-                # Timeout — send a keepalive comment and check expiry.
+            deadline = _seconds_until_expiry(expired_timestamp)
+            elapsed = 0.0
+            poll_step = 0.05
+            payload = None
+            while elapsed < deadline:
+                try:
+                    payload = await _poll_redis_pubsub(pubsub)
+                except ConnectionError:
+                    logger.warning(
+                        "Redis pubsub closed (Sentinel failover?), ending SSE stream",
+                        pid=pid,
+                    )
+                    return
+                if payload is not None:
+                    break
+                await asyncio.sleep(poll_step)
+                elapsed += poll_step
+            if payload is None:
+                # Deadline elapsed without a message — send keepalive and check expiry.
                 yield ": keepalive\n\n"
                 if await _expire_if_needed(pid, db):
                     yield _format_event({"status": "expired"}, id=str(seq))
                     seq += 1
                     return
-                # Keep expired_timestamp as-is: _seconds_until_expiry clamps to 1s minimum
-                # when past the deadline, so we retry every second until expiry succeeds.
+                # _seconds_until_expiry clamps to 1s minimum when past the deadline,
+                # so we retry every second until expiry succeeds.
                 continue
             yield _format_event(payload, id=str(seq))
             seq += 1
@@ -356,12 +386,11 @@ async def sse_status(
     pid: str,
     request: Request,
     db: Database = Depends(get_db),
-    last_event_id: str | None = Header(default=None, alias="Last-Event-ID"),  # noqa: ARG001
 ):
     """SSE endpoint for real-time proof status updates.
 
     The browser's native EventSource automatically reconnects on disconnect
-    and sends the Last-Event-ID header. We don't replay from that ID —
+    and sends the Last-Event-ID header. We intentionally ignore that ID —
     instead we always emit the current DB state on (re)connect, which gives
     the client a consistent snapshot without needing an event log.
 
