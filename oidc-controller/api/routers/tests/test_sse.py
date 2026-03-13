@@ -518,6 +518,25 @@ class TestBuildAsyncRedisClient:
                 "mymaster", password=None
             )
 
+    @pytest.mark.asyncio
+    async def test_sentinel_mode_passes_password(self):
+        mock_sentinel_cls = MagicMock()
+        mock_sentinel_instance = MagicMock()
+        mock_sentinel_cls.return_value = mock_sentinel_instance
+        mock_sentinel_instance.master_for.return_value = MagicMock()
+
+        with (
+            patch.object(sse_module.settings, "REDIS_MODE", "sentinel"),
+            patch.object(sse_module.settings, "REDIS_HOST", "sentinel1:26379"),
+            patch.object(sse_module.settings, "REDIS_PASSWORD", "secret"),
+            patch.object(sse_module.settings, "REDIS_SENTINEL_MASTER_NAME", "mymaster"),
+            patch("api.routers.sse.async_redis.sentinel.Sentinel", mock_sentinel_cls),
+        ):
+            await build_async_redis_client()
+            # Password goes into sentinel_kwargs, not directly to master_for
+            _, kwargs = mock_sentinel_cls.call_args
+            assert kwargs["sentinel_kwargs"]["password"] == "secret"
+
 
 # ---------------------------------------------------------------------------
 # Integration tests: SSE endpoint routing
@@ -725,4 +744,133 @@ class TestSinglePodStreamExpiry:
         assert resp.status_code == 200
         assert b"expired" in resp.content
         # Should have patched the DB to record the expiry
+        mock_crud.patch.assert_awaited()
+
+    @pytest.mark.asyncio
+    async def test_stream_emits_expired_on_keepalive_timeout(self):
+        """Timeout fires → _expire_if_needed returns True → expired event emitted."""
+        mock_db = MagicMock()
+        mock_request = MagicMock()
+        mock_request.is_disconnected = AsyncMock(return_value=False)
+
+        # Session not yet expired on connect (so connect-time check passes)
+        # then expired when the timeout handler calls _expire_if_needed.
+        future_session = _make_auth_session(AuthSessionState.NOT_STARTED)
+        future_session.expired_timestamp = datetime.now(UTC) + timedelta(seconds=300)
+        expired_session = _make_auth_session(AuthSessionState.NOT_STARTED)
+        expired_session.expired_timestamp = datetime.now(UTC) - timedelta(seconds=1)
+
+        mock_crud = MagicMock()
+        # _get_initial_state, connect-time _expire_if_needed, then loop _expire_if_needed
+        mock_crud.get = AsyncMock(
+            side_effect=[future_session, future_session, expired_session]
+        )
+        mock_crud.patch = AsyncMock()
+
+        call_count = 0
+        original_wait_for = asyncio.wait_for
+
+        async def mock_wait_for(coro, timeout):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                coro.close()
+                raise asyncio.TimeoutError()
+            return await original_wait_for(coro, timeout)
+
+        collected = []
+        with patch("api.routers.sse.AuthSessionCRUD", return_value=mock_crud):
+            with patch("api.routers.sse.asyncio.wait_for", mock_wait_for):
+                async for chunk in sse_module._single_pod_stream(
+                    "test-pid", mock_request, mock_db
+                ):
+                    collected.append(chunk)
+
+        content = "".join(collected)
+        assert ": keepalive" in content
+        assert "expired" in content
+
+    @pytest.mark.asyncio
+    async def test_stream_continues_when_event_fires_with_no_status(self):
+        """Event fires but _latest has no entry → continue without yielding."""
+        mock_db = MagicMock()
+        mock_request = MagicMock()
+
+        session = _make_auth_session(AuthSessionState.NOT_STARTED)
+        session.expired_timestamp = datetime.now(UTC) + timedelta(seconds=300)
+        mock_crud = MagicMock()
+        mock_crud.get = AsyncMock(return_value=session)
+
+        # First call: disconnected=False (enter loop), second call: disconnected=True (exit)
+        mock_request.is_disconnected = AsyncMock(side_effect=[False, True])
+
+        collected = []
+
+        async def consume():
+            with patch("api.routers.sse.AuthSessionCRUD", return_value=mock_crud):
+                async for chunk in sse_module._single_pod_stream(
+                    "pid-no-status", mock_request, mock_db
+                ):
+                    collected.append(chunk)
+
+        async def produce():
+            await asyncio.sleep(0.02)
+            # Fire the event without putting anything in _latest
+            event = _signals.get("pid-no-status")
+            if event:
+                event.set()
+
+        await asyncio.gather(consume(), produce())
+        # Stream should not have emitted any status update (only the initial NOT_STARTED)
+        content = "".join(collected)
+        assert content.count("not_started") == 1
+
+
+# ---------------------------------------------------------------------------
+# Integration tests: expiry in _multi_pod_stream
+# ---------------------------------------------------------------------------
+
+
+class TestMultiPodStreamExpiry:
+    def setup_method(self):
+        _signals.clear()
+        _latest.clear()
+
+    def teardown_method(self):
+        _signals.clear()
+        _latest.clear()
+        sse_module._redis_client = None
+
+    def test_multi_pod_stream_emits_expired_on_connect(self):
+        """Multi-pod: already-expired session on connect → emit expired and close."""
+        app = _make_app()
+        session = _make_auth_session(AuthSessionState.NOT_STARTED)
+        session.expired_timestamp = datetime.now(UTC) - timedelta(seconds=30)
+
+        mock_crud = MagicMock()
+        mock_crud.get = AsyncMock(return_value=session)
+        mock_crud.patch = AsyncMock()
+
+        mock_redis = MagicMock()
+        mock_pubsub = MagicMock()
+        mock_redis.pubsub.return_value = mock_pubsub
+        mock_pubsub.subscribe = AsyncMock()
+        mock_pubsub.unsubscribe = AsyncMock()
+        mock_pubsub.aclose = AsyncMock()
+
+        async def empty_listen():
+            return
+            yield
+
+        mock_pubsub.listen = empty_listen
+        sse_module._redis_client = mock_redis
+
+        with patch("api.routers.sse.AuthSessionCRUD", return_value=mock_crud):
+            with patch("api.routers.sse.settings") as mock_settings:
+                mock_settings.REDIS_MODE = "single"
+                client = TestClient(app, raise_server_exceptions=False)
+                resp = client.get("/sse/status/507f1f77bcf86cd799439011")
+
+        assert resp.status_code == 200
+        assert b"expired" in resp.content
         mock_crud.patch.assert_awaited()
