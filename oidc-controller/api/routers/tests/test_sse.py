@@ -18,7 +18,7 @@ from api.routers.sse import (
     _format_event,
     _get_initial_state,
     _latest,
-    _next_redis_message,
+    _poll_redis_pubsub,
     _seconds_until_expiry,
     _signals,
     build_async_redis_client,
@@ -300,9 +300,12 @@ class TestGetInitialState:
             return_value=_make_auth_session(AuthSessionState.VERIFIED)
         )
         with patch("api.routers.sse.AuthSessionCRUD", return_value=mock_crud):
-            status, is_terminal, _ = await _get_initial_state("any-pid", mock_db)
+            status, is_terminal, _, auth_session = await _get_initial_state(
+                "any-pid", mock_db
+            )
         assert status == AuthSessionState.VERIFIED
         assert is_terminal is True
+        assert auth_session is not None
 
     @pytest.mark.asyncio
     async def test_returns_none_false_when_session_not_found(self):
@@ -311,9 +314,12 @@ class TestGetInitialState:
         mock_crud = MagicMock()
         mock_crud.get = AsyncMock(side_effect=Exception("not found"))
         with patch("api.routers.sse.AuthSessionCRUD", return_value=mock_crud):
-            status, is_terminal, _ = await _get_initial_state("missing-pid", mock_db)
+            status, is_terminal, _, auth_session = await _get_initial_state(
+                "missing-pid", mock_db
+            )
         assert status is None
         assert is_terminal is False
+        assert auth_session is None
 
     @pytest.mark.asyncio
     async def test_non_terminal_status_returns_false(self):
@@ -323,7 +329,7 @@ class TestGetInitialState:
             return_value=_make_auth_session(AuthSessionState.PENDING)
         )
         with patch("api.routers.sse.AuthSessionCRUD", return_value=mock_crud):
-            status, is_terminal, _ = await _get_initial_state("pid1", mock_db)
+            status, is_terminal, _, _ = await _get_initial_state("pid1", mock_db)
         assert status == AuthSessionState.PENDING
         assert is_terminal is False
 
@@ -417,48 +423,48 @@ class TestSinglePodStream:
 
 
 # ---------------------------------------------------------------------------
-# Unit tests: _next_redis_message
+# Unit tests: _poll_redis_pubsub
 # ---------------------------------------------------------------------------
 
 
-class TestNextRedisMessage:
+class TestPollRedisPubsub:
     @pytest.mark.asyncio
-    async def test_returns_parsed_json_from_message(self):
-        async def fake_listen():
-            yield {"type": "subscribe", "data": 1}  # skipped
-            yield {"type": "message", "data": json.dumps({"status": "verified"})}
-
-        mock_pubsub = MagicMock()
-        mock_pubsub.listen = fake_listen
-        result = await _next_redis_message(mock_pubsub)
+    async def test_returns_parsed_json_on_message(self):
+        mock_pubsub = AsyncMock()
+        mock_pubsub.get_message = AsyncMock(
+            return_value={"type": "message", "data": json.dumps({"status": "verified"})}
+        )
+        result = await _poll_redis_pubsub(mock_pubsub)
         assert result == {"status": "verified"}
+        mock_pubsub.get_message.assert_awaited_once_with(
+            ignore_subscribe_messages=True, timeout=0
+        )
 
     @pytest.mark.asyncio
-    async def test_raises_connection_error_when_stream_closes(self):
-        """Pubsub closing without a message should raise ConnectionError."""
+    async def test_returns_none_when_no_message(self):
+        """get_message returns None when no message is queued."""
+        mock_pubsub = AsyncMock()
+        mock_pubsub.get_message = AsyncMock(return_value=None)
+        result = await _poll_redis_pubsub(mock_pubsub)
+        assert result is None
 
-        async def fake_listen():
-            return
-            yield  # make it an async generator
-
-        mock_pubsub = MagicMock()
-        mock_pubsub.listen = fake_listen
+    @pytest.mark.asyncio
+    async def test_connection_error_propagates(self):
+        """ConnectionError from get_message propagates to the caller."""
+        mock_pubsub = AsyncMock()
+        mock_pubsub.get_message = AsyncMock(
+            side_effect=ConnectionError("pubsub closed")
+        )
         with pytest.raises(ConnectionError):
-            await _next_redis_message(mock_pubsub)
+            await _poll_redis_pubsub(mock_pubsub)
 
     @pytest.mark.asyncio
-    async def test_skips_non_message_events(self):
-        """subscribe/psubscribe/pong frames should be skipped."""
-
-        async def fake_listen():
-            yield {"type": "subscribe", "data": 1}
-            yield {"type": "pong", "data": None}
-            yield {"type": "message", "data": json.dumps({"status": "failed"})}
-
-        mock_pubsub = MagicMock()
-        mock_pubsub.listen = fake_listen
-        result = await _next_redis_message(mock_pubsub)
-        assert result == {"status": "failed"}
+    async def test_returns_none_for_non_message_type(self):
+        """Non-message frames (pong, subscribe ack) return None."""
+        mock_pubsub = AsyncMock()
+        mock_pubsub.get_message = AsyncMock(return_value={"type": "pong", "data": None})
+        result = await _poll_redis_pubsub(mock_pubsub)
+        assert result is None
 
 
 # ---------------------------------------------------------------------------
@@ -873,4 +879,113 @@ class TestMultiPodStreamExpiry:
 
         assert resp.status_code == 200
         assert b"expired" in resp.content
+        mock_crud.patch.assert_awaited()
+
+
+# ---------------------------------------------------------------------------
+# Unit tests: double-subscribe warning in _single_pod_stream
+# ---------------------------------------------------------------------------
+
+
+class TestSinglePodDoubleSubscribeWarning:
+    def setup_method(self):
+        _signals.clear()
+        _latest.clear()
+        sse_module._redis_client = None
+
+    def teardown_method(self):
+        _signals.clear()
+        _latest.clear()
+
+    @pytest.mark.asyncio
+    async def test_warns_when_pid_already_subscribed(self):
+        """If _signals already has an entry for pid, a warning is logged."""
+        mock_db = MagicMock()
+        mock_request = MagicMock()
+        # is_disconnected=True causes the while loop to exit immediately after setup
+        mock_request.is_disconnected = AsyncMock(return_value=True)
+
+        # Use NOT_STARTED with a future timestamp so the stream reaches the
+        # _signals assignment (VERIFIED would return early as terminal).
+        session = _make_auth_session(AuthSessionState.NOT_STARTED)
+        session.expired_timestamp = datetime.now(UTC) + timedelta(seconds=300)
+        mock_crud = MagicMock()
+        mock_crud.get = AsyncMock(return_value=session)
+
+        # Pre-populate _signals to simulate an existing subscriber
+        existing_event = asyncio.Event()
+        _signals["dup-pid"] = existing_event
+
+        logged_warnings = []
+
+        def capture_warning(*args, **kwargs):
+            logged_warnings.append(kwargs.get("pid") or args)
+
+        with patch("api.routers.sse.AuthSessionCRUD", return_value=mock_crud):
+            with patch.object(
+                sse_module.logger, "warning", side_effect=capture_warning
+            ):
+                async for _ in sse_module._single_pod_stream(
+                    "dup-pid", mock_request, mock_db
+                ):
+                    pass
+
+        assert any("dup-pid" in str(w) for w in logged_warnings)
+
+
+# ---------------------------------------------------------------------------
+# Unit tests: SSE-only expiry (no polling needed)
+# ---------------------------------------------------------------------------
+
+
+class TestSseOnlyExpiry:
+    """Verify that _expire_if_needed both patches DB and triggers the expired SSE
+    event — confirming the polling timer in the frontend is not needed."""
+
+    def setup_method(self):
+        _signals.clear()
+        _latest.clear()
+        sse_module._redis_client = None
+
+    def teardown_method(self):
+        _signals.clear()
+        _latest.clear()
+
+    @pytest.mark.asyncio
+    async def test_expire_if_needed_patches_db_and_returns_true(self):
+        """_expire_if_needed marks the session EXPIRED in DB and signals expiry."""
+        mock_db = MagicMock()
+        mock_crud = MagicMock()
+        session = _make_auth_session(AuthSessionState.NOT_STARTED)
+        session.expired_timestamp = datetime.now(UTC) - timedelta(seconds=60)
+        mock_crud.get = AsyncMock(return_value=session)
+        mock_crud.patch = AsyncMock()
+
+        with patch("api.routers.sse.AuthSessionCRUD", return_value=mock_crud):
+            result = await _expire_if_needed(str(session.id), mock_db)
+
+        assert result is True
+        mock_crud.patch.assert_awaited_once()
+        patched = mock_crud.patch.call_args[0][1]
+        assert patched.proof_status == AuthSessionState.EXPIRED
+
+    def test_sse_stream_emits_expired_event_without_polling(self):
+        """The SSE stream emits an 'expired' event server-side; no client polling needed."""
+        app = _make_app()
+        session = _make_auth_session(AuthSessionState.NOT_STARTED)
+        session.expired_timestamp = datetime.now(UTC) - timedelta(seconds=60)
+
+        mock_crud = MagicMock()
+        mock_crud.get = AsyncMock(return_value=session)
+        mock_crud.patch = AsyncMock()
+
+        with patch("api.routers.sse.AuthSessionCRUD", return_value=mock_crud):
+            with patch("api.routers.sse.settings") as mock_settings:
+                mock_settings.REDIS_MODE = "none"
+                client = TestClient(app, raise_server_exceptions=False)
+                resp = client.get("/sse/status/507f1f77bcf86cd799439011")
+
+        assert resp.status_code == 200
+        assert b"expired" in resp.content
+        # DB was patched — expiry was handled server-side via SSE, not polling
         mock_crud.patch.assert_awaited()
