@@ -350,7 +350,7 @@ def _classify_redis_error(operation: str, error: Exception) -> str:
     ):
         return RedisErrorType.CONFIGURATION
 
-    return RedisErrorType.CONNECTION
+    return RedisErrorType.OPERATION
 
 
 def _handle_redis_failure(operation: str, error: Exception) -> str:
