@@ -1,12 +1,14 @@
 """Tests for the ACA-Py webhook handler."""
 
 import json
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from bson import ObjectId
 from pymongo.database import Database
 from api.authSessions.models import AuthSession, AuthSessionState
+from api.core.config import settings
 from api.routers.acapy_handler import (
     post_topic,
     _extract_credential_schemas,
@@ -29,6 +31,7 @@ def mock_auth_session():
     auth_session.connection_id = "test-connection-id"
     auth_session.proof_request = {"test": "proof_request"}
     auth_session.proof_status = AuthSessionState.NOT_STARTED
+    auth_session.expired_timestamp = datetime.now(UTC) + timedelta(seconds=3600)
     auth_session.ver_config_id = "test-ver-config-id"
     auth_session.request_parameters = {"test": "params"}
     auth_session.pyop_auth_code = "test-auth-code"
@@ -317,9 +320,6 @@ class TestConnectionBasedVerificationWebhooks:
 
     @pytest.mark.asyncio
     @patch("api.routers.acapy_handler.settings.USE_CONNECTION_BASED_VERIFICATION", True)
-    @patch(
-        "api.routers.acapy_handler.settings.CONTROLLER_PRESENTATION_EXPIRE_TIME", -60
-    )
     @patch("api.routers.acapy_handler.AuthSessionCRUD")
     @patch("api.routers.acapy_handler.AcapyClient")
     @patch("api.routers.acapy_handler.notify")
@@ -335,8 +335,8 @@ class TestConnectionBasedVerificationWebhooks:
         """Test that a problem report is sent when a session is expired.
 
         Uses state=presentation-received so proof_status stays NOT_STARTED,
-        allowing the expiration check to fire. CONTROLLER_PRESENTATION_EXPIRE_TIME=-60
-        makes expired_time land in the past, triggering the EXPIRED branch.
+        allowing the expiration check to fire. expired_timestamp is set in the
+        past to trigger the EXPIRED branch.
         """
         webhook_body = {
             "pres_ex_id": "test-pres-ex-id",
@@ -346,6 +346,7 @@ class TestConnectionBasedVerificationWebhooks:
         mock_request.body.return_value = json.dumps(webhook_body).encode("ascii")
 
         mock_auth_session.proof_status = AuthSessionState.NOT_STARTED
+        mock_auth_session.expired_timestamp = datetime.now(UTC) - timedelta(seconds=60)
         mock_auth_session_crud.return_value.get_by_pres_exch_id = AsyncMock(
             return_value=mock_auth_session
         )
@@ -361,7 +362,8 @@ class TestConnectionBasedVerificationWebhooks:
         assert result == {}
         assert mock_auth_session.proof_status == AuthSessionState.EXPIRED
         mock_client_instance.send_problem_report.assert_called_once_with(
-            "test-pres-ex-id", "Presentation expired: timeout after -60 seconds"
+            "test-pres-ex-id",
+            f"Presentation expired: timeout after {settings.CONTROLLER_PRESENTATION_EXPIRE_TIME} seconds",
         )
         mock_notify.assert_awaited_once_with("test-session-id", "expired")
         # Verify single-use connection was cleaned up
@@ -472,6 +474,9 @@ class TestConnectionBasedVerificationWebhooks:
         mock_auth_session_no_pres_id.pres_exch_id = None
         mock_auth_session_no_pres_id.connection_id = "test-connection-id"
         mock_auth_session_no_pres_id.multi_use = False
+        mock_auth_session_no_pres_id.expired_timestamp = datetime.now(UTC) + timedelta(
+            seconds=3600
+        )
         mock_auth_session_no_pres_id.ver_config_id = "test-ver-config-id"
         mock_auth_session_no_pres_id.model_dump = MagicMock(
             return_value={

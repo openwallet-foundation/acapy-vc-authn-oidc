@@ -1,6 +1,6 @@
 import json
 import time
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 import structlog
 from fastapi import APIRouter, Depends, Request
@@ -408,26 +408,12 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                     client, auth_session, pres_ex_id, "abandonment"
                 )
 
-            # Calcuate the expiration time of the proof
-            now_time = datetime.now(UTC)
-            expired_time = now_time + timedelta(
-                seconds=settings.CONTROLLER_PRESENTATION_EXPIRE_TIME
-            )
-
-            # Update the expiration time of the proof
-            auth_session.expired_timestamp = expired_time
-            await AuthSessionCRUD(db).patch(
-                str(auth_session.id), AuthSessionPatch(**auth_session.model_dump())
-            )
-
             # Check if expired. But only if the proof has not been started.
             # Handle comparison between timezone-aware and naive datetimes
-            if auth_session.expired_timestamp.tzinfo is not None:
-                # Use timezone-aware comparison if database has timezone-aware timestamp
-                expired_time = datetime.now(UTC) + timedelta(
-                    seconds=settings.CONTROLLER_PRESENTATION_EXPIRE_TIME
-                )
-                now_time = datetime.now(UTC)
+            expired_time = auth_session.expired_timestamp
+            now_time = (
+                datetime.now(UTC) if expired_time.tzinfo is not None else datetime.now()
+            )
 
             if (
                 expired_time < now_time

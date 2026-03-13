@@ -1,6 +1,7 @@
 """Tests for updated webhook handler with cleanup functionality."""
 
 import json
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch, Mock
 import pytest
 from bson import ObjectId
@@ -26,6 +27,7 @@ class TestAcapyHandlerCleanup:
         auth_session.pres_exch_id = "test-pres-ex-id"
         auth_session.connection_id = "test-connection-id"
         auth_session.proof_status = AuthSessionState.NOT_STARTED
+        auth_session.expired_timestamp = datetime.now(UTC) + timedelta(seconds=3600)
         auth_session.multi_use = False
         auth_session.ver_config_id = "test-ver-config-id"
         auth_session.model_dump.return_value = {

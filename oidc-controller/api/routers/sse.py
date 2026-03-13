@@ -24,6 +24,7 @@ Sentinel failover: If a Sentinel failover occurs mid-session, the pub/sub
 
 import asyncio
 import json
+from datetime import UTC, datetime
 from typing import AsyncGenerator
 
 import redis.asyncio as async_redis
@@ -33,7 +34,7 @@ from pymongo.database import Database
 from starlette.responses import StreamingResponse
 
 from ..authSessions.crud import AuthSessionCRUD
-from ..authSessions.models import AuthSessionState
+from ..authSessions.models import AuthSessionPatch, AuthSessionState
 from ..core.config import settings
 from ..core.redis_utils import parse_host_port_pairs
 from ..db.session import get_db
@@ -160,18 +161,74 @@ def _format_event(data: dict, event: str = "status", id: str | None = None) -> s
     return "\n".join(parts)
 
 
-async def _get_initial_state(pid: str, db: Database) -> tuple[str | None, bool]:
+async def _get_initial_state(
+    pid: str, db: Database
+) -> tuple[str | None, bool, datetime | None]:
     """Fetch current proof_status from DB for the initial SSE event on connect.
 
-    Returns (status, is_terminal). Returns (None, False) if session not found.
-    Called on every (re)connect so the browser is immediately up-to-date even
-    if the webhook fired before the browser connected.
+    Returns (status, is_terminal, expired_timestamp). Returns (None, False, None)
+    if session not found. Called on every (re)connect so the browser is immediately
+    up-to-date even if the webhook fired before the browser connected.
     """
     try:
         auth_session = await AuthSessionCRUD(db).get(pid)
-        return auth_session.proof_status, auth_session.proof_status in TERMINAL_STATES
+        return (
+            auth_session.proof_status,
+            auth_session.proof_status in TERMINAL_STATES,
+            auth_session.expired_timestamp,
+        )
     except Exception:
-        return None, False
+        return None, False, None
+
+
+def _seconds_until_expiry(expired_timestamp: datetime | None) -> float:
+    """Return seconds until expiry, clamped to [1.0, 30.0].
+
+    Used to wake up the wait loop promptly when the deadline is near rather
+    than always waiting the full 30s keepalive interval.
+    """
+    if expired_timestamp is None:
+        return 30.0
+    now = datetime.now(UTC) if expired_timestamp.tzinfo is not None else datetime.now()
+    remaining = (expired_timestamp - now).total_seconds()
+    return min(30.0, max(1.0, remaining))
+
+
+async def _expire_if_needed(pid: str, db: Database) -> bool:
+    """Transition a NOT_STARTED session to EXPIRED if its deadline has passed.
+
+    Called on connect (one extra DB read after _get_initial_state — accepted
+    trade-off to keep expiry logic in one place) and on every keepalive tick.
+    Returns True if the session was just expired, False otherwise.
+    """
+    try:
+        auth_session = await AuthSessionCRUD(db).get(pid)
+        if auth_session.proof_status != AuthSessionState.NOT_STARTED:
+            logger.debug(
+                "SSE expiry check: status is not NOT_STARTED, skipping",
+                pid=pid,
+                proof_status=auth_session.proof_status,
+            )
+            return False
+        expired_time = auth_session.expired_timestamp
+        now = datetime.now(UTC) if expired_time.tzinfo is not None else datetime.now()
+        logger.debug(
+            "SSE expiry check",
+            pid=pid,
+            expired_time=str(expired_time),
+            now=str(now),
+            is_expired=expired_time < now,
+        )
+        if expired_time < now:
+            auth_session.proof_status = AuthSessionState.EXPIRED
+            await AuthSessionCRUD(db).patch(
+                pid, AuthSessionPatch(**auth_session.model_dump())
+            )
+            logger.info("SSE detected expired session", pid=pid)
+            return True
+    except Exception:
+        logger.exception("SSE expiry check failed", pid=pid)
+    return False
 
 
 async def _single_pod_stream(
@@ -180,21 +237,38 @@ async def _single_pod_stream(
     """Generate SSE events for single-pod mode using in-process asyncio.Event."""
     seq = 0
 
-    status, is_terminal = await _get_initial_state(pid, db)
+    status, is_terminal, expired_timestamp = await _get_initial_state(pid, db)
     if status is not None:
         yield _format_event({"status": status}, id=str(seq))
         seq += 1
         if is_terminal:
             return
 
+    # Check expiry immediately on connect in case the deadline already passed.
+    # Guard on NOT_STARTED: any other status means expiry can't apply, skip the DB read.
+    if status == AuthSessionState.NOT_STARTED and await _expire_if_needed(pid, db):
+        yield _format_event({"status": "expired"}, id=str(seq))
+        seq += 1
+        return
+
     event = asyncio.Event()
     _signals[pid] = event
     try:
         while not await request.is_disconnected():
             try:
-                await asyncio.wait_for(event.wait(), timeout=30.0)
+                await asyncio.wait_for(
+                    event.wait(), timeout=_seconds_until_expiry(expired_timestamp)
+                )
             except asyncio.TimeoutError:
-                continue  # no update in 30s — loop back and re-check disconnect
+                # Timeout — send a keepalive comment and check expiry.
+                yield ": keepalive\n\n"
+                if await _expire_if_needed(pid, db):
+                    yield _format_event({"status": "expired"}, id=str(seq))
+                    seq += 1
+                    return
+                # Keep expired_timestamp as-is: _seconds_until_expiry clamps to 1s minimum
+                # when past the deadline, so we retry every second until expiry succeeds.
+                continue
             event.clear()
             status = _latest.get(pid)
             if status is None:
@@ -212,8 +286,8 @@ async def _next_redis_message(pubsub) -> dict:
     """Consume pubsub.listen() until a data message arrives.
 
     Blocks efficiently at the Redis socket read — no spin loop.
-    asyncio.wait_for raises CancelledError into listen() after the timeout,
-    which allows the outer loop to check request.is_disconnected().
+    asyncio.wait_for raises TimeoutError after 30s, which allows the outer
+    loop to send a keepalive comment and re-check for disconnect.
 
     Raises ConnectionError if the pubsub stream closes without delivering
     a message (e.g., on Sentinel failover), so the caller can handle it.
@@ -238,20 +312,36 @@ async def _multi_pod_stream(
     seq = 0
     try:
         # Emit current state from DB on (re)connect
-        status, is_terminal = await _get_initial_state(pid, db)
+        status, is_terminal, expired_timestamp = await _get_initial_state(pid, db)
         if status is not None:
             yield _format_event({"status": status}, id=str(seq))
             seq += 1
             if is_terminal:
                 return
 
+        # Check expiry immediately on connect in case the deadline already passed.
+        # Guard on NOT_STARTED: any other status means expiry can't apply, skip the DB read.
+        if status == AuthSessionState.NOT_STARTED and await _expire_if_needed(pid, db):
+            yield _format_event({"status": "expired"}, id=str(seq))
+            seq += 1
+            return
+
         while not await request.is_disconnected():
             try:
                 payload = await asyncio.wait_for(
-                    _next_redis_message(pubsub), timeout=30.0
+                    _next_redis_message(pubsub),
+                    timeout=_seconds_until_expiry(expired_timestamp),
                 )
             except asyncio.TimeoutError:
-                continue  # no message in 30s — loop back and re-check disconnect
+                # Timeout — send a keepalive comment and check expiry.
+                yield ": keepalive\n\n"
+                if await _expire_if_needed(pid, db):
+                    yield _format_event({"status": "expired"}, id=str(seq))
+                    seq += 1
+                    return
+                # Keep expired_timestamp as-is: _seconds_until_expiry clamps to 1s minimum
+                # when past the deadline, so we retry every second until expiry succeeds.
+                continue
             yield _format_event(payload, id=str(seq))
             seq += 1
             if payload.get("status") in TERMINAL_STATES:

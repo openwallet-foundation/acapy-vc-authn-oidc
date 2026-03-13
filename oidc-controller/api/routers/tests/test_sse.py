@@ -2,7 +2,8 @@
 
 import asyncio
 import json
-from unittest.mock import AsyncMock, MagicMock, patch, AsyncMock
+from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import FastAPI
@@ -13,10 +14,12 @@ from api.core.models import PyObjectId
 from api.routers import sse as sse_module
 from api.routers.sse import (
     TERMINAL_STATES,
+    _expire_if_needed,
     _format_event,
     _get_initial_state,
     _latest,
     _next_redis_message,
+    _seconds_until_expiry,
     _signals,
     build_async_redis_client,
     notify,
@@ -297,7 +300,7 @@ class TestGetInitialState:
             return_value=_make_auth_session(AuthSessionState.VERIFIED)
         )
         with patch("api.routers.sse.AuthSessionCRUD", return_value=mock_crud):
-            status, is_terminal = await _get_initial_state("any-pid", mock_db)
+            status, is_terminal, _ = await _get_initial_state("any-pid", mock_db)
         assert status == AuthSessionState.VERIFIED
         assert is_terminal is True
 
@@ -308,7 +311,7 @@ class TestGetInitialState:
         mock_crud = MagicMock()
         mock_crud.get = AsyncMock(side_effect=Exception("not found"))
         with patch("api.routers.sse.AuthSessionCRUD", return_value=mock_crud):
-            status, is_terminal = await _get_initial_state("missing-pid", mock_db)
+            status, is_terminal, _ = await _get_initial_state("missing-pid", mock_db)
         assert status is None
         assert is_terminal is False
 
@@ -320,7 +323,7 @@ class TestGetInitialState:
             return_value=_make_auth_session(AuthSessionState.PENDING)
         )
         with patch("api.routers.sse.AuthSessionCRUD", return_value=mock_crud):
-            status, is_terminal = await _get_initial_state("pid1", mock_db)
+            status, is_terminal, _ = await _get_initial_state("pid1", mock_db)
         assert status == AuthSessionState.PENDING
         assert is_terminal is False
 
@@ -488,9 +491,7 @@ class TestBuildAsyncRedisClient:
         ):
             await build_async_redis_client()
             # Cluster mode connects to the first node only
-            mock_cls.assert_called_once_with(
-                host="node1", port=6379, password=None
-            )
+            mock_cls.assert_called_once_with(host="node1", port=6379, password=None)
 
     @pytest.mark.asyncio
     async def test_unsupported_mode_raises(self):
@@ -509,9 +510,7 @@ class TestBuildAsyncRedisClient:
             patch.object(sse_module.settings, "REDIS_MODE", "sentinel"),
             patch.object(sse_module.settings, "REDIS_HOST", "sentinel1:26379"),
             patch.object(sse_module.settings, "REDIS_PASSWORD", ""),
-            patch.object(
-                sse_module.settings, "REDIS_SENTINEL_MASTER_NAME", "mymaster"
-            ),
+            patch.object(sse_module.settings, "REDIS_SENTINEL_MASTER_NAME", "mymaster"),
             patch("api.routers.sse.async_redis.sentinel.Sentinel", mock_sentinel_cls),
         ):
             await build_async_redis_client()
@@ -587,3 +586,143 @@ class TestSseEndpointRouting:
 
         assert resp.status_code == 200
         assert b"verified" in resp.content
+
+
+# ---------------------------------------------------------------------------
+# Unit tests: _seconds_until_expiry
+# ---------------------------------------------------------------------------
+
+
+class TestSecondsUntilExpiry:
+    def test_returns_30_when_timestamp_is_none(self):
+        assert _seconds_until_expiry(None) == 30.0
+
+    def test_returns_remaining_seconds_when_future(self):
+        future = datetime.now(UTC) + timedelta(seconds=15)
+        result = _seconds_until_expiry(future)
+        assert 13.0 < result <= 15.0
+
+    def test_clamps_to_minimum_1_when_nearly_expired(self):
+        nearly_expired = datetime.now(UTC) + timedelta(milliseconds=100)
+        assert _seconds_until_expiry(nearly_expired) == 1.0
+
+    def test_clamps_to_minimum_1_when_already_past(self):
+        past = datetime.now(UTC) - timedelta(seconds=5)
+        assert _seconds_until_expiry(past) == 1.0
+
+    def test_clamps_to_maximum_30_when_far_future(self):
+        far_future = datetime.now(UTC) + timedelta(seconds=300)
+        assert _seconds_until_expiry(far_future) == 30.0
+
+    def test_handles_naive_datetime(self):
+        future = datetime.now() + timedelta(seconds=15)
+        result = _seconds_until_expiry(future)
+        assert 13.0 < result <= 15.0
+
+
+# ---------------------------------------------------------------------------
+# Unit tests: _expire_if_needed
+# ---------------------------------------------------------------------------
+
+
+class TestExpireIfNeeded:
+    @pytest.mark.asyncio
+    async def test_returns_true_and_patches_db_when_expired(self):
+        mock_db = MagicMock()
+        mock_crud = MagicMock()
+        session = _make_auth_session(AuthSessionState.NOT_STARTED)
+        session.expired_timestamp = datetime.now(UTC) - timedelta(seconds=30)
+        mock_crud.get = AsyncMock(return_value=session)
+        mock_crud.patch = AsyncMock()
+
+        with patch("api.routers.sse.AuthSessionCRUD", return_value=mock_crud):
+            result = await _expire_if_needed(str(session.id), mock_db)
+
+        assert result is True
+        mock_crud.patch.assert_awaited_once()
+        call_args = mock_crud.patch.call_args
+        assert call_args[0][1].proof_status == AuthSessionState.EXPIRED
+
+    @pytest.mark.asyncio
+    async def test_returns_false_when_not_yet_expired(self):
+        mock_db = MagicMock()
+        mock_crud = MagicMock()
+        session = _make_auth_session(AuthSessionState.NOT_STARTED)
+        session.expired_timestamp = datetime.now(UTC) + timedelta(seconds=300)
+        mock_crud.get = AsyncMock(return_value=session)
+        mock_crud.patch = AsyncMock()
+
+        with patch("api.routers.sse.AuthSessionCRUD", return_value=mock_crud):
+            result = await _expire_if_needed(str(session.id), mock_db)
+
+        assert result is False
+        mock_crud.patch.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_returns_false_for_non_not_started_status(self):
+        mock_db = MagicMock()
+        mock_crud = MagicMock()
+        for status in [
+            AuthSessionState.PENDING,
+            AuthSessionState.VERIFIED,
+            AuthSessionState.FAILED,
+            AuthSessionState.EXPIRED,
+        ]:
+            session = _make_auth_session(status)
+            session.expired_timestamp = datetime.now(UTC) - timedelta(seconds=30)
+            mock_crud.get = AsyncMock(return_value=session)
+            mock_crud.patch = AsyncMock()
+
+            with patch("api.routers.sse.AuthSessionCRUD", return_value=mock_crud):
+                result = await _expire_if_needed(str(session.id), mock_db)
+
+            assert result is False, f"Expected False for status={status}"
+            mock_crud.patch.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_returns_false_and_logs_on_db_error(self):
+        mock_db = MagicMock()
+        mock_crud = MagicMock()
+        mock_crud.get = AsyncMock(side_effect=Exception("DB unavailable"))
+
+        with patch("api.routers.sse.AuthSessionCRUD", return_value=mock_crud):
+            result = await _expire_if_needed("any-pid", mock_db)
+
+        assert result is False
+
+
+# ---------------------------------------------------------------------------
+# Integration tests: expiry-on-connect in _single_pod_stream
+# ---------------------------------------------------------------------------
+
+
+class TestSinglePodStreamExpiry:
+    def setup_method(self):
+        _signals.clear()
+        _latest.clear()
+        sse_module._redis_client = None
+
+    def teardown_method(self):
+        _signals.clear()
+        _latest.clear()
+
+    def test_stream_emits_expired_immediately_when_session_already_expired(self):
+        """If the session deadline has already passed on connect, emit expired and close."""
+        app = _make_app()
+        session = _make_auth_session(AuthSessionState.NOT_STARTED)
+        session.expired_timestamp = datetime.now(UTC) - timedelta(seconds=30)
+
+        mock_crud = MagicMock()
+        mock_crud.get = AsyncMock(return_value=session)
+        mock_crud.patch = AsyncMock()
+
+        with patch("api.routers.sse.AuthSessionCRUD", return_value=mock_crud):
+            with patch("api.routers.sse.settings") as mock_settings:
+                mock_settings.REDIS_MODE = "none"
+                client = TestClient(app, raise_server_exceptions=False)
+                resp = client.get("/sse/status/507f1f77bcf86cd799439011")
+
+        assert resp.status_code == 200
+        assert b"expired" in resp.content
+        # Should have patched the DB to record the expiry
+        mock_crud.patch.assert_awaited()
