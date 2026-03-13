@@ -70,7 +70,7 @@ def build_redis_url() -> str | None:
     elif mode == "sentinel":
         nodes = settings.REDIS_HOST
         master = settings.REDIS_SENTINEL_MASTER_NAME
-        # python-socketio expects /db/service_name (not /service_name/db)
+        # redis-py Sentinel URL format requires /db/service_name (not /service_name/db)
         if settings.REDIS_PASSWORD:
             return f"redis+sentinel://:{settings.REDIS_PASSWORD}@{nodes}/{settings.REDIS_DB}/{master}"
         return f"redis+sentinel://{nodes}/{settings.REDIS_DB}/{master}"
