@@ -51,6 +51,13 @@ markers = [
     "e2e: end-to-end tests (requires running stack + bootstrap)",
 ]
 
+[tool.coverage.run]
+omit = [
+    "*/tests/*",
+    "*/integration_tests/*",
+    "*/conftest.py",
+]
+
 [tool.pyright]
 pythonVersion = "3.13"
 
