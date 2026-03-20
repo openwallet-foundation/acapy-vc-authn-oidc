@@ -10,6 +10,7 @@ Strategy
 - settings overrides are done via pytest's monkeypatch fixture per test.
 """
 
+import asyncio
 import os
 import re
 import uuid
@@ -26,9 +27,6 @@ from httpx import Response
 import api.db.session as db_session_module
 from api.core.config import settings
 from api.db.collections import COLLECTION_NAMES
-from api.db.session import get_db
-from api.main import app
-
 
 # ---------------------------------------------------------------------------
 # Minimal Jinja2 template: exposes pid and pres_exch_id for test parsing
@@ -40,15 +38,21 @@ _TEST_TEMPLATE = (
 
 
 def _ensure_test_template() -> None:
-    template_path = os.path.join(
-        settings.CONTROLLER_TEMPLATE_DIR, "verified_credentials.html"
-    )
-    os.makedirs(settings.CONTROLLER_TEMPLATE_DIR, exist_ok=True)
+    template_dir = settings.CONTROLLER_TEMPLATE_DIR
+    assets_dir = os.path.join(template_dir, "assets")
+    os.makedirs(assets_dir, exist_ok=True)
+    template_path = os.path.join(template_dir, "verified_credentials.html")
     with open(template_path, "w") as f:
         f.write(_TEST_TEMPLATE)
 
 
+# Must run BEFORE importing api.main: it calls StaticFiles(directory=.../assets)
+# at module level, which fails if the assets directory does not exist.
 _ensure_test_template()
+
+# noqa: E402 — intentional late imports after directory setup above
+from api.db.session import get_db  # noqa: E402
+from api.main import app  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -221,6 +225,7 @@ def acapy_oob_mock(pres_ex_id: str = FAKE_PRES_EX_ID):
         yield router
     finally:
         app.state.http_client = original
+        asyncio.run(mock_client.aclose())
 
 
 @contextmanager
@@ -299,6 +304,7 @@ def acapy_connection_mock(
         yield router
     finally:
         app.state.http_client = original
+        asyncio.run(mock_client.aclose())
 
 
 # ---------------------------------------------------------------------------
