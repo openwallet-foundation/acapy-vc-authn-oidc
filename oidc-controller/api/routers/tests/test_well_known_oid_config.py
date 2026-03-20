@@ -57,7 +57,7 @@ class TestWellKnownEndpoints:
             "n": "test-modulus",
             "e": "AQAB",
         }
-        mock_signing_key.to_dict.return_value = mock_key_dict
+        mock_signing_key.serialize.return_value = mock_key_dict
         mock_provider.signing_key = mock_signing_key
 
         # Make request
@@ -70,5 +70,5 @@ class TestWellKnownEndpoints:
         assert len(response_data["keys"]) == 1
         assert response_data["keys"][0] == mock_key_dict
 
-        # Verify to_dict was called
-        mock_signing_key.to_dict.assert_called_once()
+        # Verify serialize was called with private=False (no private key leakage)
+        mock_signing_key.serialize.assert_called_once_with(private=False)

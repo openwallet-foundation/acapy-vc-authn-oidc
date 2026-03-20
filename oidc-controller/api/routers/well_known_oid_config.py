@@ -21,4 +21,4 @@ async def get_well_known_oid_config():
 
 @router.get("/.well-known/openid-configuration/jwks", response_class=JSONResponse)
 async def get_well_known_jwks():
-    return {"keys": [provider.signing_key.to_dict()]}
+    return {"keys": [provider.signing_key.serialize(private=False)]}
