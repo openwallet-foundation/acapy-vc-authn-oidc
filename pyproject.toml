@@ -41,8 +41,15 @@ pytest = "^9.0.1"
 respx = "^0.22"
 
 [tool.pytest.ini_options]
-testpaths = "oidc-controller"
+testpaths = ["oidc-controller"]
+pythonpath = ["oidc-controller"]
 asyncio_default_fixture_loop_scope = "function"
+asyncio_mode = "auto"
+addopts = "-m 'not e2e and not integration'"
+markers = [
+    "integration: integration tests (no external services required)",
+    "e2e: end-to-end tests (requires running stack + bootstrap)",
+]
 
 [tool.pyright]
 pythonVersion = "3.13"

@@ -10,7 +10,7 @@ on:
 
 jobs:
   build:
-    name: Build, Lint, Unit Test
+    name: Build, Lint, Unit + Integration Test
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -22,18 +22,18 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install dependencies
-        working-directory: ./oidc-controller
         run: |
           pip3 install --no-cache-dir poetry==2.3.2
           poetry install --no-root
       - name: Format with ruff
-        working-directory: ./oidc-controller
         run: |
-          poetry run ruff format --check .
-      - name: Test with pytest
-        working-directory: ./oidc-controller
+          poetry run ruff format --check oidc-controller
+      - name: Unit tests
         run: |
-          poetry run pytest --log-cli-level=INFO --cov --cov-report lcov
+          poetry run pytest -m "not e2e and not integration" --log-cli-level=INFO --cov --cov-report lcov
+      - name: Integration tests
+        run: |
+          poetry run pytest -m integration --log-cli-level=INFO
       - name: Coveralls Parallel
         uses: coverallsapp/github-action@5cbfd81b66ca5d10c19b062c04de0199c215fb6e # v2
         with:
