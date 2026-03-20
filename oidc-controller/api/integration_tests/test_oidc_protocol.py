@@ -7,7 +7,6 @@ Covers the gaps not exercised by the flow-focused tests:
   - /userinfo endpoint (disabled by default, enabled by setting)
 """
 
-import base64
 import json
 
 import jwt
@@ -22,6 +21,7 @@ from .conftest import (
     TEST_VER_CONFIG_ID,
     acapy_oob_mock,
     authorize_params,
+    basic_auth_header,
     make_proof_webhook,
     parse_auth_code_from_url,
     parse_pid_from_html,
@@ -35,19 +35,12 @@ pytestmark = pytest.mark.integration
 # ---------------------------------------------------------------------------
 
 
-def _basic_auth_header(client_id: str, secret: str) -> str:
-    return "Basic " + base64.b64encode(f"{client_id}:{secret}".encode()).decode()
-
-
-def _full_token_flow(client, monkeypatch) -> dict:
+def _full_token_flow(client) -> dict:
     """Run the full OOB authorize → webhook → callback → token pipeline.
 
     Returns the parsed token response dict (access_token, id_token, …).
+    Callers must apply the ``oob_mode`` fixture to ensure OOB mode is set.
     """
-    monkeypatch.setattr(
-        "api.core.config.settings.USE_CONNECTION_BASED_VERIFICATION", False
-    )
-
     with acapy_oob_mock(pres_ex_id=FAKE_PRES_EX_ID):
         auth_resp = client.get("/authorize", params=authorize_params())
     pid = parse_pid_from_html(auth_resp.text)
@@ -68,7 +61,7 @@ def _full_token_flow(client, monkeypatch) -> dict:
             "redirect_uri": TEST_REDIRECT_URI,
         },
         headers={
-            "Authorization": _basic_auth_header(TEST_CLIENT_ID, TEST_CLIENT_SECRET),
+            "Authorization": basic_auth_header(TEST_CLIENT_ID, TEST_CLIENT_SECRET),
             "Content-Type": "application/x-www-form-urlencoded",
         },
     )
@@ -112,14 +105,14 @@ class TestOIDCDiscovery:
 
 
 class TestIdTokenSignature:
-    def test_id_token_is_validly_signed(self, integration_client, monkeypatch):
+    def test_id_token_is_validly_signed(self, integration_client, oob_mode):
         """id_token RS256 signature verifies against the key from the JWKS endpoint.
 
         This catches: wrong signing key loaded, key rotation bugs, algorithm
         mismatch, or provider.py failing to persist the key correctly.
         """
         client, _ = integration_client
-        tokens = _full_token_flow(client, monkeypatch)
+        tokens = _full_token_flow(client)
         id_token = tokens["id_token"]
 
         # Fetch the public key from the JWKS endpoint (exercises that endpoint too)
@@ -171,14 +164,16 @@ class TestUserInfo:
         resp = client.get("/userinfo")
         assert resp.status_code == 401
 
-    def test_userinfo_returns_vc_claims(self, integration_client, monkeypatch):
+    def test_userinfo_returns_vc_claims(
+        self, integration_client, monkeypatch, oob_mode
+    ):
         """GET /userinfo with a valid Bearer access_token returns VC attributes."""
         client, _ = integration_client
         monkeypatch.setattr(
             "api.core.config.settings.CONTROLLER_ENABLE_USERINFO_ENDPOINT", True
         )
 
-        tokens = _full_token_flow(client, monkeypatch)
+        tokens = _full_token_flow(client)
         access_token = tokens["access_token"]
 
         resp = client.get(

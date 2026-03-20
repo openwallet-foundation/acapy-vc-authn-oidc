@@ -10,7 +10,6 @@ Covers the sad-path scenarios identified in the plan:
   - Prover-role webhook is ignored (no state change)
 """
 
-import base64
 from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
@@ -27,6 +26,7 @@ from .conftest import (
     acapy_connection_mock,
     acapy_oob_mock,
     authorize_params,
+    basic_auth_header,
     called_paths,
     make_abandoned_webhook,
     make_proof_webhook,
@@ -37,25 +37,18 @@ from .conftest import (
 pytestmark = pytest.mark.integration
 
 
-def _basic_auth_header(client_id: str, secret: str) -> str:
-    return "Basic " + base64.b64encode(f"{client_id}:{secret}".encode()).decode()
-
-
 # ---------------------------------------------------------------------------
 # Verification failures
 # ---------------------------------------------------------------------------
 
 
 class TestVerificationFailure:
-    def test_verified_false_sets_failed_status(self, integration_client, monkeypatch):
+    def test_verified_false_sets_failed_status(self, integration_client, oob_mode):
         """verified=false in the webhook → proof_status FAILED in DB."""
         from api.authSessions.models import AuthSessionState
         from api.db.collections import COLLECTION_NAMES
 
         client, db = integration_client
-        monkeypatch.setattr(
-            "api.core.config.settings.USE_CONNECTION_BASED_VERIFICATION", False
-        )
 
         with acapy_oob_mock():
             client.get("/authorize", params=authorize_params())
@@ -74,12 +67,9 @@ class TestVerificationFailure:
         mock_audit.assert_called_once()
         assert mock_audit.call_args.kwargs["ver_config_id"] == TEST_VER_CONFIG_ID
 
-    def test_verified_false_sse_emits_failed(self, integration_client, monkeypatch):
+    def test_verified_false_sse_emits_failed(self, integration_client, oob_mode):
         """After verified=false webhook, SSE emits 'failed'."""
         client, _ = integration_client
-        monkeypatch.setattr(
-            "api.core.config.settings.USE_CONNECTION_BASED_VERIFICATION", False
-        )
 
         with acapy_oob_mock():
             auth_resp = client.get("/authorize", params=authorize_params())
@@ -102,16 +92,13 @@ class TestVerificationFailure:
 
 class TestAbandonedFlow:
     def test_abandoned_webhook_sets_abandoned_status(
-        self, integration_client, monkeypatch
+        self, integration_client, oob_mode
     ):
         """abandoned webhook → proof_status ABANDONED in DB."""
         from api.authSessions.models import AuthSessionState
         from api.db.collections import COLLECTION_NAMES
 
         client, db = integration_client
-        monkeypatch.setattr(
-            "api.core.config.settings.USE_CONNECTION_BASED_VERIFICATION", False
-        )
 
         with acapy_oob_mock():
             client.get("/authorize", params=authorize_params())
@@ -128,14 +115,9 @@ class TestAbandonedFlow:
         mock_audit.assert_called_once()
         assert mock_audit.call_args.kwargs["ver_config_id"] == TEST_VER_CONFIG_ID
 
-    def test_abandoned_webhook_sse_emits_abandoned(
-        self, integration_client, monkeypatch
-    ):
+    def test_abandoned_webhook_sse_emits_abandoned(self, integration_client, oob_mode):
         """After abandoned webhook, SSE emits 'abandoned'."""
         client, _ = integration_client
-        monkeypatch.setattr(
-            "api.core.config.settings.USE_CONNECTION_BASED_VERIFICATION", False
-        )
 
         with acapy_oob_mock():
             auth_resp = client.get("/authorize", params=authorize_params())
@@ -156,18 +138,13 @@ class TestAbandonedFlow:
 
 
 class TestSessionExpiry:
-    def test_poll_endpoint_expires_overdue_session(
-        self, integration_client, monkeypatch
-    ):
+    def test_poll_endpoint_expires_overdue_session(self, integration_client, oob_mode):
         """GET /poll/{pid} transitions an already-expired NOT_STARTED session to EXPIRED."""
         from api.authSessions.models import AuthSessionState
         from api.core.models import PyObjectId
         from api.db.collections import COLLECTION_NAMES
 
         client, db = integration_client
-        monkeypatch.setattr(
-            "api.core.config.settings.USE_CONNECTION_BASED_VERIFICATION", False
-        )
 
         with acapy_oob_mock():
             auth_resp = client.get("/authorize", params=authorize_params())
@@ -187,17 +164,12 @@ class TestSessionExpiry:
         session = col.find_one({"_id": PyObjectId(pid)})
         assert session["proof_status"] == AuthSessionState.EXPIRED
 
-    def test_sse_emits_expired_for_overdue_session(
-        self, integration_client, monkeypatch
-    ):
+    def test_sse_emits_expired_for_overdue_session(self, integration_client, oob_mode):
         """SSE immediately emits 'expired' when connecting to an already-expired session."""
         from api.core.models import PyObjectId
         from api.db.collections import COLLECTION_NAMES
 
         client, db = integration_client
-        monkeypatch.setattr(
-            "api.core.config.settings.USE_CONNECTION_BASED_VERIFICATION", False
-        )
 
         with acapy_oob_mock():
             auth_resp = client.get("/authorize", params=authorize_params())
@@ -216,18 +188,13 @@ class TestSessionExpiry:
         assert sse_resp.status_code == 200
         assert parse_sse_status(sse_resp.text) == "expired"
 
-    def test_webhook_on_expired_session_calls_audit(
-        self, integration_client, monkeypatch
-    ):
+    def test_webhook_on_expired_session_calls_audit(self, integration_client, oob_mode):
         """When a webhook arrives for an already-expired session, audit_session_expired
         is called by the webhook handler (the only code path that calls this audit fn)."""
         from api.core.models import PyObjectId
         from api.db.collections import COLLECTION_NAMES
 
         client, db = integration_client
-        monkeypatch.setattr(
-            "api.core.config.settings.USE_CONNECTION_BASED_VERIFICATION", False
-        )
 
         with acapy_oob_mock():
             auth_resp = client.get("/authorize", params=authorize_params())
@@ -263,9 +230,7 @@ class TestSessionExpiry:
 
 
 class TestTokenErrors:
-    def test_token_with_invalid_auth_code_returns_error(
-        self, integration_client, monkeypatch
-    ):
+    def test_token_with_invalid_auth_code_returns_error(self, integration_client):
         """POST /token with a bogus auth code returns a non-200 error response."""
         client, _ = integration_client
 
@@ -277,7 +242,7 @@ class TestTokenErrors:
                 "redirect_uri": TEST_REDIRECT_URI,
             },
             headers={
-                "Authorization": _basic_auth_header(TEST_CLIENT_ID, TEST_CLIENT_SECRET),
+                "Authorization": basic_auth_header(TEST_CLIENT_ID, TEST_CLIENT_SECRET),
                 "Content-Type": "application/x-www-form-urlencoded",
             },
         )
@@ -285,7 +250,7 @@ class TestTokenErrors:
         assert resp.status_code >= 400
 
     def test_token_before_verification_returns_error(
-        self, integration_client, monkeypatch
+        self, integration_client, oob_mode
     ):
         """Attempting /token with a valid but unverified auth code returns an error.
 
@@ -295,9 +260,6 @@ class TestTokenErrors:
         code itself.  The key assertion: we get back a proper error, not a 200.
         """
         client, _ = integration_client
-        monkeypatch.setattr(
-            "api.core.config.settings.USE_CONNECTION_BASED_VERIFICATION", False
-        )
 
         # Start authorization but do NOT inject a webhook
         with acapy_oob_mock():
@@ -319,7 +281,7 @@ class TestTokenErrors:
                 "redirect_uri": "http://wrong-redirect.example.com/",
             },
             headers={
-                "Authorization": _basic_auth_header(TEST_CLIENT_ID, TEST_CLIENT_SECRET),
+                "Authorization": basic_auth_header(TEST_CLIENT_ID, TEST_CLIENT_SECRET),
                 "Content-Type": "application/x-www-form-urlencoded",
             },
         )
@@ -333,13 +295,10 @@ class TestTokenErrors:
 
 class TestAuthorizeErrors:
     def test_authorize_unknown_ver_config_returns_404(
-        self, integration_client, monkeypatch
+        self, integration_client, oob_mode
     ):
         """Unknown pres_req_conf_id → 404 Not Found."""
         client, _ = integration_client
-        monkeypatch.setattr(
-            "api.core.config.settings.USE_CONNECTION_BASED_VERIFICATION", False
-        )
 
         with acapy_oob_mock():
             resp = client.get(
@@ -364,12 +323,9 @@ class TestAuthorizeErrors:
         )
         assert resp.status_code == 400
 
-    def test_authorize_missing_scope_returns_400(self, integration_client, monkeypatch):
+    def test_authorize_missing_scope_returns_400(self, integration_client, oob_mode):
         """Missing 'openid' scope → 400 Bad Request."""
         client, _ = integration_client
-        monkeypatch.setattr(
-            "api.core.config.settings.USE_CONNECTION_BASED_VERIFICATION", False
-        )
 
         params = {k: v for k, v in authorize_params().items() if k != "scope"}
         resp = client.get("/authorize", params=params)
@@ -382,17 +338,12 @@ class TestAuthorizeErrors:
 
 
 class TestProverRoleWebhook:
-    def test_prover_role_webhook_does_not_change_db(
-        self, integration_client, monkeypatch
-    ):
+    def test_prover_role_webhook_does_not_change_db(self, integration_client, oob_mode):
         """A present_proof_v2_0 webhook with role=prover is logged and ignored."""
         from api.authSessions.models import AuthSessionState
         from api.db.collections import COLLECTION_NAMES
 
         client, db = integration_client
-        monkeypatch.setattr(
-            "api.core.config.settings.USE_CONNECTION_BASED_VERIFICATION", False
-        )
 
         with acapy_oob_mock():
             client.get("/authorize", params=authorize_params())
@@ -450,16 +401,13 @@ class TestConnectionBasedFailures:
     extra POST to AcaPy. None of the OOB failure tests exercise that path.
     """
 
-    def _authorize_and_activate(self, client, monkeypatch, mock_router):
+    def _authorize_and_activate(self, client):
         """Run /authorize + connections webhook to reach the proof-requested state.
 
         Must be called inside the acapy_connection_mock context so the mock
         client is active for both the AcaPy invitation call and the send-request call.
-        Returns pid.
+        Caller is responsible for applying connection_mode fixture. Returns pid.
         """
-        monkeypatch.setattr(
-            "api.core.config.settings.USE_CONNECTION_BASED_VERIFICATION", True
-        )
         auth_resp = client.get("/authorize", params=authorize_params())
         assert auth_resp.status_code == 200
         pid = parse_pid_from_html(auth_resp.text)
@@ -474,7 +422,7 @@ class TestConnectionBasedFailures:
         return pid
 
     def test_failed_verification_sets_failed_status(
-        self, integration_client, monkeypatch
+        self, integration_client, connection_mode
     ):
         """verified=false in connection mode → proof_status FAILED."""
         from api.authSessions.models import AuthSessionState
@@ -487,7 +435,7 @@ class TestConnectionBasedFailures:
             pres_ex_id=FAKE_PRES_EX_ID,
             connection_id=TEST_CONNECTION_ID,
         ):
-            self._authorize_and_activate(client, monkeypatch, None)
+            self._authorize_and_activate(client)
             client.post(
                 "/webhooks/topic/present_proof_v2_0/",
                 json=make_proof_webhook(FAKE_PRES_EX_ID, verified=False),
@@ -497,7 +445,7 @@ class TestConnectionBasedFailures:
         assert session["proof_status"] == AuthSessionState.FAILED
 
     def test_failed_verification_sends_problem_report(
-        self, integration_client, monkeypatch
+        self, integration_client, connection_mode
     ):
         """verified=false in connection mode sends a problem-report to AcaPy.
 
@@ -511,7 +459,7 @@ class TestConnectionBasedFailures:
             pres_ex_id=FAKE_PRES_EX_ID,
             connection_id=TEST_CONNECTION_ID,
         ) as mock_router:
-            self._authorize_and_activate(client, monkeypatch, mock_router)
+            self._authorize_and_activate(client)
             client.post(
                 "/webhooks/topic/present_proof_v2_0/",
                 json=make_proof_webhook(FAKE_PRES_EX_ID, verified=False),
@@ -523,7 +471,7 @@ class TestConnectionBasedFailures:
         )
 
     def test_failed_verification_deletes_connection(
-        self, integration_client, monkeypatch
+        self, integration_client, connection_mode
     ):
         """After failed verification in connection mode, the connection is cleaned up."""
         client, _ = integration_client
@@ -533,7 +481,7 @@ class TestConnectionBasedFailures:
             pres_ex_id=FAKE_PRES_EX_ID,
             connection_id=TEST_CONNECTION_ID,
         ) as mock_router:
-            self._authorize_and_activate(client, monkeypatch, mock_router)
+            self._authorize_and_activate(client)
             client.post(
                 "/webhooks/topic/present_proof_v2_0/",
                 json=make_proof_webhook(FAKE_PRES_EX_ID, verified=False),
@@ -542,7 +490,7 @@ class TestConnectionBasedFailures:
         paths = called_paths(mock_router)
         assert f"/connections/{TEST_CONNECTION_ID}" in paths
 
-    def test_abandoned_sets_abandoned_status(self, integration_client, monkeypatch):
+    def test_abandoned_sets_abandoned_status(self, integration_client, connection_mode):
         """abandoned webhook in connection mode → proof_status ABANDONED."""
         from api.authSessions.models import AuthSessionState
         from api.db.collections import COLLECTION_NAMES
@@ -554,7 +502,7 @@ class TestConnectionBasedFailures:
             pres_ex_id=FAKE_PRES_EX_ID,
             connection_id=TEST_CONNECTION_ID,
         ):
-            self._authorize_and_activate(client, monkeypatch, None)
+            self._authorize_and_activate(client)
             client.post(
                 "/webhooks/topic/present_proof_v2_0/",
                 json=make_abandoned_webhook(FAKE_PRES_EX_ID),
@@ -563,7 +511,7 @@ class TestConnectionBasedFailures:
         session = db.get_collection(COLLECTION_NAMES.AUTH_SESSION).find_one({})
         assert session["proof_status"] == AuthSessionState.ABANDONED
 
-    def test_abandoned_sends_problem_report(self, integration_client, monkeypatch):
+    def test_abandoned_sends_problem_report(self, integration_client, connection_mode):
         """abandoned webhook in connection mode sends a problem-report to AcaPy."""
         client, _ = integration_client
 
@@ -572,7 +520,7 @@ class TestConnectionBasedFailures:
             pres_ex_id=FAKE_PRES_EX_ID,
             connection_id=TEST_CONNECTION_ID,
         ) as mock_router:
-            self._authorize_and_activate(client, monkeypatch, mock_router)
+            self._authorize_and_activate(client)
             client.post(
                 "/webhooks/topic/present_proof_v2_0/",
                 json=make_abandoned_webhook(FAKE_PRES_EX_ID),
@@ -583,7 +531,9 @@ class TestConnectionBasedFailures:
             "Expected problem-report call to AcaPy after abandoned webhook in connection mode"
         )
 
-    def test_sse_emits_failed_in_connection_mode(self, integration_client, monkeypatch):
+    def test_sse_emits_failed_in_connection_mode(
+        self, integration_client, connection_mode
+    ):
         """SSE emits 'failed' after a failed webhook in connection mode."""
         client, _ = integration_client
 
@@ -592,7 +542,7 @@ class TestConnectionBasedFailures:
             pres_ex_id=FAKE_PRES_EX_ID,
             connection_id=TEST_CONNECTION_ID,
         ):
-            pid = self._authorize_and_activate(client, monkeypatch, None)
+            pid = self._authorize_and_activate(client)
             client.post(
                 "/webhooks/topic/present_proof_v2_0/",
                 json=make_proof_webhook(FAKE_PRES_EX_ID, verified=False),
@@ -602,7 +552,7 @@ class TestConnectionBasedFailures:
         assert parse_sse_status(sse_resp.text) == "failed"
 
     def test_sse_emits_abandoned_in_connection_mode(
-        self, integration_client, monkeypatch
+        self, integration_client, connection_mode
     ):
         """SSE emits 'abandoned' after an abandoned webhook in connection mode."""
         client, _ = integration_client
@@ -612,7 +562,7 @@ class TestConnectionBasedFailures:
             pres_ex_id=FAKE_PRES_EX_ID,
             connection_id=TEST_CONNECTION_ID,
         ):
-            pid = self._authorize_and_activate(client, monkeypatch, None)
+            pid = self._authorize_and_activate(client)
             client.post(
                 "/webhooks/topic/present_proof_v2_0/",
                 json=make_abandoned_webhook(FAKE_PRES_EX_ID),

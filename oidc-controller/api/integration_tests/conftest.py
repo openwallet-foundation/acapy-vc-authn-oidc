@@ -44,8 +44,10 @@ _TEST_TEMPLATE = (
 def _controller_template_dir(tmp_path_factory):
     """Create verified_credentials.html in a temp dir and point settings to it.
 
-    Must be session-scoped and autouse so it runs before any TestClient fixture
-    triggers the app lifespan (which calls StaticFiles(directory=.../assets)).
+    session-scoped + autouse guarantees this runs before any TestClient fixture
+    triggers the app lifespan startup event, which calls
+    StaticFiles(directory=settings.CONTROLLER_TEMPLATE_DIR + "/assets") and
+    requires that directory to already exist.
     """
     tmp_dir = tmp_path_factory.mktemp("controller_templates")
     assets_dir = tmp_dir / "assets"
@@ -53,6 +55,35 @@ def _controller_template_dir(tmp_path_factory):
     template_path = tmp_dir / "verified_credentials.html"
     template_path.write_text(_TEST_TEMPLATE)
     settings.CONTROLLER_TEMPLATE_DIR = str(tmp_dir)
+
+
+# ---------------------------------------------------------------------------
+# Verification-mode fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def oob_mode(monkeypatch):
+    """Set OOB (out-of-band, connectionless) verification mode for the test."""
+    monkeypatch.setattr(settings, "USE_CONNECTION_BASED_VERIFICATION", False)
+
+
+@pytest.fixture
+def connection_mode(monkeypatch):
+    """Set connection-based verification mode for the test."""
+    monkeypatch.setattr(settings, "USE_CONNECTION_BASED_VERIFICATION", True)
+
+
+# ---------------------------------------------------------------------------
+# Shared auth helpers
+# ---------------------------------------------------------------------------
+
+
+def basic_auth_header(client_id: str, secret: str) -> str:
+    """Build an HTTP Basic Authorization header value."""
+    import base64
+
+    return "Basic " + base64.b64encode(f"{client_id}:{secret}".encode()).decode()
 
 
 # ---------------------------------------------------------------------------

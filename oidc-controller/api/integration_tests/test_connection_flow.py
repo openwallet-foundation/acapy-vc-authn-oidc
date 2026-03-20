@@ -18,8 +18,6 @@ Pipeline under test (USE_CONNECTION_BASED_VERIFICATION=True):
   6. POST /token → tokens with VC claims
 """
 
-import base64
-
 import jwt
 import pytest
 
@@ -33,6 +31,7 @@ from .conftest import (
     TEST_VER_CONFIG_ID,
     acapy_connection_mock,
     authorize_params,
+    basic_auth_header,
     called_paths,
     make_proof_webhook,
     parse_auth_code_from_url,
@@ -41,10 +40,6 @@ from .conftest import (
 )
 
 pytestmark = pytest.mark.integration
-
-
-def _basic_auth_header(client_id: str, secret: str) -> str:
-    return "Basic " + base64.b64encode(f"{client_id}:{secret}".encode()).decode()
 
 
 def _connections_webhook(
@@ -68,13 +63,10 @@ def _connections_webhook(
 
 class TestConnectionAuthorize:
     def test_authorize_returns_html_connection_mode(
-        self, integration_client, monkeypatch
+        self, integration_client, connection_mode
     ):
         """GET /authorize in connection mode returns HTML with pid."""
         client, _ = integration_client
-        monkeypatch.setattr(
-            "api.core.config.settings.USE_CONNECTION_BASED_VERIFICATION", True
-        )
 
         with acapy_connection_mock():
             resp = client.get("/authorize", params=authorize_params())
@@ -85,15 +77,12 @@ class TestConnectionAuthorize:
         assert len(pid) == 24
 
     def test_authorize_creates_auth_session_with_invitation_id(
-        self, integration_client, monkeypatch
+        self, integration_client, connection_mode
     ):
         """AuthSession pres_exch_id is set to invi_msg_id in connection-based mode."""
         from api.db.collections import COLLECTION_NAMES
 
         client, db = integration_client
-        monkeypatch.setattr(
-            "api.core.config.settings.USE_CONNECTION_BASED_VERIFICATION", True
-        )
 
         with acapy_connection_mock(invi_msg_id=FAKE_INVI_MSG_ID):
             client.get("/authorize", params=authorize_params())
@@ -113,15 +102,12 @@ class TestConnectionAuthorize:
 
 class TestConnectionsWebhook:
     def test_connections_webhook_sends_presentation_request(
-        self, integration_client, monkeypatch
+        self, integration_client, connection_mode
     ):
         """connections webhook triggers send_presentation_request_by_connection."""
         from api.db.collections import COLLECTION_NAMES
 
         client, db = integration_client
-        monkeypatch.setattr(
-            "api.core.config.settings.USE_CONNECTION_BASED_VERIFICATION", True
-        )
 
         mock = acapy_connection_mock(
             invi_msg_id=FAKE_INVI_MSG_ID,
@@ -151,15 +137,12 @@ class TestConnectionsWebhook:
         assert "/present-proof-2.0/send-request" in paths
 
     def test_connections_webhook_ignored_when_not_active(
-        self, integration_client, monkeypatch
+        self, integration_client, connection_mode
     ):
         """connections webhook with state=request is a no-op."""
         from api.db.collections import COLLECTION_NAMES
 
         client, db = integration_client
-        monkeypatch.setattr(
-            "api.core.config.settings.USE_CONNECTION_BASED_VERIFICATION", True
-        )
 
         with acapy_connection_mock():
             client.get("/authorize", params=authorize_params())
@@ -181,15 +164,12 @@ class TestConnectionsWebhook:
 
 
 @pytest.mark.integration
-def test_connection_flow_full_pipeline(integration_client, monkeypatch):
+def test_connection_flow_full_pipeline(integration_client, connection_mode):
     """
     Smoke test: connection authorize → connections webhook → proof webhook
                 → SSE verified → callback → token with VC claims.
     """
     client, _ = integration_client
-    monkeypatch.setattr(
-        "api.core.config.settings.USE_CONNECTION_BASED_VERIFICATION", True
-    )
 
     with acapy_connection_mock(
         invi_msg_id=FAKE_INVI_MSG_ID,
@@ -243,7 +223,7 @@ def test_connection_flow_full_pipeline(integration_client, monkeypatch):
             "redirect_uri": TEST_REDIRECT_URI,
         },
         headers={
-            "Authorization": _basic_auth_header(TEST_CLIENT_ID, TEST_CLIENT_SECRET),
+            "Authorization": basic_auth_header(TEST_CLIENT_ID, TEST_CLIENT_SECRET),
             "Content-Type": "application/x-www-form-urlencoded",
         },
     )

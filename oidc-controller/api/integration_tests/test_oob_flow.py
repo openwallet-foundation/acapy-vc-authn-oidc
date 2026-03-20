@@ -11,7 +11,6 @@ Full pipeline under test:
 AcaPy is mocked via respx; MongoDB is replaced with mongomock.
 """
 
-import base64
 from unittest.mock import patch
 
 import jwt
@@ -25,6 +24,7 @@ from .conftest import (
     TEST_VER_CONFIG_ID,
     acapy_oob_mock,
     authorize_params,
+    basic_auth_header,
     called_paths,
     make_abandoned_webhook,
     make_proof_webhook,
@@ -37,22 +37,15 @@ from .conftest import (
 pytestmark = pytest.mark.integration
 
 
-def _basic_auth_header(client_id: str, secret: str) -> str:
-    return "Basic " + base64.b64encode(f"{client_id}:{secret}".encode()).decode()
-
-
 # ---------------------------------------------------------------------------
 # Authorize endpoint
 # ---------------------------------------------------------------------------
 
 
 class TestAuthorize:
-    def test_authorize_returns_html(self, integration_client, monkeypatch):
+    def test_authorize_returns_html(self, integration_client, oob_mode):
         """GET /authorize creates an auth session and returns HTML with pid."""
         client, _ = integration_client
-        monkeypatch.setattr(
-            "api.core.config.settings.USE_CONNECTION_BASED_VERIFICATION", False
-        )
 
         with acapy_oob_mock() as mock_router:
             resp = client.get("/authorize", params=authorize_params())
@@ -67,12 +60,9 @@ class TestAuthorize:
         assert "/present-proof-2.0/create-request" in paths
         assert "/out-of-band/create-invitation" in paths
 
-    def test_authorize_embeds_pres_exch_id(self, integration_client, monkeypatch):
+    def test_authorize_embeds_pres_exch_id(self, integration_client, oob_mode):
         """The HTML response exposes pres_exch_id matching the mocked AcaPy value."""
         client, _ = integration_client
-        monkeypatch.setattr(
-            "api.core.config.settings.USE_CONNECTION_BASED_VERIFICATION", False
-        )
 
         with acapy_oob_mock(pres_ex_id=FAKE_PRES_EX_ID):
             resp = client.get("/authorize", params=authorize_params())
@@ -81,16 +71,11 @@ class TestAuthorize:
         pres_exch_id = parse_pres_exch_id_from_html(resp.text)
         assert pres_exch_id == FAKE_PRES_EX_ID
 
-    def test_authorize_creates_auth_session_in_db(
-        self, integration_client, monkeypatch
-    ):
+    def test_authorize_creates_auth_session_in_db(self, integration_client, oob_mode):
         """An AuthSession record is written to DB on /authorize."""
         from api.db.collections import COLLECTION_NAMES
 
         client, db = integration_client
-        monkeypatch.setattr(
-            "api.core.config.settings.USE_CONNECTION_BASED_VERIFICATION", False
-        )
 
         with acapy_oob_mock() as mock_router:
             resp = client.get("/authorize", params=authorize_params())
@@ -105,13 +90,10 @@ class TestAuthorize:
         assert "/out-of-band/create-invitation" in paths
 
     def test_authorize_unknown_ver_config_returns_404(
-        self, integration_client, monkeypatch
+        self, integration_client, oob_mode
     ):
         """Unknown pres_req_conf_id returns 404 (ver_config not found)."""
         client, _ = integration_client
-        monkeypatch.setattr(
-            "api.core.config.settings.USE_CONNECTION_BASED_VERIFICATION", False
-        )
 
         with acapy_oob_mock():
             resp = client.get(
@@ -129,16 +111,13 @@ class TestAuthorize:
 
 class TestWebhookInjection:
     def test_present_proof_verified_webhook_updates_db(
-        self, integration_client, monkeypatch
+        self, integration_client, oob_mode
     ):
         """Injecting a verified present_proof_v2_0 webhook sets proof_status=VERIFIED."""
         from api.authSessions.models import AuthSessionState
         from api.db.collections import COLLECTION_NAMES
 
         client, db = integration_client
-        monkeypatch.setattr(
-            "api.core.config.settings.USE_CONNECTION_BASED_VERIFICATION", False
-        )
 
         with acapy_oob_mock():
             client.get("/authorize", params=authorize_params())
@@ -157,16 +136,13 @@ class TestWebhookInjection:
         assert mock_audit.call_args.kwargs["ver_config_id"] == TEST_VER_CONFIG_ID
 
     def test_present_proof_failed_webhook_updates_db(
-        self, integration_client, monkeypatch
+        self, integration_client, oob_mode
     ):
         """Injecting verified=false sets proof_status=FAILED."""
         from api.authSessions.models import AuthSessionState
         from api.db.collections import COLLECTION_NAMES
 
         client, db = integration_client
-        monkeypatch.setattr(
-            "api.core.config.settings.USE_CONNECTION_BASED_VERIFICATION", False
-        )
 
         with acapy_oob_mock():
             client.get("/authorize", params=authorize_params())
@@ -186,16 +162,13 @@ class TestWebhookInjection:
         assert mock_audit.call_args.kwargs["ver_config_id"] == TEST_VER_CONFIG_ID
 
     def test_present_proof_abandoned_webhook_updates_db(
-        self, integration_client, monkeypatch
+        self, integration_client, oob_mode
     ):
         """Injecting an abandoned webhook sets proof_status=ABANDONED."""
         from api.authSessions.models import AuthSessionState
         from api.db.collections import COLLECTION_NAMES
 
         client, db = integration_client
-        monkeypatch.setattr(
-            "api.core.config.settings.USE_CONNECTION_BASED_VERIFICATION", False
-        )
 
         with acapy_oob_mock():
             client.get("/authorize", params=authorize_params())
@@ -214,19 +187,26 @@ class TestWebhookInjection:
 
 
 # ---------------------------------------------------------------------------
-# SSE endpoint (terminal state is emitted immediately from DB on connect)
+# SSE endpoint
 # ---------------------------------------------------------------------------
 
 
 class TestSseAfterWebhook:
+    """Verify SSE delivers the correct terminal state when the webhook fires
+    BEFORE the browser opens the SSE connection — the typical real-world timing
+    for a mobile wallet (slow to scan → proof arrives before the page polls).
+
+    In REDIS_MODE=none, notify() silently drops the in-process signal when no
+    SSE subscriber is registered yet (pid not in _signals). Recovery relies on
+    the initial DB-state read that _sse_event_loop performs on every connect.
+    All tests in this class exercise that fallback path explicitly.
+    """
+
     def test_sse_emits_verified_after_verified_webhook(
-        self, integration_client, monkeypatch
+        self, integration_client, oob_mode
     ):
         """After a verified webhook, SSE emits 'verified' as the first event."""
         client, _ = integration_client
-        monkeypatch.setattr(
-            "api.core.config.settings.USE_CONNECTION_BASED_VERIFICATION", False
-        )
 
         with acapy_oob_mock():
             auth_resp = client.get("/authorize", params=authorize_params())
@@ -241,14 +221,9 @@ class TestSseAfterWebhook:
         assert sse_resp.status_code == 200
         assert parse_sse_status(sse_resp.text) == "verified"
 
-    def test_sse_emits_failed_after_failed_webhook(
-        self, integration_client, monkeypatch
-    ):
+    def test_sse_emits_failed_after_failed_webhook(self, integration_client, oob_mode):
         """After a failed webhook, SSE emits 'failed'."""
         client, _ = integration_client
-        monkeypatch.setattr(
-            "api.core.config.settings.USE_CONNECTION_BASED_VERIFICATION", False
-        )
 
         with acapy_oob_mock():
             auth_resp = client.get("/authorize", params=authorize_params())
@@ -263,13 +238,10 @@ class TestSseAfterWebhook:
         assert parse_sse_status(sse_resp.text) == "failed"
 
     def test_sse_emits_abandoned_after_abandoned_webhook(
-        self, integration_client, monkeypatch
+        self, integration_client, oob_mode
     ):
         """After an abandoned webhook, SSE emits 'abandoned'."""
         client, _ = integration_client
-        monkeypatch.setattr(
-            "api.core.config.settings.USE_CONNECTION_BASED_VERIFICATION", False
-        )
 
         with acapy_oob_mock():
             auth_resp = client.get("/authorize", params=authorize_params())
@@ -283,6 +255,35 @@ class TestSseAfterWebhook:
         sse_resp = client.get(f"/sse/status/{pid}")
         assert parse_sse_status(sse_resp.text) == "abandoned"
 
+    def test_sse_delivers_state_when_notify_signal_was_dropped(
+        self, integration_client, oob_mode
+    ):
+        """Regression: SSE delivers verified state even when notify() dropped the signal.
+
+        In REDIS_MODE=none, notify() only writes to _latest[pid] when a subscriber
+        is already connected (pid in _signals). If the webhook fires before the
+        browser opens /sse/status, the signal is silently dropped. The SSE
+        endpoint must still deliver the correct state via the initial DB read on
+        connect. This test pins that contract explicitly.
+        """
+        client, _ = integration_client
+
+        with acapy_oob_mock():
+            auth_resp = client.get("/authorize", params=authorize_params())
+        pid = parse_pid_from_html(auth_resp.text)
+
+        # Webhook fires. No SSE subscriber is connected yet, so notify() drops
+        # the in-process signal — the session state update is only in the DB.
+        client.post(
+            "/webhooks/topic/present_proof_v2_0/",
+            json=make_proof_webhook(FAKE_PRES_EX_ID, verified=True),
+        )
+
+        # SSE connects after the fact. Must recover via initial DB read.
+        sse_resp = client.get(f"/sse/status/{pid}")
+        assert sse_resp.status_code == 200
+        assert parse_sse_status(sse_resp.text) == "verified"
+
 
 # ---------------------------------------------------------------------------
 # Callback endpoint
@@ -290,12 +291,9 @@ class TestSseAfterWebhook:
 
 
 class TestCallback:
-    def test_callback_redirects_to_redirect_uri(self, integration_client, monkeypatch):
+    def test_callback_redirects_to_redirect_uri(self, integration_client, oob_mode):
         """GET /callback?pid={pid} returns a 3xx redirect to the RP redirect_uri."""
         client, _ = integration_client
-        monkeypatch.setattr(
-            "api.core.config.settings.USE_CONNECTION_BASED_VERIFICATION", False
-        )
 
         with acapy_oob_mock():
             auth_resp = client.get("/authorize", params=authorize_params())
@@ -311,14 +309,9 @@ class TestCallback:
         location = cb_resp.headers["location"]
         assert TEST_REDIRECT_URI in location
 
-    def test_callback_redirect_contains_auth_code(
-        self, integration_client, monkeypatch
-    ):
+    def test_callback_redirect_contains_auth_code(self, integration_client, oob_mode):
         """The redirect Location header contains an authorization code."""
         client, _ = integration_client
-        monkeypatch.setattr(
-            "api.core.config.settings.USE_CONNECTION_BASED_VERIFICATION", False
-        )
 
         with acapy_oob_mock():
             auth_resp = client.get("/authorize", params=authorize_params())
@@ -341,12 +334,11 @@ class TestCallback:
 
 
 class TestToken:
-    def _run_authorize_and_webhook(self, client, monkeypatch):
-        """Run the authorize + webhook steps; return (pid, auth_code)."""
-        monkeypatch.setattr(
-            "api.core.config.settings.USE_CONNECTION_BASED_VERIFICATION", False
-        )
+    def _run_authorize_and_webhook(self, client):
+        """Run the authorize + webhook steps; return (pid, auth_code).
 
+        Caller is responsible for applying oob_mode fixture before calling this.
+        """
         with acapy_oob_mock():
             auth_resp = client.get("/authorize", params=authorize_params())
         pid = parse_pid_from_html(auth_resp.text)
@@ -360,10 +352,10 @@ class TestToken:
         auth_code = parse_auth_code_from_url(cb_resp.headers["location"])
         return pid, auth_code
 
-    def test_token_returns_access_and_id_token(self, integration_client, monkeypatch):
+    def test_token_returns_access_and_id_token(self, integration_client, oob_mode):
         """POST /token with valid auth code returns access_token and id_token."""
         client, _ = integration_client
-        _, auth_code = self._run_authorize_and_webhook(client, monkeypatch)
+        _, auth_code = self._run_authorize_and_webhook(client)
 
         resp = client.post(
             "/token",
@@ -373,7 +365,7 @@ class TestToken:
                 "redirect_uri": TEST_REDIRECT_URI,
             },
             headers={
-                "Authorization": _basic_auth_header(TEST_CLIENT_ID, TEST_CLIENT_SECRET),
+                "Authorization": basic_auth_header(TEST_CLIENT_ID, TEST_CLIENT_SECRET),
                 "Content-Type": "application/x-www-form-urlencoded",
             },
         )
@@ -383,10 +375,10 @@ class TestToken:
         assert "access_token" in body
         assert "id_token" in body
 
-    def test_id_token_contains_vc_claims(self, integration_client, monkeypatch):
+    def test_id_token_contains_vc_claims(self, integration_client, oob_mode):
         """id_token payload includes pres_req_conf_id, acr, and vc_presented_attributes."""
         client, _ = integration_client
-        _, auth_code = self._run_authorize_and_webhook(client, monkeypatch)
+        _, auth_code = self._run_authorize_and_webhook(client)
 
         resp = client.post(
             "/token",
@@ -396,7 +388,7 @@ class TestToken:
                 "redirect_uri": TEST_REDIRECT_URI,
             },
             headers={
-                "Authorization": _basic_auth_header(TEST_CLIENT_ID, TEST_CLIENT_SECRET),
+                "Authorization": basic_auth_header(TEST_CLIENT_ID, TEST_CLIENT_SECRET),
                 "Content-Type": "application/x-www-form-urlencoded",
             },
         )
@@ -409,12 +401,10 @@ class TestToken:
         assert claims.get("acr") == "vc_authn"
         assert "vc_presented_attributes" in claims
 
-    def test_id_token_sub_derived_from_vc_attribute(
-        self, integration_client, monkeypatch
-    ):
+    def test_id_token_sub_derived_from_vc_attribute(self, integration_client, oob_mode):
         """sub claim is '<first_name>@<ver_config_id>' (subject_identifier=first_name)."""
         client, _ = integration_client
-        _, auth_code = self._run_authorize_and_webhook(client, monkeypatch)
+        _, auth_code = self._run_authorize_and_webhook(client)
 
         resp = client.post(
             "/token",
@@ -424,7 +414,7 @@ class TestToken:
                 "redirect_uri": TEST_REDIRECT_URI,
             },
             headers={
-                "Authorization": _basic_auth_header(TEST_CLIENT_ID, TEST_CLIENT_SECRET),
+                "Authorization": basic_auth_header(TEST_CLIENT_ID, TEST_CLIENT_SECRET),
                 "Content-Type": "application/x-www-form-urlencoded",
             },
         )
@@ -442,7 +432,7 @@ class TestToken:
 
 
 @pytest.mark.integration
-def test_oob_full_pipeline(integration_client, monkeypatch):
+def test_oob_full_pipeline(integration_client, oob_mode):
     """
     Smoke test: authorize → webhook → SSE → callback → token.
 
@@ -450,9 +440,6 @@ def test_oob_full_pipeline(integration_client, monkeypatch):
     points immediately to the broken seam.
     """
     client, _ = integration_client
-    monkeypatch.setattr(
-        "api.core.config.settings.USE_CONNECTION_BASED_VERIFICATION", False
-    )
 
     # 1. Start OIDC authorization flow
     with acapy_oob_mock(pres_ex_id=FAKE_PRES_EX_ID) as mock_router:
@@ -493,7 +480,7 @@ def test_oob_full_pipeline(integration_client, monkeypatch):
             "redirect_uri": TEST_REDIRECT_URI,
         },
         headers={
-            "Authorization": _basic_auth_header(TEST_CLIENT_ID, TEST_CLIENT_SECRET),
+            "Authorization": basic_auth_header(TEST_CLIENT_ID, TEST_CLIENT_SECRET),
             "Content-Type": "application/x-www-form-urlencoded",
         },
     )
@@ -527,7 +514,7 @@ class TestWebhookIdempotency:
     """
 
     def test_duplicate_verified_webhook_does_not_corrupt_state(
-        self, integration_client, monkeypatch
+        self, integration_client, oob_mode
     ):
         """Delivering the same verified webhook twice leaves session VERIFIED.
         Currently audit_proof_verified is called once per delivery (no guard)."""
@@ -535,9 +522,6 @@ class TestWebhookIdempotency:
         from api.db.collections import COLLECTION_NAMES
 
         client, db = integration_client
-        monkeypatch.setattr(
-            "api.core.config.settings.USE_CONNECTION_BASED_VERIFICATION", False
-        )
 
         with acapy_oob_mock():
             auth_resp = client.get("/authorize", params=authorize_params())
@@ -565,18 +549,13 @@ class TestWebhookIdempotency:
         # No idempotency guard: audit fires once per delivery
         assert mock_audit.call_count == 2
 
-    def test_duplicate_failed_webhook_stays_failed(
-        self, integration_client, monkeypatch
-    ):
+    def test_duplicate_failed_webhook_stays_failed(self, integration_client, oob_mode):
         """Delivering failed webhook twice keeps session FAILED.
         Currently audit_proof_verification_failed is called once per delivery."""
         from api.authSessions.models import AuthSessionState
         from api.db.collections import COLLECTION_NAMES
 
         client, db = integration_client
-        monkeypatch.setattr(
-            "api.core.config.settings.USE_CONNECTION_BASED_VERIFICATION", False
-        )
 
         with acapy_oob_mock():
             client.get("/authorize", params=authorize_params())
@@ -605,7 +584,7 @@ class TestWebhookIdempotency:
         assert mock_audit.call_count == 2
 
     def test_duplicate_abandoned_webhook_stays_abandoned(
-        self, integration_client, monkeypatch
+        self, integration_client, oob_mode
     ):
         """Delivering abandoned webhook twice keeps session ABANDONED.
         Currently audit_session_abandoned is called once per delivery."""
@@ -613,9 +592,6 @@ class TestWebhookIdempotency:
         from api.db.collections import COLLECTION_NAMES
 
         client, db = integration_client
-        monkeypatch.setattr(
-            "api.core.config.settings.USE_CONNECTION_BASED_VERIFICATION", False
-        )
 
         with acapy_oob_mock():
             client.get("/authorize", params=authorize_params())
@@ -657,11 +633,12 @@ class TestPresentationRequestURL:
       3. Return the OOB invitation/presentation request as JSON
     """
 
-    def _setup(self, client, monkeypatch):
-        """Run /authorize and return (pid, pres_exch_id)."""
-        monkeypatch.setattr(
-            "api.core.config.settings.USE_CONNECTION_BASED_VERIFICATION", False
-        )
+    def _setup(self, client, oob_mode, monkeypatch):
+        """Run /authorize and return (pid, pres_exch_id).
+
+        oob_mode fixture is passed in to document the dependency; it has already
+        been applied by pytest before this helper is called.
+        """
         # Point camera redirect at a plain URL so the endpoint doesn't try to
         # open a template file before reaching the wallet (non-HTML) branch.
         monkeypatch.setattr(
@@ -675,11 +652,11 @@ class TestPresentationRequestURL:
         return pid, pres_exch_id
 
     def test_wallet_fetch_returns_proof_request_json(
-        self, integration_client, monkeypatch
+        self, integration_client, oob_mode, monkeypatch
     ):
         """Wallet GET returns 200 JSON containing the OOB invitation message."""
         client, _ = integration_client
-        _, pres_exch_id = self._setup(client, monkeypatch)
+        _, pres_exch_id = self._setup(client, oob_mode, monkeypatch)
 
         resp = client.get(
             f"/url/pres_exch/{pres_exch_id}",
@@ -691,14 +668,14 @@ class TestPresentationRequestURL:
         assert "@type" in body or "type" in body
 
     def test_wallet_fetch_transitions_session_to_pending(
-        self, integration_client, monkeypatch
+        self, integration_client, oob_mode, monkeypatch
     ):
         """Wallet fetch moves proof_status from NOT_STARTED to PENDING in DB."""
         from api.authSessions.models import AuthSessionState
         from api.db.collections import COLLECTION_NAMES
 
         client, db = integration_client
-        pid, pres_exch_id = self._setup(client, monkeypatch)
+        pid, pres_exch_id = self._setup(client, oob_mode, monkeypatch)
 
         # Confirm initial state
         session = db.get_collection(COLLECTION_NAMES.AUTH_SESSION).find_one({})
@@ -713,13 +690,13 @@ class TestPresentationRequestURL:
         assert session["proof_status"] == AuthSessionState.PENDING
 
     def test_wallet_fetch_fires_pending_sse_notification(
-        self, integration_client, monkeypatch
+        self, integration_client, oob_mode, monkeypatch
     ):
         """toggle_pending calls notify(pid, 'pending') when session is NOT_STARTED."""
         from unittest.mock import AsyncMock
 
         client, _ = integration_client
-        pid, pres_exch_id = self._setup(client, monkeypatch)
+        pid, pres_exch_id = self._setup(client, oob_mode, monkeypatch)
 
         with patch(
             "api.routers.presentation_request.notify", new_callable=AsyncMock
@@ -732,13 +709,13 @@ class TestPresentationRequestURL:
         mock_notify.assert_called_once_with(pid, "pending")
 
     def test_second_wallet_fetch_does_not_re_notify(
-        self, integration_client, monkeypatch
+        self, integration_client, oob_mode, monkeypatch
     ):
         """Once PENDING, a second wallet fetch is a no-op (no double notification)."""
         from unittest.mock import AsyncMock
 
         client, _ = integration_client
-        pid, pres_exch_id = self._setup(client, monkeypatch)
+        pid, pres_exch_id = self._setup(client, oob_mode, monkeypatch)
 
         # First fetch: transitions NOT_STARTED → PENDING
         client.get(
