@@ -284,9 +284,9 @@ class GlobalConfig(BaseSettings):
         "CONTROLLER_TEMPLATE_DIR", "/app/controller-config/templates"
     )
 
-    # Redis Configuration for multi-pod Socket.IO
+    # Redis Configuration for multi-pod SSE pub/sub
     # REDIS_MODE: "none", "single", "sentinel", or "cluster"
-    # - none: Redis disabled (default for backwards compatibility)
+    # - none: Redis disabled (default, single-pod in-process signaling)
     # - single: Single Redis instance (REDIS_HOST = "host:port")
     # - sentinel: Redis Sentinel (REDIS_HOST = "host1:port1,host2:port2")
     # - cluster: Redis Cluster (REDIS_HOST = "host1:port1,host2:port2")
@@ -301,14 +301,6 @@ class GlobalConfig(BaseSettings):
     REDIS_SENTINEL_MASTER_NAME: str = os.environ.get(
         "REDIS_SENTINEL_MASTER_NAME", "mymaster"
     )
-
-    # Redis error handling and retry configuration
-    REDIS_THREAD_MAX_RETRIES: int = int(os.environ.get("REDIS_THREAD_MAX_RETRIES", 5))
-    REDIS_PUBSUB_MAX_FAILURES: int = int(
-        os.environ.get("REDIS_PUBSUB_MAX_FAILURES", 10)
-    )
-    REDIS_RETRY_BASE_DELAY: int = int(os.environ.get("REDIS_RETRY_BASE_DELAY", 1))
-    REDIS_RETRY_MAX_DELAY: int = int(os.environ.get("REDIS_RETRY_MAX_DELAY", 60))
 
     model_config = ConfigDict(case_sensitive=True)
 

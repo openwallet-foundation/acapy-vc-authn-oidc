@@ -1,12 +1,14 @@
 """Tests for the ACA-Py webhook handler."""
 
 import json
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from bson import ObjectId
 from pymongo.database import Database
 from api.authSessions.models import AuthSession, AuthSessionState
+from api.core.config import settings
 from api.routers.acapy_handler import (
     post_topic,
     _extract_credential_schemas,
@@ -29,6 +31,7 @@ def mock_auth_session():
     auth_session.connection_id = "test-connection-id"
     auth_session.proof_request = {"test": "proof_request"}
     auth_session.proof_status = AuthSessionState.NOT_STARTED
+    auth_session.expired_timestamp = datetime.now(UTC) + timedelta(seconds=3600)
     auth_session.ver_config_id = "test-ver-config-id"
     auth_session.request_parameters = {"test": "params"}
     auth_session.pyop_auth_code = "test-auth-code"
@@ -68,12 +71,10 @@ class TestConnectionBasedVerificationWebhooks:
     @patch("api.routers.acapy_handler.settings.USE_CONNECTION_BASED_VERIFICATION", True)
     @patch("api.routers.acapy_handler.AuthSessionCRUD")
     @patch("api.routers.acapy_handler.AcapyClient")
-    @patch("api.routers.acapy_handler.safe_emit")
-    @patch("api.routers.acapy_handler.get_socket_id_for_pid")
+    @patch("api.routers.acapy_handler.notify")
     async def test_connection_webhook_sends_presentation_request_on_active_state(
         self,
-        mock_get_socket_id,
-        mock_safe_emit,
+        mock_notify,
         mock_acapy_client,
         mock_auth_session_crud,
         mock_request,
@@ -122,12 +123,10 @@ class TestConnectionBasedVerificationWebhooks:
     @patch("api.routers.acapy_handler.settings.USE_CONNECTION_BASED_VERIFICATION", True)
     @patch("api.routers.acapy_handler.AuthSessionCRUD")
     @patch("api.routers.acapy_handler.AcapyClient")
-    @patch("api.routers.acapy_handler.safe_emit")
-    @patch("api.routers.acapy_handler.get_socket_id_for_pid")
+    @patch("api.routers.acapy_handler.notify")
     async def test_connection_webhook_sends_problem_report_on_presentation_request_failure(
         self,
-        mock_get_socket_id,
-        mock_safe_emit,
+        mock_notify,
         mock_acapy_client,
         mock_auth_session_crud,
         mock_request,
@@ -156,8 +155,6 @@ class TestConnectionBasedVerificationWebhooks:
         mock_client_instance.send_problem_report.return_value = True
         mock_acapy_client.return_value = mock_client_instance
 
-        mock_get_socket_id.return_value = "test-socket-id"
-
         # Execute
         result = await post_topic(mock_request, "connections", mock_db)
 
@@ -166,20 +163,16 @@ class TestConnectionBasedVerificationWebhooks:
         mock_client_instance.send_problem_report.assert_called_once_with(
             "test-pres-ex-id", "Failed to send presentation request: Connection error"
         )
-        mock_safe_emit.assert_called_once_with(
-            "status", {"status": "failed"}, to="test-socket-id"
-        )
+        mock_notify.assert_awaited_once_with("test-session-id", "failed")
 
     @pytest.mark.asyncio
     @patch("api.routers.acapy_handler.settings.USE_CONNECTION_BASED_VERIFICATION", True)
     @patch("api.routers.acapy_handler.AuthSessionCRUD")
     @patch("api.routers.acapy_handler.AcapyClient")
-    @patch("api.routers.acapy_handler.safe_emit")
-    @patch("api.routers.acapy_handler.get_socket_id_for_pid")
+    @patch("api.routers.acapy_handler.notify")
     async def test_present_proof_webhook_sends_problem_report_on_verification_failure(
         self,
-        mock_get_socket_id,
-        mock_safe_emit,
+        mock_notify,
         mock_acapy_client,
         mock_auth_session_crud,
         mock_request,
@@ -206,8 +199,6 @@ class TestConnectionBasedVerificationWebhooks:
         mock_client_instance.send_problem_report.return_value = True
         mock_acapy_client.return_value = mock_client_instance
 
-        mock_get_socket_id.return_value = "test-socket-id"
-
         # Execute
         result = await post_topic(mock_request, "present_proof_v2_0", mock_db)
 
@@ -216,20 +207,16 @@ class TestConnectionBasedVerificationWebhooks:
         mock_client_instance.send_problem_report.assert_called_once_with(
             "test-pres-ex-id", "Presentation verification failed: Verification failed"
         )
-        mock_safe_emit.assert_called_once_with(
-            "status", {"status": "failed"}, to="test-socket-id"
-        )
+        mock_notify.assert_awaited_once_with("test-session-id", "failed")
 
     @pytest.mark.asyncio
     @patch("api.routers.acapy_handler.settings.USE_CONNECTION_BASED_VERIFICATION", True)
     @patch("api.routers.acapy_handler.AuthSessionCRUD")
     @patch("api.routers.acapy_handler.AcapyClient")
-    @patch("api.routers.acapy_handler.safe_emit")
-    @patch("api.routers.acapy_handler.get_socket_id_for_pid")
+    @patch("api.routers.acapy_handler.notify")
     async def test_multi_use_connection_preservation_on_verification_success(
         self,
-        mock_get_socket_id,
-        mock_safe_emit,
+        mock_notify,
         mock_acapy_client,
         mock_auth_session_crud,
         mock_request,
@@ -279,8 +266,6 @@ class TestConnectionBasedVerificationWebhooks:
         )
         mock_acapy_client.return_value = mock_client_instance
 
-        mock_get_socket_id.return_value = "test-socket-id"
-
         # Execute
         result = await post_topic(mock_request, "present_proof_v2_0", mock_db)
 
@@ -288,20 +273,16 @@ class TestConnectionBasedVerificationWebhooks:
         assert result == {}
         # Verify connection was NOT deleted
         mock_client_instance.delete_connection.assert_not_called()
-        mock_safe_emit.assert_called_once_with(
-            "status", {"status": "verified"}, to="test-socket-id"
-        )
+        mock_notify.assert_awaited_once_with("test-session-id", "verified")
 
     @pytest.mark.asyncio
     @patch("api.routers.acapy_handler.settings.USE_CONNECTION_BASED_VERIFICATION", True)
     @patch("api.routers.acapy_handler.AuthSessionCRUD")
     @patch("api.routers.acapy_handler.AcapyClient")
-    @patch("api.routers.acapy_handler.safe_emit")
-    @patch("api.routers.acapy_handler.get_socket_id_for_pid")
+    @patch("api.routers.acapy_handler.notify")
     async def test_present_proof_webhook_sends_problem_report_on_abandoned_state(
         self,
-        mock_get_socket_id,
-        mock_safe_emit,
+        mock_notify,
         mock_acapy_client,
         mock_auth_session_crud,
         mock_request,
@@ -327,8 +308,6 @@ class TestConnectionBasedVerificationWebhooks:
         mock_client_instance.send_problem_report.return_value = True
         mock_acapy_client.return_value = mock_client_instance
 
-        mock_get_socket_id.return_value = "test-socket-id"
-
         # Execute
         result = await post_topic(mock_request, "present_proof_v2_0", mock_db)
 
@@ -337,23 +316,16 @@ class TestConnectionBasedVerificationWebhooks:
         mock_client_instance.send_problem_report.assert_called_once_with(
             "test-pres-ex-id", "Presentation abandoned: Presentation abandoned by user"
         )
-        mock_safe_emit.assert_called_once_with(
-            "status", {"status": "abandoned"}, to="test-socket-id"
-        )
+        mock_notify.assert_awaited_once_with("test-session-id", "abandoned")
 
     @pytest.mark.asyncio
     @patch("api.routers.acapy_handler.settings.USE_CONNECTION_BASED_VERIFICATION", True)
-    @patch(
-        "api.routers.acapy_handler.settings.CONTROLLER_PRESENTATION_EXPIRE_TIME", -60
-    )
     @patch("api.routers.acapy_handler.AuthSessionCRUD")
     @patch("api.routers.acapy_handler.AcapyClient")
-    @patch("api.routers.acapy_handler.safe_emit")
-    @patch("api.routers.acapy_handler.get_socket_id_for_pid")
+    @patch("api.routers.acapy_handler.notify")
     async def test_present_proof_webhook_sends_problem_report_on_expired_state(
         self,
-        mock_get_socket_id,
-        mock_safe_emit,
+        mock_notify,
         mock_acapy_client,
         mock_auth_session_crud,
         mock_request,
@@ -363,8 +335,8 @@ class TestConnectionBasedVerificationWebhooks:
         """Test that a problem report is sent when a session is expired.
 
         Uses state=presentation-received so proof_status stays NOT_STARTED,
-        allowing the expiration check to fire. CONTROLLER_PRESENTATION_EXPIRE_TIME=-60
-        makes expired_time land in the past, triggering the EXPIRED branch.
+        allowing the expiration check to fire. expired_timestamp is set in the
+        past to trigger the EXPIRED branch.
         """
         webhook_body = {
             "pres_ex_id": "test-pres-ex-id",
@@ -374,6 +346,7 @@ class TestConnectionBasedVerificationWebhooks:
         mock_request.body.return_value = json.dumps(webhook_body).encode("ascii")
 
         mock_auth_session.proof_status = AuthSessionState.NOT_STARTED
+        mock_auth_session.expired_timestamp = datetime.now(UTC) - timedelta(seconds=60)
         mock_auth_session_crud.return_value.get_by_pres_exch_id = AsyncMock(
             return_value=mock_auth_session
         )
@@ -384,18 +357,15 @@ class TestConnectionBasedVerificationWebhooks:
         mock_client_instance.delete_connection = AsyncMock(return_value=True)
         mock_acapy_client.return_value = mock_client_instance
 
-        mock_get_socket_id.return_value = "test-socket-id"
-
         result = await post_topic(mock_request, "present_proof_v2_0", mock_db)
 
         assert result == {}
         assert mock_auth_session.proof_status == AuthSessionState.EXPIRED
         mock_client_instance.send_problem_report.assert_called_once_with(
-            "test-pres-ex-id", "Presentation expired: timeout after -60 seconds"
+            "test-pres-ex-id",
+            f"Presentation expired: timeout after {settings.CONTROLLER_PRESENTATION_EXPIRE_TIME} seconds",
         )
-        mock_safe_emit.assert_called_with(
-            "status", {"status": "expired"}, to="test-socket-id"
-        )
+        mock_notify.assert_awaited_once_with("test-session-id", "expired")
         # Verify single-use connection was cleaned up
         mock_client_instance.delete_connection.assert_called_once_with(
             "test-connection-id"
@@ -405,12 +375,10 @@ class TestConnectionBasedVerificationWebhooks:
     @patch("api.routers.acapy_handler.settings.USE_CONNECTION_BASED_VERIFICATION", True)
     @patch("api.routers.acapy_handler.AuthSessionCRUD")
     @patch("api.routers.acapy_handler.AcapyClient")
-    @patch("api.routers.acapy_handler.safe_emit")
-    @patch("api.routers.acapy_handler.get_socket_id_for_pid")
+    @patch("api.routers.acapy_handler.notify")
     async def test_cleanup_connection_logs_failure_when_delete_returns_false(
         self,
-        mock_get_socket_id,
-        mock_safe_emit,
+        mock_notify,
         mock_acapy_client,
         mock_auth_session_crud,
         mock_request,
@@ -434,8 +402,6 @@ class TestConnectionBasedVerificationWebhooks:
         mock_client_instance = MagicMock()
         mock_client_instance.delete_connection = AsyncMock(return_value=False)
         mock_acapy_client.return_value = mock_client_instance
-
-        mock_get_socket_id.return_value = "test-socket-id"
 
         result = await post_topic(mock_request, "present_proof_v2_0", mock_db)
 
@@ -508,6 +474,9 @@ class TestConnectionBasedVerificationWebhooks:
         mock_auth_session_no_pres_id.pres_exch_id = None
         mock_auth_session_no_pres_id.connection_id = "test-connection-id"
         mock_auth_session_no_pres_id.multi_use = False
+        mock_auth_session_no_pres_id.expired_timestamp = datetime.now(UTC) + timedelta(
+            seconds=3600
+        )
         mock_auth_session_no_pres_id.ver_config_id = "test-ver-config-id"
         mock_auth_session_no_pres_id.model_dump = MagicMock(
             return_value={
@@ -775,12 +744,10 @@ class TestConnectionBasedVerificationIntegration:
     @patch("api.routers.acapy_handler.settings.USE_CONNECTION_BASED_VERIFICATION", True)
     @patch("api.routers.acapy_handler.AuthSessionCRUD")
     @patch("api.routers.acapy_handler.AcapyClient")
-    @patch("api.routers.acapy_handler.safe_emit")
-    @patch("api.routers.acapy_handler.get_socket_id_for_pid")
+    @patch("api.routers.acapy_handler.notify")
     async def test_presentation_request_failure_sets_auth_session_to_failed(
         self,
-        mock_get_socket_id,
-        mock_safe_emit,
+        mock_notify,
         mock_acapy_client,
         mock_auth_session_crud,
         mock_request,
@@ -809,8 +776,6 @@ class TestConnectionBasedVerificationIntegration:
         mock_client_instance.send_problem_report.return_value = True
         mock_acapy_client.return_value = mock_client_instance
 
-        mock_get_socket_id.return_value = "test-socket-id"
-
         # Execute
         result = await post_topic(mock_request, "connections", mock_db)
 
@@ -818,9 +783,7 @@ class TestConnectionBasedVerificationIntegration:
         assert result == {}
         assert mock_auth_session.proof_status == AuthSessionState.FAILED
         mock_auth_session_crud.return_value.patch.assert_called()
-        mock_safe_emit.assert_called_once_with(
-            "status", {"status": "failed"}, to="test-socket-id"
-        )
+        mock_notify.assert_awaited_once_with("test-session-id", "failed")
 
 
 class TestProverRoleWebhooks:
@@ -1073,12 +1036,10 @@ class TestMiscWebhookCoverage:
     @patch("api.routers.acapy_handler.settings.USE_CONNECTION_BASED_VERIFICATION", True)
     @patch("api.routers.acapy_handler.AuthSessionCRUD")
     @patch("api.routers.acapy_handler.AcapyClient")
-    @patch("api.routers.acapy_handler.safe_emit")
-    @patch("api.routers.acapy_handler.get_socket_id_for_pid")
+    @patch("api.routers.acapy_handler.notify")
     async def test_connection_webhook_success_path_updates_auth_session(
         self,
-        mock_get_socket_id,
-        mock_safe_emit,
+        mock_notify,
         mock_acapy_client,
         mock_auth_session_crud,
         mock_request,

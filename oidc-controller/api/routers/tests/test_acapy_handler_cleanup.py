@@ -1,6 +1,7 @@
 """Tests for updated webhook handler with cleanup functionality."""
 
 import json
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch, Mock
 import pytest
 from bson import ObjectId
@@ -26,6 +27,7 @@ class TestAcapyHandlerCleanup:
         auth_session.pres_exch_id = "test-pres-ex-id"
         auth_session.connection_id = "test-connection-id"
         auth_session.proof_status = AuthSessionState.NOT_STARTED
+        auth_session.expired_timestamp = datetime.now(UTC) + timedelta(seconds=3600)
         auth_session.multi_use = False
         auth_session.ver_config_id = "test-ver-config-id"
         auth_session.model_dump.return_value = {
@@ -70,13 +72,11 @@ class TestAcapyHandlerCleanup:
 
     @patch("api.routers.acapy_handler.AcapyClient")
     @patch("api.routers.acapy_handler.AuthSessionCRUD")
-    @patch("api.routers.acapy_handler.get_socket_id_for_pid")
-    @patch("api.routers.acapy_handler.safe_emit")
+    @patch("api.routers.acapy_handler.notify")
     @pytest.mark.asyncio
     async def test_present_proof_webhook_failed_verification_no_cleanup(
         self,
-        mock_sio_emit,
-        mock_get_socket_id,
+        mock_notify,
         mock_auth_session_crud,
         mock_acapy_client,
         mock_db,
@@ -92,7 +92,6 @@ class TestAcapyHandlerCleanup:
         mock_crud_instance.patch = AsyncMock()
 
         mock_client_instance = mock_acapy_client.return_value
-        mock_get_socket_id.return_value = "test-socket-id"
 
         # Act
         await post_topic(
@@ -109,10 +108,8 @@ class TestAcapyHandlerCleanup:
         # Verify auth session was marked as failed
         assert mock_auth_session.proof_status == AuthSessionState.FAILED
 
-        # Verify socket notification was sent for failure
-        mock_sio_emit.assert_called_once_with(
-            "status", {"status": "failed"}, to="test-socket-id"
-        )
+        # Verify SSE notification was sent for failure
+        mock_notify.assert_awaited_once_with(str(mock_auth_session.id), "failed")
 
     def test_presentation_data_parsing_edge_cases(self):
         """Test edge cases in presentation data parsing."""

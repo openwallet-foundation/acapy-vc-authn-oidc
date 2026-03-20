@@ -386,3 +386,122 @@ class TestExtractStorageClass:
 
         assert extract_storage_class("single") is SingleRedisWrapperWithPack
         assert extract_storage_class("none") is SingleRedisWrapperWithPack
+
+
+# ---------------------------------------------------------------------------
+# Tests: can_we_reach_redis
+# ---------------------------------------------------------------------------
+
+
+class TestCanWeReachRedis:
+    @patch("api.core.redis_utils.redis")
+    def test_returns_true_when_ping_succeeds(self, mock_redis):
+        from api.core.redis_utils import can_we_reach_redis
+
+        mock_client = MagicMock()
+        mock_redis.from_url.return_value = mock_client
+        mock_client.ping.return_value = True
+
+        result = can_we_reach_redis("redis://redis:6379/0")
+
+        assert result is True
+        mock_client.ping.assert_called_once()
+        mock_client.close.assert_called_once()
+
+    @patch("api.core.redis_utils.redis")
+    def test_returns_false_when_ping_raises(self, mock_redis):
+        from api.core.redis_utils import can_we_reach_redis
+
+        mock_client = MagicMock()
+        mock_redis.from_url.return_value = mock_client
+        mock_client.ping.side_effect = ConnectionError("connection refused")
+
+        result = can_we_reach_redis("redis://redis:6379/0")
+
+        assert result is False
+
+
+# ---------------------------------------------------------------------------
+# Tests: can_we_reach_sentinel
+# ---------------------------------------------------------------------------
+
+
+class TestCanWeReachSentinel:
+    @patch("api.core.redis_utils.Sentinel")
+    def test_returns_true_when_master_ping_succeeds(self, mock_sentinel_cls):
+        from api.core.redis_utils import can_we_reach_sentinel
+
+        mock_master = MagicMock()
+        mock_master.ping.return_value = True
+        mock_sentinel_instance = MagicMock()
+        mock_sentinel_instance.master_for.return_value = mock_master
+        mock_sentinel_cls.return_value = mock_sentinel_instance
+
+        with patch("api.core.redis_utils.settings") as mock_settings:
+            mock_settings.REDIS_PASSWORD = None
+            result = can_we_reach_sentinel([("sentinel1", 26379)], "mymaster")
+
+        assert result is True
+        mock_master.ping.assert_called_once()
+        mock_master.close.assert_called_once()
+
+    @patch("api.core.redis_utils.Sentinel")
+    def test_returns_false_when_ping_raises(self, mock_sentinel_cls):
+        from api.core.redis_utils import can_we_reach_sentinel
+
+        mock_master = MagicMock()
+        mock_master.ping.side_effect = ConnectionError("sentinel unreachable")
+        mock_sentinel_instance = MagicMock()
+        mock_sentinel_instance.master_for.return_value = mock_master
+        mock_sentinel_cls.return_value = mock_sentinel_instance
+
+        with patch("api.core.redis_utils.settings") as mock_settings:
+            mock_settings.REDIS_PASSWORD = None
+            result = can_we_reach_sentinel([("sentinel1", 26379)], "mymaster")
+
+        assert result is False
+
+
+# ---------------------------------------------------------------------------
+# Tests: can_we_reach_cluster
+# ---------------------------------------------------------------------------
+
+
+class TestCanWeReachCluster:
+    # can_we_reach_cluster uses a local `from redis.cluster import ...` so we
+    # must patch the source module, not the module-level alias.
+    @patch("redis.cluster.ClusterNode")
+    @patch("redis.cluster.RedisCluster")
+    def test_returns_true_when_ping_succeeds(
+        self, mock_redis_cluster, mock_cluster_node
+    ):
+        from api.core.redis_utils import can_we_reach_cluster
+
+        mock_client = MagicMock()
+        mock_client.ping.return_value = True
+        mock_redis_cluster.return_value = mock_client
+
+        with patch("api.core.redis_utils.settings") as mock_settings:
+            mock_settings.REDIS_PASSWORD = None
+            result = can_we_reach_cluster([("node1", 6379), ("node2", 6380)])
+
+        assert result is True
+        mock_client.ping.assert_called_once()
+        mock_client.close.assert_called_once()
+
+    @patch("redis.cluster.ClusterNode")
+    @patch("redis.cluster.RedisCluster")
+    def test_returns_false_when_ping_raises(
+        self, mock_redis_cluster, mock_cluster_node
+    ):
+        from api.core.redis_utils import can_we_reach_cluster
+
+        mock_client = MagicMock()
+        mock_client.ping.side_effect = ConnectionError("cluster unreachable")
+        mock_redis_cluster.return_value = mock_client
+
+        with patch("api.core.redis_utils.settings") as mock_settings:
+            mock_settings.REDIS_PASSWORD = None
+            result = can_we_reach_cluster([("node1", 6379)])
+
+        assert result is False
