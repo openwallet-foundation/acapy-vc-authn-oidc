@@ -394,8 +394,8 @@ async def sse_status(
     instead we always emit the current DB state on (re)connect, which gives
     the client a consistent snapshot without needing an event log.
 
-    The `pid` is a MongoDB ObjectId — not guessable, provides adequate
-    authorization for this use case.
+    The `pid` is a MongoDB ObjectId that identifies the proof session in
+    the database.
     """
     mode = settings.REDIS_MODE
 
