@@ -27,6 +27,9 @@ from httpx import Response
 import api.db.session as db_session_module
 from api.core.config import settings
 from api.db.collections import COLLECTION_NAMES
+from api.db.session import get_db
+from api.main import app
+
 
 # ---------------------------------------------------------------------------
 # Minimal Jinja2 template: exposes pid and pres_exch_id for test parsing
@@ -37,27 +40,25 @@ _TEST_TEMPLATE = (
 )
 
 
-def _ensure_test_template() -> None:
-    template_dir = settings.CONTROLLER_TEMPLATE_DIR
-    assets_dir = os.path.join(template_dir, "assets")
-    os.makedirs(assets_dir, exist_ok=True)
-    template_path = os.path.join(template_dir, "verified_credentials.html")
-    with open(template_path, "w") as f:
 @pytest.fixture(scope="session", autouse=True)
-def _controller_template_dir(tmp_path_factory, monkeypatch):
-    """Create verified_credentials.html in a temp directory and point settings to it."""
+def _controller_template_dir(tmp_path_factory):
+    """Create verified_credentials.html in a temp dir and point settings to it.
+
+    Must be session-scoped and autouse so it runs before any TestClient fixture
+    triggers the app lifespan (which calls StaticFiles(directory=.../assets)).
+    """
     tmp_dir = tmp_path_factory.mktemp("controller_templates")
+    assets_dir = tmp_dir / "assets"
+    assets_dir.mkdir()
     template_path = tmp_dir / "verified_credentials.html"
     template_path.write_text(_TEST_TEMPLATE)
-    monkeypatch.setattr(settings, "CONTROLLER_TEMPLATE_DIR", str(tmp_dir))
-    return str(tmp_dir)
+    settings.CONTROLLER_TEMPLATE_DIR = str(tmp_dir)
 
 
 # ---------------------------------------------------------------------------
 # Test-data constants
 # ---------------------------------------------------------------------------
 
-# ---------------------------------------------------------------------------
 TEST_CLIENT_ID = "test-integration-client"
 TEST_CLIENT_SECRET = "test-integration-secret"
 TEST_REDIRECT_URI = "http://localhost:9999/callback"
