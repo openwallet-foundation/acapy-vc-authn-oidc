@@ -43,22 +43,21 @@ def _ensure_test_template() -> None:
     os.makedirs(assets_dir, exist_ok=True)
     template_path = os.path.join(template_dir, "verified_credentials.html")
     with open(template_path, "w") as f:
-        f.write(_TEST_TEMPLATE)
-
-
-# Must run BEFORE importing api.main: it calls StaticFiles(directory=.../assets)
-# at module level, which fails if the assets directory does not exist.
-_ensure_test_template()
-
-# noqa: E402 — intentional late imports after directory setup above
-from api.db.session import get_db  # noqa: E402
-from api.main import app  # noqa: E402
+@pytest.fixture(scope="session", autouse=True)
+def _controller_template_dir(tmp_path_factory, monkeypatch):
+    """Create verified_credentials.html in a temp directory and point settings to it."""
+    tmp_dir = tmp_path_factory.mktemp("controller_templates")
+    template_path = tmp_dir / "verified_credentials.html"
+    template_path.write_text(_TEST_TEMPLATE)
+    monkeypatch.setattr(settings, "CONTROLLER_TEMPLATE_DIR", str(tmp_dir))
+    return str(tmp_dir)
 
 
 # ---------------------------------------------------------------------------
 # Test-data constants
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
 TEST_CLIENT_ID = "test-integration-client"
 TEST_CLIENT_SECRET = "test-integration-secret"
 TEST_REDIRECT_URI = "http://localhost:9999/callback"
