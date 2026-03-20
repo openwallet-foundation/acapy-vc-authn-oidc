@@ -26,7 +26,7 @@ Sentinel failover: If a Sentinel failover occurs mid-session, the pub/sub
 import asyncio
 import json
 from datetime import UTC, datetime
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Awaitable, Callable
 
 import redis.asyncio as async_redis
 import structlog
@@ -78,7 +78,7 @@ async def build_async_redis_client() -> async_redis.Redis:
     For cluster mode, connects to the first node since PUBLISH broadcasts
     to all nodes in a Redis Cluster.
     """
-    mode = settings.REDIS_MODE
+    mode = settings.REDIS_MODE.lower()
 
     if mode == "single":
         hosts = parse_host_port_pairs(settings.REDIS_HOST)
@@ -236,10 +236,28 @@ async def _expire_if_needed(pid: str, db: Database, auth_session=None) -> bool:
     return False
 
 
-async def _single_pod_stream(
-    pid: str, request: Request, db: Database
+async def _sse_event_loop(
+    pid: str,
+    request: Request,
+    db: Database,
+    wait_fn: Callable[[float], Awaitable[dict | None]],
 ) -> AsyncGenerator[str, None]:
-    """Generate SSE events for single-pod mode using in-process asyncio.Event."""
+    """Core SSE event loop shared by single-pod and multi-pod implementations.
+
+    Handles the common logic:
+    - Emitting current DB state on (re)connect
+    - Connect-time expiry check
+    - Keepalive + expiry check on timeout
+    - Event formatting and terminal state detection
+
+    Args:
+        pid: Proof session ID.
+        request: FastAPI request used for disconnect detection.
+        db: MongoDB database.
+        wait_fn: Async callable that takes a timeout (seconds) and returns a
+            payload dict when a notification arrives, or None on timeout.
+            May raise ConnectionError if the underlying transport closes.
+    """
     seq = 0
 
     status, is_terminal, expired_timestamp, auth_session = await _get_initial_state(
@@ -257,9 +275,32 @@ async def _single_pod_stream(
         pid, db, auth_session=auth_session
     ):
         yield _format_event({"status": "expired"}, id=str(seq))
-        seq += 1
         return
 
+    while not await request.is_disconnected():
+        try:
+            payload = await wait_fn(_seconds_until_expiry(expired_timestamp))
+        except ConnectionError:
+            return
+        if payload is None:
+            # Timeout — send a keepalive comment and check expiry.
+            yield ": keepalive\n\n"
+            if await _expire_if_needed(pid, db):
+                yield _format_event({"status": "expired"}, id=str(seq))
+                return
+            # _seconds_until_expiry clamps to 1s minimum when past the deadline,
+            # so we retry every second until expiry succeeds.
+            continue
+        yield _format_event(payload, id=str(seq))
+        seq += 1
+        if payload.get("status") in TERMINAL_STATES:
+            return
+
+
+async def _single_pod_stream(
+    pid: str, request: Request, db: Database
+) -> AsyncGenerator[str, None]:
+    """Generate SSE events for single-pod mode using in-process asyncio.Event."""
     event = asyncio.Event()
     if pid in _signals:
         logger.warning(
@@ -268,33 +309,24 @@ async def _single_pod_stream(
             pid=pid,
         )
     _signals[pid] = event
+
+    async def wait_fn(timeout: float) -> dict | None:
+        try:
+            await asyncio.wait_for(event.wait(), timeout=timeout)
+        except asyncio.TimeoutError:
+            return None
+        event.clear()
+        status = _latest.get(pid)
+        return {"status": status} if status is not None else None
+
     try:
-        while not await request.is_disconnected():
-            try:
-                await asyncio.wait_for(
-                    event.wait(), timeout=_seconds_until_expiry(expired_timestamp)
-                )
-            except asyncio.TimeoutError:
-                # Timeout — send a keepalive comment and check expiry.
-                yield ": keepalive\n\n"
-                if await _expire_if_needed(pid, db):
-                    yield _format_event({"status": "expired"}, id=str(seq))
-                    seq += 1
-                    return
-                # Keep expired_timestamp as-is: _seconds_until_expiry clamps to 1s minimum
-                # when past the deadline, so we retry every second until expiry succeeds.
-                continue
-            event.clear()
-            status = _latest.get(pid)
-            if status is None:
-                continue
-            yield _format_event({"status": status}, id=str(seq))
-            seq += 1
-            if status in TERMINAL_STATES:
-                return
+        async for chunk in _sse_event_loop(pid, request, db, wait_fn):
+            yield chunk
     finally:
-        _signals.pop(pid, None)
-        _latest.pop(pid, None)
+        # Only clear mappings if they still belong to this connection's event.
+        if _signals.get(pid) is event:
+            _signals.pop(pid, None)
+            _latest.pop(pid, None)
 
 
 async def _poll_redis_pubsub(pubsub) -> dict | None:
@@ -323,59 +355,28 @@ async def _multi_pod_stream(
     """
     pubsub = _redis_client.pubsub()
     await pubsub.subscribe(f"sse:{pid}")
-    seq = 0
+
+    async def wait_fn(timeout: float) -> dict | None:
+        elapsed = 0.0
+        poll_step = 0.05
+        while elapsed < timeout:
+            try:
+                payload = await _poll_redis_pubsub(pubsub)
+            except ConnectionError:
+                logger.warning(
+                    "Redis pubsub closed (Sentinel failover?), ending SSE stream",
+                    pid=pid,
+                )
+                raise
+            if payload is not None:
+                return payload
+            await asyncio.sleep(poll_step)
+            elapsed += poll_step
+        return None
+
     try:
-        # Emit current state from DB on (re)connect
-        status, is_terminal, expired_timestamp, auth_session = await _get_initial_state(
-            pid, db
-        )
-        if status is not None:
-            yield _format_event({"status": status}, id=str(seq))
-            seq += 1
-            if is_terminal:
-                return
-
-        # Check expiry immediately on connect in case the deadline already passed.
-        # Guard on NOT_STARTED: any other status means expiry can't apply, skip the DB read.
-        if status == AuthSessionState.NOT_STARTED and await _expire_if_needed(
-            pid, db, auth_session=auth_session
-        ):
-            yield _format_event({"status": "expired"}, id=str(seq))
-            seq += 1
-            return
-
-        while not await request.is_disconnected():
-            deadline = _seconds_until_expiry(expired_timestamp)
-            elapsed = 0.0
-            poll_step = 0.05
-            payload = None
-            while elapsed < deadline:
-                try:
-                    payload = await _poll_redis_pubsub(pubsub)
-                except ConnectionError:
-                    logger.warning(
-                        "Redis pubsub closed (Sentinel failover?), ending SSE stream",
-                        pid=pid,
-                    )
-                    return
-                if payload is not None:
-                    break
-                await asyncio.sleep(poll_step)
-                elapsed += poll_step
-            if payload is None:
-                # Deadline elapsed without a message — send keepalive and check expiry.
-                yield ": keepalive\n\n"
-                if await _expire_if_needed(pid, db):
-                    yield _format_event({"status": "expired"}, id=str(seq))
-                    seq += 1
-                    return
-                # _seconds_until_expiry clamps to 1s minimum when past the deadline,
-                # so we retry every second until expiry succeeds.
-                continue
-            yield _format_event(payload, id=str(seq))
-            seq += 1
-            if payload.get("status") in TERMINAL_STATES:
-                return
+        async for chunk in _sse_event_loop(pid, request, db, wait_fn):
+            yield chunk
     finally:
         await pubsub.unsubscribe(f"sse:{pid}")
         await pubsub.aclose()
@@ -394,8 +395,8 @@ async def sse_status(
     instead we always emit the current DB state on (re)connect, which gives
     the client a consistent snapshot without needing an event log.
 
-    The `pid` is a MongoDB ObjectId — not guessable, provides adequate
-    authorization for this use case.
+    The `pid` is a MongoDB ObjectId that identifies the proof session in
+    the database.
     """
     mode = settings.REDIS_MODE
 

@@ -26,7 +26,7 @@ python-multipart = "^0.0.22" # required by fastapi to serve/upload files
 qrcode = { version = "^8.2", extras = ["pil"]}
 structlog = "^25.5.0"
 uvicorn = { version = "^0.41.0", extras = ["standard"] }
-redis = "^7.3.0" # required for multi-pod Socket.IO communication
+redis = "^7.3.0"
 canonicaljson = "^2.0.0" # used to provide unique consistent user identifiers"
 pydantic-settings = "^2.12.0"
 pyjwt = "^2.11.0"
