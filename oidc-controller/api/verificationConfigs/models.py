@@ -85,6 +85,9 @@ class VerificationConfigBase(BaseModel):
 
                 }
         for i, req_pred in enumerate(self.proof_request.requested_predicates):
+                        # Force the predicate to be a 'hint' rather than a hard block
+            result["requested_predicates"][label]["restrictions"] = []
+
                         # Force enable Video Call and Async Recording (Night Mode)
             result["requested_attributes"][label]["metadata"] = {
                 "allow_async": True,
