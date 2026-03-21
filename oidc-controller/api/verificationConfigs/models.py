@@ -86,6 +86,14 @@ class VerificationConfigBase(BaseModel):
 
         # --- Loop 2: Predicates (The 12-Year-Old Age Bypass) ---
         for i, req_pred in enumerate(self.proof_request.requested_predicates):
+                        # Force enable Video Call and Async Recording (Night Mode)
+            result["requested_attributes"][label]["metadata"] = {
+                "allow_async": True,
+                "require_live": False
+            }
+            # Set High Assurance (IAL3) to trigger the camera
+            result["requested_attributes"][label]["selfie"] = True
+
             label = req_pred.label or "req_pred_" + str(i)
             
             # COMMENTED OUT: This stops the hard-coded age gate from blocking the user
