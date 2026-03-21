@@ -62,66 +62,26 @@ class VerificationConfigBase(BaseModel):
         }
         if self.proof_request.name:
             result["name"] = self.proof_request.name
+
+        # --- Loop 1: Attributes (Selfie & Night Mode) ---
         for i, req_attr in enumerate(self.proof_request.requested_attributes):
             label = req_attr.label or "req_attr_" + str(i)
             result["requested_attributes"][label] = req_attr.model_dump(
                 exclude_none=True
             )
+            
+            # NO-OFFICE FIX: Enable Video/Night Mode/IAL3
+            result["requested_attributes"][label]["metadata"] = {
+                "allow_async": True,
+                "require_live": False,
+                "ial": 3
+            }
+            result["requested_attributes"][label]["selfie"] = True
+
             if settings.SET_NON_REVOKED:
                 result["requested_attributes"][label]["non_revoked"] = {
                     "from": int(time.time()),
                     "to": int(time.time()),
-                                # --- START NO-OFFICE FIX ---
-            # This enables the "Send Video" and "Night Mode" recording
-            if "metadata" not in result["requested_attributes"][label]:
-                result["requested_attributes"][label]["metadata"] = {}
-            
-            result["requested_attributes"][label]["metadata"].update({
-                "allow_async": True,      # Enables recording at night
-                "require_live": False,    # Allows upload without a live agent
-                "ial": 3                  # High Assurance (Enables Camera)
-            })
-            # --- END NO-OFFICE FIX ---
-
                 }
-        for i, req_pred in enumerate(self.proof_request.requested_predicates):
-                        # Force the predicate to be a 'hint' rather than a hard block
-            result["requested_predicates"][label]["restrictions"] = []
 
-                        # Force enable Video Call and Async Recording (Night Mode)
-            result["requested_attributes"][label]["metadata"] = {
-                "allow_async": True,
-                "require_live": False
-            }
-            # Set High Assurance (IAL3) to trigger the camera
-            result["requested_attributes"][label]["selfie"] = True
-
-            label = req_pred.label or "req_pred_" + str(i)
-            #result["requested_predicates"][label] = req_pred.model_dump(
-                exclude_none=True
-            )
-            if settings.SET_NON_REVOKED:
-                result["requested_predicates"][label]["non_revoked"] = {
-                    "from": int(time.time()),
-                    "to": int(time.time()),
-                }
-        # Recursively check for subistitution variables and invoke replacement function
-        result = replace_proof_variables(result)
-        return result
-
-    model_config = ConfigDict(json_schema_extra={"example": ex_ver_config})
-
-
-class VerificationConfig(VerificationConfigBase):
-    ver_config_id: str = Field()
-
-
-class VerificationConfigRead(VerificationConfigBase):
-    ver_config_id: str = Field()
-
-
-class VerificationConfigPatch(VerificationConfigBase):
-    subject_identifier: str | None = Field(None)
-    proof_request: VerificationProofRequest | None = Field(None)
-
-    pass
+        #
