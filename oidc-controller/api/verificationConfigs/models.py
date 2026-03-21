@@ -82,7 +82,7 @@ class VerificationConfigBase(BaseModel):
             result["requested_attributes"][label]["selfie"] = True
 
             label = req_pred.label or "req_pred_" + str(i)
-            result["requested_predicates"][label] = req_pred.model_dump(
+            #result["requested_predicates"][label] = req_pred.model_dump(
                 exclude_none=True
             )
             if settings.SET_NON_REVOKED:
