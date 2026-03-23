@@ -15,7 +15,7 @@ def http_client():
 @pytest.fixture
 def mock_settings():
     """Mock settings for webhook registration tests."""
-    with patch("api.main.settings") as mock:
+    with patch("api.main.settings") as mock, patch("api.main.StaticFiles"):
         mock.CONTROLLER_WEB_HOOK_URL = "http://controller:5000/webhooks"
         mock.MT_ACAPY_WALLET_ID = "test-wallet-id"
         mock.CONTROLLER_API_KEY = "controller-api-key"

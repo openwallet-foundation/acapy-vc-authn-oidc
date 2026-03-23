@@ -68,13 +68,6 @@ def get_application() -> FastAPI:
 
 app = get_application()
 
-# Serve static assets for the frontend
-app.mount(
-    "/static",
-    StaticFiles(directory=(settings.CONTROLLER_TEMPLATE_DIR + "/assets")),
-    name="static",
-)
-
 # Include routers
 app.include_router(ver_configs_router, prefix="/ver_configs", tags=["ver_configs"])
 app.include_router(client_config_router, prefix="/clients", tags=["oidc_clients"])
@@ -149,6 +142,15 @@ async def logging_middleware(request: Request, call_next) -> Response:
 @app.on_event("startup")
 async def on_tenant_startup():
     """Register any events we need to respond to."""
+    # Mount static assets here (not at module level) so the directory is
+    # validated at startup time rather than at import time, which allows
+    # CONTROLLER_TEMPLATE_DIR to be set via fixtures in tests.
+    app.mount(
+        "/static",
+        StaticFiles(directory=(settings.CONTROLLER_TEMPLATE_DIR + "/assets")),
+        name="static",
+    )
+
     app.state.http_client = httpx.AsyncClient(
         timeout=httpx.Timeout(settings.ACAPY_REQUEST_TIMEOUT),
         limits=httpx.Limits(
