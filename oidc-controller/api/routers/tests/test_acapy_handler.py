@@ -412,6 +412,43 @@ class TestConnectionBasedVerificationWebhooks:
         )
 
     @pytest.mark.asyncio
+    @patch("api.routers.acapy_handler.settings.USE_CONNECTION_BASED_VERIFICATION", True)
+    @patch("api.routers.acapy_handler.AuthSessionCRUD")
+    @patch("api.routers.acapy_handler.AcapyClient")
+    @patch("api.routers.acapy_handler.notify")
+    async def test_missing_by_format_fails_session(
+        self,
+        mock_notify,
+        mock_acapy_client,
+        mock_auth_session_crud,
+        mock_request,
+        mock_db,
+        mock_auth_session,
+    ):
+        """When by_format is absent (e.g. ACA-Py missing --debug-webhooks), the
+        session must be marked FAILED and SSE must emit 'failed' rather than
+        storing an empty presentation_exchange and crashing later at token issuance."""
+        webhook_body = {
+            "pres_ex_id": "test-pres-ex-id",
+            "state": "done",
+            "verified": "true",
+            # no "by_format" key — simulates ACA-Py without --debug-webhooks
+        }
+        mock_request.body.return_value = json.dumps(webhook_body).encode("ascii")
+
+        mock_auth_session_crud.return_value.get_by_pres_exch_id = AsyncMock(
+            return_value=mock_auth_session
+        )
+        mock_auth_session_crud.return_value.patch = AsyncMock()
+        mock_acapy_client.return_value = MagicMock()
+
+        result = await post_topic(mock_request, "present_proof_v2_0", mock_db)
+
+        assert result == {"status": "missing by_format"}
+        assert mock_auth_session.proof_status == AuthSessionState.FAILED
+        mock_notify.assert_awaited_once_with("test-session-id", "failed")
+
+    @pytest.mark.asyncio
     @patch(
         "api.routers.acapy_handler.settings.USE_CONNECTION_BASED_VERIFICATION", False
     )
