@@ -390,6 +390,7 @@ class TestConnectionBasedVerificationWebhooks:
             "pres_ex_id": "test-pres-ex-id",
             "state": "done",
             "verified": "true",
+            "by_format": {"test": "presentation"},
         }
         mock_request.body.return_value = json.dumps(webhook_body).encode("ascii")
 
