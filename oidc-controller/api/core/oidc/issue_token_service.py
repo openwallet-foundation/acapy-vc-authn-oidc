@@ -6,7 +6,6 @@ from typing import Any
 
 import canonicaljson
 import structlog
-from oic.oic.message import OpenIDSchema
 from pydantic import BaseModel
 
 from ...authSessions.models import AuthSession
@@ -157,48 +156,5 @@ class Token(BaseModel):
         if ver_config.include_v1_attributes:
             for key, value in presentation_claims.items():
                 result[key] = value.value
-
-        return result
-
-    # TODO: Determine if this is useful to keep, and remove it if it's not.
-    # It is currently unused.
-    # renames and calculates dict members appropriate to
-    # https://openid.net/specs/openid-connect-core-1_0.html#IDToken
-    # and
-    # https://github.com/OpenIDC/pyoidc/blob/26ea5121239dad03c5c5551cca149cb984df1ec9/src/oic/oic/message.py#L720
-    def idtoken_dict(self, nonce: str) -> dict:
-        """Converts oidc claims to IdToken attribute names"""
-
-        result = {}  # nest VC attribute claims under the key=pres_req_conf_id
-
-        # for type, value in self.claims.items():
-        #     result[type] = value
-
-        result["exp"] = int(round(datetime.now().timestamp())) + self.lifetime
-        result["aud"] = self.audiences
-        result["nonce"] = nonce
-
-        result.update(self.claims)
-
-        # identify if any standardclaims were provided in the proof and return
-        # them at the top level.
-        # https://openid.net/specs/openid-connect-core-1_0.html#StandardClaims
-
-        # make copy of dict
-        r2 = result.copy()
-        # add nested values to top level
-        r2.update(json.loads(self.claims[PROOF_CLAIMS_ATTRIBUTE_NAME]))
-        # only keep ones that match the OpenIDschema
-        r2 = {
-            key: r2[key]
-            for key in set(r2.keys()).intersection(set(OpenIDSchema().c_param.keys()))
-        }
-
-        # verify with library schema
-        standard_claims = OpenIDSchema().from_dict(r2)
-        standard_claims.verify()
-        # add to the top level of the dict.
-        for key, value in standard_claims.to_dict().items():
-            result[key] = value
 
         return result
