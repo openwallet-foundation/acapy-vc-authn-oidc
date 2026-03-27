@@ -20,6 +20,7 @@ import json
 import os
 import sys
 import time
+import uuid
 import requests
 from pathlib import Path
 from typing import Optional, Dict, Any
@@ -183,18 +184,21 @@ def get_or_create_cred_def(schema_id: str) -> str:
         f"{ISSUER_ADMIN_URL}/credential-definitions/created",
         params={"schema_id": schema_id},
     )
-    for cid in existing.get("credential_definition_ids", []):
-        if ":default" in cid:
-            log(f"Using existing cred def: {cid}")
-            return cid
+    ids = existing.get("credential_definition_ids", [])
+    if ids:
+        log(f"Using existing cred def: {ids[0]}")
+        return ids[0]
 
-    log(f"Creating credential definition for schema: {schema_id}")
+    # Use a unique tag so each fresh wallet run doesn't collide with a prior
+    # cred def already on the ledger (same DID, same schema, same tag → 400).
+    tag = f"e2e-{uuid.uuid4().hex[:8]}"
+    log(f"Creating credential definition for schema: {schema_id} (tag={tag})")
     result = make_request(
         "POST",
         f"{ISSUER_ADMIN_URL}/credential-definitions",
         json_data={
             "schema_id": schema_id,
-            "tag": "default",
+            "tag": tag,
             "support_revocation": False,
         },
     )
