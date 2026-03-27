@@ -46,9 +46,7 @@ async def _run_full_flow(oidc_client, holder_admin, sse_client, ver_config_id) -
 
 async def _fetch_jwks(controller_url: str) -> dict:
     async with httpx.AsyncClient(timeout=10) as client:
-        r = await client.get(
-            f"{controller_url}/.well-known/openid-configuration/jwks"
-        )
+        r = await client.get(f"{controller_url}/.well-known/openid-configuration/jwks")
         r.raise_for_status()
         return r.json()
 
