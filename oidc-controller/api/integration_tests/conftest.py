@@ -11,7 +11,6 @@ Strategy
 """
 
 import asyncio
-import os
 import re
 import uuid
 from contextlib import contextmanager
@@ -29,7 +28,6 @@ from api.core.config import settings
 from api.db.collections import COLLECTION_NAMES
 from api.db.session import get_db
 from api.main import app
-
 
 # ---------------------------------------------------------------------------
 # Minimal Jinja2 template: exposes pid and pres_exch_id for test parsing

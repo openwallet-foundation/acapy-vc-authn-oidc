@@ -1,9 +1,8 @@
 import asyncio
-import structlog
-from typing import Callable, Awaitable
+from typing import Awaitable, Callable
 
 import httpx
-
+import structlog
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
 

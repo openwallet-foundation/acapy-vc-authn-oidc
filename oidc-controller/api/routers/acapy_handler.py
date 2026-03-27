@@ -11,7 +11,6 @@ from ..authSessions.crud import AuthSessionCRUD
 from ..authSessions.models import AuthSession, AuthSessionPatch, AuthSessionState
 from ..core.acapy.client import AcapyClient
 from ..core.config import settings
-from ..routers.sse import notify
 from ..core.siem_audit import (
     audit_proof_verification_failed,
     audit_proof_verified,
@@ -20,6 +19,7 @@ from ..core.siem_audit import (
     audit_webhook_received,
 )
 from ..db.session import get_db
+from ..routers.sse import notify
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
 
@@ -308,8 +308,6 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
             auth_session: AuthSession = await AuthSessionCRUD(db).get_by_pres_exch_id(
                 webhook_body["pres_ex_id"]
             )
-
-            pid = str(auth_session.id)
 
             if webhook_body["state"] == "presentation-received":
                 logger.info("presentation-received")

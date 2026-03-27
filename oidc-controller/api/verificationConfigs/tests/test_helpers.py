@@ -1,8 +1,9 @@
-import pytest
 from unittest.mock import patch
+
+import pytest
 from api.verificationConfigs.helpers import (
-    replace_proof_variables,
     VariableSubstitutionError,
+    replace_proof_variables,
 )
 
 # Mock variable substitution map

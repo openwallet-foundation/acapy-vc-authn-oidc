@@ -60,6 +60,16 @@ omit = [
     "*/conftest.py",
 ]
 
+[tool.ruff]
+target-version = "py313"
+extend-exclude = ["docker/"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+ignore = ["E501"]
+
+[tool.ruff.format]
+
 [tool.pyright]
 pythonVersion = "3.13"
 

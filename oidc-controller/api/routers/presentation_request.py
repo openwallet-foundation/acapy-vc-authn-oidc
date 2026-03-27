@@ -7,10 +7,10 @@ from pymongo.database import Database
 from ..authSessions.crud import AuthSessionCRUD
 from ..authSessions.models import AuthSession, AuthSessionState
 from ..core.config import settings
-from ..routers.sse import notify
-from ..routers.oidc import gen_deep_link
 from ..core.siem_audit import audit_qr_scanned
 from ..db.session import get_db
+from ..routers.oidc import gen_deep_link
+from ..routers.sse import notify
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
 

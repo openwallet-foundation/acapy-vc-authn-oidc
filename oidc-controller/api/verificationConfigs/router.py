@@ -1,20 +1,19 @@
+from fastapi import APIRouter, Depends
+from fastapi import status as http_status
 from fastapi.responses import HTMLResponse
 from jinja2 import Template
 from pymongo.database import Database
 
-from fastapi import APIRouter, Depends
-from fastapi import status as http_status
-
+from ..core.auth import get_api_key
+from ..core.config import settings
+from ..core.models import GenericErrorMessage, StatusMessage
+from ..db.session import get_db
 from .crud import VerificationConfigCRUD
 from .models import (
     VerificationConfig,
     VerificationConfigPatch,
     VerificationConfigRead,
 )
-from ..core.auth import get_api_key
-from ..core.models import GenericErrorMessage, StatusMessage
-from ..db.session import get_db
-from ..core.config import settings
 
 router = APIRouter()
 

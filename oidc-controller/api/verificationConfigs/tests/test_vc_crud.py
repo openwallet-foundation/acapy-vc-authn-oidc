@@ -1,19 +1,17 @@
-import pytest
+from typing import Callable
 
+import pytest
+from api.db.session import COLLECTION_NAMES
 from api.verificationConfigs.crud import VerificationConfigCRUD
 from api.verificationConfigs.models import (
     AttributeFilter,
+    ReqAttr,
     ReqPred,
     VerificationConfig,
-    VerificationProofRequest,
     VerificationConfigPatch,
-    ReqAttr,
+    VerificationProofRequest,
 )
-from api.db.session import COLLECTION_NAMES
-
 from mongomock import MongoClient
-from typing import Callable
-
 
 test_ver_config = VerificationConfig(
     ver_config_id="test_ver_config",

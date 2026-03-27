@@ -1,6 +1,7 @@
 import time
-import pytest
 from datetime import datetime, timedelta
+
+import pytest
 from api.verificationConfigs.variableSubstitutions import VariableSubstitutionMap
 
 

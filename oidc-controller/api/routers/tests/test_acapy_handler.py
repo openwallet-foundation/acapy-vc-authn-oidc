@@ -7,12 +7,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from bson import ObjectId
 from pymongo.database import Database
+
 from api.authSessions.models import AuthSession, AuthSessionState
 from api.core.config import settings
 from api.routers.acapy_handler import (
-    post_topic,
     _extract_credential_schemas,
     _extract_issuer_dids,
+    post_topic,
 )
 
 

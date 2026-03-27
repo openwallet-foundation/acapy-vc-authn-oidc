@@ -1,14 +1,13 @@
 """Cleanup functions for presentation records and connections."""
 
-from datetime import datetime, timedelta, UTC
+from datetime import UTC, datetime, timedelta
 from typing import TypedDict
 
 import httpx
 import structlog
 
-from ..core.config import settings
-
 from ..core.acapy.client import AcapyClient
+from ..core.config import settings
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
 

@@ -2,8 +2,9 @@
 
 import json
 from unittest.mock import ANY, MagicMock, patch
+
 import pytest
-from fastapi import HTTPException, FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 from api.routers.cleanup import cleanup_endpoint, cleanup_health_check, router

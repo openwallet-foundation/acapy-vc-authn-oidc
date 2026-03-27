@@ -1,13 +1,14 @@
-import pytest
+import importlib
 import logging
 import os
-import importlib
 from unittest.mock import patch
+
+import pytest
 from api.core.config import (
-    strtobool,
-    determin_log_level,
-    FactoryConfig,
     EnvironmentEnum,
+    FactoryConfig,
+    determin_log_level,
+    strtobool,
     validate_redis_config,
 )
 from pydantic import ValidationError

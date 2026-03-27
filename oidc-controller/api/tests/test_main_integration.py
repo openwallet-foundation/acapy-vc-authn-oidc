@@ -1,9 +1,11 @@
-import pytest
 import json
-from fastapi.testclient import TestClient
 from unittest.mock import MagicMock
-from api.main import app, logging_middleware
+
+import pytest
 from fastapi import Request
+from fastapi.testclient import TestClient
+
+from api.main import app, logging_middleware
 
 client = TestClient(app)
 
