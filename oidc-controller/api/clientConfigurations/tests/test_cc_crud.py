@@ -1,16 +1,14 @@
-import pytest
+from typing import Callable
 
+import pytest
+import structlog
 from api.clientConfigurations.crud import ClientConfigurationCRUD
 from api.clientConfigurations.models import (
     ClientConfiguration,
     ClientConfigurationPatch,
 )
-
 from api.db.session import COLLECTION_NAMES
-
 from mongomock import MongoClient
-from typing import Callable
-import structlog
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
 

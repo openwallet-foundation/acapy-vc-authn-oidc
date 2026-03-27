@@ -1,10 +1,10 @@
 """Tests for AcapyClient cleanup-related methods."""
 
-import pytest
-import httpx
-import respx
 from uuid import UUID
 
+import httpx
+import pytest
+import respx
 from api.core.acapy.client import AcapyClient
 from api.core.config import settings
 

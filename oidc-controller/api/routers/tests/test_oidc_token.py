@@ -3,10 +3,11 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from api.authSessions.models import AuthSession
-from api.verificationConfigs.models import VerificationConfig
 from bson import ObjectId
 from fastapi import HTTPException
+
+from api.authSessions.models import AuthSession
+from api.verificationConfigs.models import VerificationConfig
 
 
 @pytest.fixture

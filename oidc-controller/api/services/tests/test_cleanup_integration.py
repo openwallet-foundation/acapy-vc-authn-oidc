@@ -1,7 +1,8 @@
 """Integration tests for the complete cleanup flow."""
 
-from datetime import datetime, timedelta, UTC
-from unittest.mock import MagicMock, patch, AsyncMock
+from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
 
 from api.services.cleanup import (

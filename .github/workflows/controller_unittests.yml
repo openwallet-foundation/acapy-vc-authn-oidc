@@ -25,6 +25,10 @@ jobs:
         run: |
           pip3 install --no-cache-dir poetry==2.3.2
           poetry install --no-root
+      - name: Lint with ruff
+        working-directory: ./oidc-controller
+        run: |
+          poetry run ruff check .
       - name: Format with ruff
         run: |
           poetry run ruff format --check oidc-controller

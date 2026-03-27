@@ -525,7 +525,7 @@ class TestWebhookIdempotency:
 
         with acapy_oob_mock():
             auth_resp = client.get("/authorize", params=authorize_params())
-        pid = parse_pid_from_html(auth_resp.text)
+        parse_pid_from_html(auth_resp.text)
 
         webhook = make_proof_webhook(FAKE_PRES_EX_ID, verified=True)
         with patch("api.routers.acapy_handler.audit_proof_verified") as mock_audit:

@@ -3,11 +3,10 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from api.authSessions.models import AuthSession
 from bson import ObjectId
-from api.routers.oidc import store_subject_identifier
-from api.routers.oidc import post_token
 
+from api.authSessions.models import AuthSession
+from api.routers.oidc import post_token, store_subject_identifier
 
 # Test Helpers
 

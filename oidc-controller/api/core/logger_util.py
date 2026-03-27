@@ -1,6 +1,7 @@
-import structlog
 import time
-from typing import Callable, Any
+from typing import Any, Callable
+
+import structlog
 
 
 def log_debug(func: Callable[..., Any]) -> Callable[..., Any]:

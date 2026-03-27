@@ -7,10 +7,10 @@ import sys
 from enum import Enum
 from functools import lru_cache
 from pathlib import Path
-from pydantic_settings import BaseSettings
-from pydantic import ConfigDict, field_validator
 
 import structlog
+from pydantic import ConfigDict, field_validator
+from pydantic_settings import BaseSettings
 
 
 # Removed in later versions of python

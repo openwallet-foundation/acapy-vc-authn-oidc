@@ -1,9 +1,10 @@
 """Tests for well-known OpenID configuration endpoints."""
 
+from unittest.mock import Mock, patch
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from unittest.mock import patch, Mock
 
 from api.routers.well_known_oid_config import router
 

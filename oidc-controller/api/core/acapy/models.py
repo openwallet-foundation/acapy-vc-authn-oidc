@@ -1,6 +1,6 @@
-from . import OutOfBandMessage
-
 from pydantic import BaseModel
+
+from . import OutOfBandMessage
 
 
 class WalletDid(BaseModel):

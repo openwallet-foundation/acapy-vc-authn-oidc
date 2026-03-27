@@ -34,7 +34,6 @@ from ..core.siem_audit import (
     audit_token_issued,
 )
 from ..db.session import get_db
-
 from ..routers.sse import notify
 from ..verificationConfigs.crud import VerificationConfigCRUD
 from ..verificationConfigs.helpers import VariableSubstitutionError

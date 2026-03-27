@@ -1,7 +1,8 @@
-import json
 import base64
+import json
 
 from pydantic import BaseModel, ConfigDict, Field
+
 from api.core.acapy import PresentProofv20Attachment, ServiceDecorator
 
 

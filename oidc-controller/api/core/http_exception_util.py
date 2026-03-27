@@ -1,7 +1,7 @@
-from pymongo.errors import WriteError
+import structlog
 from fastapi import HTTPException
 from fastapi import status as http_status
-import structlog
+from pymongo.errors import WriteError
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
 
