@@ -197,6 +197,12 @@ services:
     volumes:
       - ./agent/config/ledgers.yaml:/tmp/ledgers.yaml
       - ./agent/config/plugin-config.yaml:/tmp/plugin-config.yml
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${AGENT_ADMIN_PORT:-8077}/status/ready", "-H", "X-API-KEY: ${AGENT_ADMIN_API_KEY:-}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
     depends_on:
       - wallet-db
     entrypoint: /bin/bash

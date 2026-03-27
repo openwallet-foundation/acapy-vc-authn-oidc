@@ -1,0 +1,65 @@
+services:
+  # Override verifier aca-py to use internal docker endpoint (no ngrok needed for E2E)
+  aca-py:
+    environment:
+      - ACAPY_ENDPOINT=${AGENT_ENDPOINT:-http://aca-py:8030}
+
+  # Holder agent for E2E tests — auto-accepts invites and responds to proof requests
+  holder-aca-py:
+    image: ghcr.io/openwallet-foundation/acapy-agent:py3.13-1.5.1
+    environment:
+      - ACAPY_LABEL=test-holder-agent
+      - ACAPY_ENDPOINT=http://holder-aca-py:8041
+      - ACAPY_WALLET_NAME=holder_agent_wallet
+      - ACAPY_WALLET_TYPE=askar-anoncreds
+      - ACAPY_WALLET_KEY=${HOLDER_WALLET_ENCRYPTION_KEY:-holder_wallet_key_test}
+      - ACAPY_AUTO_ACCEPT_INVITES=true
+      - ACAPY_AUTO_ACCEPT_REQUESTS=true
+      - ACAPY_AUTO_RESPOND_CREDENTIAL_OFFER=true
+      - ACAPY_AUTO_RESPOND_CREDENTIAL_REQUEST=true
+      - ACAPY_AUTO_RESPOND_PRESENTATION_REQUEST=true
+      - ACAPY_AUTO_STORE_CREDENTIAL=true
+      - ACAPY_ADMIN_INSECURE_MODE=true
+      - ACAPY_GENESIS_TRANSACTIONS_LIST=/tmp/ledgers.yaml
+      - ACAPY_LOG_LEVEL=info
+      - ACAPY_AUTO_PROVISION=true
+      - ACAPY_WALLET_STORAGE_TYPE=postgres_storage
+      - POSTGRESQL_WALLET_HOST=holder-wallet-db
+      - POSTGRESQL_WALLET_PORT=5432
+      - POSTGRESQL_WALLET_USER=${HOLDER_POSTGRESQL_WALLET_USER:-holder_wallet_user}
+      - POSTGRESQL_WALLET_PASSWORD=${HOLDER_POSTGRESQL_WALLET_PASSWORD:-holder_wallet_password}
+    ports:
+      - "${HOLDER_AGENT_ADMIN_PORT:-8079}:8079"
+      - "${HOLDER_AGENT_HTTP_PORT:-8041}:8041"
+    networks:
+      - vc_auth
+    volumes:
+      - ./agent/config/ledgers.yaml:/tmp/ledgers.yaml
+    depends_on:
+      - holder-wallet-db
+    entrypoint: /bin/bash
+    command:
+      [
+        "-c",
+        'sleep 15; aca-py start --inbound-transport http ''0.0.0.0'' 8041 --outbound-transport http --wallet-storage-config ''{"url":"holder-wallet-db:5432","max_connections":5}'' --wallet-storage-creds ''{"account":"${HOLDER_POSTGRESQL_WALLET_USER:-holder_wallet_user}","password":"${HOLDER_POSTGRESQL_WALLET_PASSWORD:-holder_wallet_password}","admin_account":"${HOLDER_POSTGRESQL_WALLET_USER:-holder_wallet_user}","admin_password":"${HOLDER_POSTGRESQL_WALLET_PASSWORD:-holder_wallet_password}"}'' --admin ''0.0.0.0'' 8079 --admin-insecure-mode',
+      ]
+
+  holder-wallet-db:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_USER=${HOLDER_POSTGRESQL_WALLET_USER:-holder_wallet_user}
+      - POSTGRES_PASSWORD=${HOLDER_POSTGRESQL_WALLET_PASSWORD:-holder_wallet_password}
+      - POSTGRES_DB=${HOLDER_POSTGRESQL_WALLET_DATABASE:-holder_wallet}
+    networks:
+      - vc_auth
+    ports:
+      - "5435:5432"
+    volumes:
+      - holder-wallet-db:/var/lib/pgsql/data
+
+networks:
+  vc_auth:
+    driver: bridge
+
+volumes:
+  holder-wallet-db:

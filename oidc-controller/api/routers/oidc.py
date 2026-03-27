@@ -179,7 +179,7 @@ async def get_authorize(request: Request, db: Database = Depends(get_db)):
         ver_config_id=ver_config_id,
         pres_exch_id=pres_ex_id,
         presentation_exchange=pres_exch_dict,
-        presentation_request_msg=msg_contents.model_dump(by_alias=True),
+        presentation_request_msg=msg_contents.model_dump(by_alias=True, exclude_none=True),
         connection_id=(
             oob_invite_response.invi_msg_id
             if settings.USE_CONNECTION_BASED_VERIFICATION

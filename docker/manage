@@ -103,6 +103,16 @@ usage() {
 
               $0 bootstrap
 
+      e2e  -  Start the full stack with the E2E overlay, issue a test credential
+              to the holder agent, and run the E2E test suite.
+              Defaults to connection-based mode. Use --oob for OOB mode.
+              Any extra arguments are forwarded to pytest.
+
+              $0 e2e
+              $0 e2e --oob
+              $0 e2e --connection -v
+              $0 e2e -k "test_oob_happy_path"
+
       logs - Display the logs from the docker compose run (ctrl-c to exit).
 
       stop - Stops the services.  This is a non-destructive process.  The volumes and containers
@@ -521,6 +531,64 @@ bootstrap)
   poetry run ../scripts/bootstrap-trusted-verifier.py
 
   echoSuccess "Bootstrap complete!"
+  ;;
+e2e)
+  # Parse --oob / --connection before forwarding remaining args to pytest
+  E2E_MODE="connection"
+  PYTEST_ARGS=()
+  for arg in "$@"; do
+    case "$arg" in
+      --oob)        E2E_MODE="oob" ;;
+      --connection) E2E_MODE="connection" ;;
+      *)            PYTEST_ARGS+=("$arg") ;;
+    esac
+  done
+
+  configureEnvironment "${PYTEST_ARGS[@]}"
+
+  # For E2E we use internal Docker hostnames — no ngrok needed.
+  # We must still call finalizeEnvironment to set AGENT_ADMIN_MODE and other
+  # derived vars, but we override AGENT_ENDPOINT to the internal docker address
+  # so aca-py advertises the right inbound URL within the Docker network.
+  export AGENT_ENDPOINT="${AGENT_ENDPOINT:-http://aca-py:${AGENT_HTTP_PORT:-8030}}"
+
+  # Set mode-specific controller overrides
+  if [[ "${E2E_MODE}" == "oob" ]]; then
+    echoInfo "E2E mode: OOB (USE_CONNECTION_BASED_VERIFICATION=false)"
+    export USE_CONNECTION_BASED_VERIFICATION=false
+    export REDIS_MODE=single
+    export REDIS_HOST=redis:6379
+    export CONTROLLER_PRESENTATION_EXPIRE_TIME="${CONTROLLER_PRESENTATION_EXPIRE_TIME:-10}"
+  else
+    echoInfo "E2E mode: connection-based (USE_CONNECTION_BASED_VERIFICATION=true)"
+    export USE_CONNECTION_BASED_VERIFICATION=true
+    export REDIS_MODE=single
+    export REDIS_HOST=redis:6379
+    # Give DIDComm handshake + proof round-trip plenty of room inside Docker
+    export CONTROLLER_PRESENTATION_EXPIRE_TIME="${CONTROLLER_PRESENTATION_EXPIRE_TIME:-120}"
+  fi
+
+  finalizeEnvironment
+
+  # 1. Start the full stack with the E2E overlay (adds holder agent + issuer agent)
+  echoInfo "Starting stack with E2E overlay..."
+  CONTROLLER_URL="${CONTROLLER_URL:-http://localhost:5000}" \
+  docker compose \
+    -f docker-compose.yaml \
+    -f docker-compose-e2e.yaml \
+    -f docker-compose-issuer.yaml \
+    up -d --wait ${DEFAULT_CONTAINERS} ${ACAPY_CONTAINERS} ${PROD_CONTAINERS} \
+      holder-aca-py holder-wallet-db issuer-aca-py issuer-wallet-db
+
+  # 2. Issue a test credential to the holder agent
+  echoInfo "Bootstrapping test credential into holder wallet..."
+  PROJECT_ROOT=$(cd "${SCRIPT_HOME}/../" && pwd)
+  poetry -C "${PROJECT_ROOT}" run python "${PROJECT_ROOT}/scripts/bootstrap-test-holder.py"
+
+  # 3. Run the E2E tests filtered to the selected mode
+  echoInfo "Running E2E tests (mode: ${E2E_MODE})..."
+  poetry -C "${PROJECT_ROOT}" run pytest "${PROJECT_ROOT}/tests/e2e/" \
+    -m "e2e and ${E2E_MODE}" --timeout=120 "${PYTEST_ARGS[@]}"
   ;;
 *)
   usage
