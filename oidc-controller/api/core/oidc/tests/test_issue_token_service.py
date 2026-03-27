@@ -344,7 +344,6 @@ async def test_valid_pres_non_matching_subj_id_gen_consistent_id_true_has_sub(
     assert claims["sub"] == claims_duplicate["sub"]
 
 
-
 # Helper to construct mock data with specific structure keys using local test data
 def create_mock_presentation_exchange(format_key="indy"):
     return {
