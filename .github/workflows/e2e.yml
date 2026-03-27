@@ -15,11 +15,40 @@ on:
       - "poetry.lock"
 
 jobs:
-  e2e:
-    name: E2E (${{ matrix.mode }})
+  build-images:
+    name: Build Docker images
     if: >
       github.event_name == 'workflow_dispatch' ||
       github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Build controller image
+        run: |
+          docker build -t acapy-vc-authn-oidc-controller \
+            -f docker/oidc-controller/Dockerfile .
+
+      - name: Build ACA-Py image
+        run: |
+          docker build -t vc-authn-oidc-acapy:webvh \
+            -f docker/agent/Dockerfile docker/agent
+
+      - name: Save images
+        run: |
+          docker save acapy-vc-authn-oidc-controller vc-authn-oidc-acapy:webvh \
+            | gzip > e2e-images.tar.gz
+
+      - name: Upload images artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-images
+          path: e2e-images.tar.gz
+          retention-days: 1
+
+  e2e:
+    name: E2E (${{ matrix.mode }})
+    needs: build-images
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -41,20 +70,24 @@ jobs:
         with:
           python-version: "3.13"
 
+      - name: Cache poetry virtualenv
+        uses: actions/cache@v4
+        with:
+          path: .venv
+          key: venv-${{ runner.os }}-py3.13-${{ hashFiles('poetry.lock') }}
+
       - name: Install dependencies
         run: |
           pip3 install --no-cache-dir poetry==2.3.2
           poetry install --no-root
 
-      - name: Build controller image
-        run: |
-          docker build -t acapy-vc-authn-oidc-controller \
-            -f docker/oidc-controller/Dockerfile .
+      - name: Download images artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: e2e-images
 
-      - name: Build ACA-Py image
-        run: |
-          docker build -t vc-authn-oidc-acapy:webvh \
-            -f docker/agent/Dockerfile docker/agent
+      - name: Load Docker images
+        run: docker load < e2e-images.tar.gz
 
       - name: Create .env for CI
         working-directory: docker
