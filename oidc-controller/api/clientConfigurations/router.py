@@ -1,18 +1,16 @@
-from pymongo.database import Database
-
 from fastapi import APIRouter, Depends
 from fastapi import status as http_status
+from pymongo.database import Database
 
+from ..core.auth import get_api_key
+from ..core.models import GenericErrorMessage, StatusMessage
+from ..db.session import get_db
 from .crud import ClientConfigurationCRUD
 from .models import (
     ClientConfiguration,
     ClientConfigurationPatch,
     ClientConfigurationRead,
 )
-from ..core.auth import get_api_key
-from ..core.models import GenericErrorMessage, StatusMessage
-from ..db.session import get_db
-
 
 router = APIRouter()
 

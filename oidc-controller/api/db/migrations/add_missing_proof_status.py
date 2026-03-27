@@ -9,10 +9,11 @@ Run this script once to fix existing documents:
 """
 
 import structlog
+from pymongo import MongoClient
+
 from api.authSessions.models import AuthSessionState
 from api.core.config import settings
 from api.db.collections import COLLECTION_NAMES
-from pymongo import MongoClient
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
 

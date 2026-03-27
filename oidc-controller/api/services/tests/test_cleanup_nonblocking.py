@@ -1,8 +1,8 @@
 """Tests that verify cleanup uses native async I/O and doesn't block the event loop."""
 
 import asyncio
-from datetime import datetime, timedelta, UTC
-from unittest.mock import MagicMock, patch, AsyncMock
+from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 

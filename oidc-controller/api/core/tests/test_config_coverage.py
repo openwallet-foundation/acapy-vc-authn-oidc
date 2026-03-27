@@ -1,7 +1,8 @@
-import pytest
-import os
 import importlib
-from unittest.mock import patch, MagicMock
+import os
+from unittest.mock import MagicMock, patch
+
+import pytest
 from api.core import config
 
 

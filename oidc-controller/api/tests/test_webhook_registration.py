@@ -1,9 +1,11 @@
-import pytest
 import unittest.mock
-from unittest.mock import patch, MagicMock, AsyncMock
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import httpx
+import pytest
 import respx
-from api.core.webhook_utils import register_tenant_webhook, _register_via_tenant_api
+
+from api.core.webhook_utils import _register_via_tenant_api, register_tenant_webhook
 from api.main import on_tenant_startup
 
 

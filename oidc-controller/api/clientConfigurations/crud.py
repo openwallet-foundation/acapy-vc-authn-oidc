@@ -1,15 +1,13 @@
 import structlog
-
+from fastapi.encoders import jsonable_encoder
 from pymongo import ReturnDocument
 from pymongo.database import Database
-from fastapi.encoders import jsonable_encoder
 
 from ..core.http_exception_util import (
-    raise_appropriate_http_exception,
     check_and_raise_not_found_http_exception,
+    raise_appropriate_http_exception,
 )
 from ..db.session import COLLECTION_NAMES
-
 from .models import (
     ClientConfiguration,
     ClientConfigurationPatch,

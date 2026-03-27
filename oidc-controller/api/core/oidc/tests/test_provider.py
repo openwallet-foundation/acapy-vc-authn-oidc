@@ -1,11 +1,12 @@
 import importlib
-import pytest
 import secrets
-from unittest.mock import Mock, patch, MagicMock
-from api.core.redis_utils import SingleRedisWrapperWithPack
-from api.core.oidc.provider import DynamicClientDatabase
-from api.core.oidc import provider as provider_module
+from unittest.mock import MagicMock, Mock, patch
+
+import pytest
 from api.core.config import settings as real_settings
+from api.core.oidc import provider as provider_module
+from api.core.oidc.provider import DynamicClientDatabase
+from api.core.redis_utils import SingleRedisWrapperWithPack
 
 
 class TestSingleRedisWrapperWithPack:
@@ -436,8 +437,8 @@ class TestHelperFunctions:
 
     def test_build_redis_url_without_password(self):
         """Test Redis URL building without password."""
-        from api.core.redis_utils import build_redis_url
         from api.core.config import settings
+        from api.core.redis_utils import build_redis_url
 
         # Save original values
         original_mode = settings.REDIS_MODE
@@ -463,8 +464,8 @@ class TestHelperFunctions:
 
     def test_build_redis_url_with_password(self):
         """Test Redis URL building with password."""
-        from api.core.redis_utils import build_redis_url
         from api.core.config import settings
+        from api.core.redis_utils import build_redis_url
 
         # Save original values
         original_mode = settings.REDIS_MODE
@@ -490,8 +491,9 @@ class TestHelperFunctions:
 
     def test_get_signing_key_dir_path(self):
         """Test signing key directory path generation."""
-        from api.core.oidc.provider import get_signing_key_dir_path
         import os
+
+        from api.core.oidc.provider import get_signing_key_dir_path
 
         result = get_signing_key_dir_path("/api/core/oidc", "/test", "key.pem")
         assert result.endswith(os.path.join("/test", "key.pem"))

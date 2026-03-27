@@ -1,10 +1,9 @@
 import asyncio
-import structlog
 import time
-
 from typing import Protocol
 
 import httpx
+import structlog
 
 from ..config import settings
 

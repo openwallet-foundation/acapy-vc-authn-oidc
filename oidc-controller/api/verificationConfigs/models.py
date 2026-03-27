@@ -1,8 +1,9 @@
 import time
+
 from pydantic import BaseModel, ConfigDict, Field
 
-from .examples import ex_ver_config
 from ..core.config import settings
+from .examples import ex_ver_config
 from .helpers import replace_proof_variables
 
 

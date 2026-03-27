@@ -1,11 +1,12 @@
-import pytest
 from unittest.mock import MagicMock, patch
+
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from pyop.exceptions import InvalidAccessToken, BearerTokenError
+from pyop.exceptions import BearerTokenError, InvalidAccessToken
 
-from api.routers.oidc import router
 from api.core.config import settings
+from api.routers.oidc import router
 
 
 class TestUserInfoEndpoint:

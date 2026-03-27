@@ -3,7 +3,6 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 from api.core.redis_utils import (
     BaseRedisWrapperWithPack,
     _get_sentinel_master,
@@ -364,24 +363,24 @@ class TestRedisSubclasses:
 class TestExtractStorageClass:
     def test_sentinel_mode(self):
         from api.core.redis_utils import (
-            extract_storage_class,
             SentinelRedisWrapperWithPack,
+            extract_storage_class,
         )
 
         assert extract_storage_class("sentinel") is SentinelRedisWrapperWithPack
 
     def test_cluster_mode(self):
         from api.core.redis_utils import (
-            extract_storage_class,
             ClusterRedisWrapperWithPack,
+            extract_storage_class,
         )
 
         assert extract_storage_class("cluster") is ClusterRedisWrapperWithPack
 
     def test_default_falls_back_to_single(self):
         from api.core.redis_utils import (
-            extract_storage_class,
             SingleRedisWrapperWithPack,
+            extract_storage_class,
         )
 
         assert extract_storage_class("single") is SingleRedisWrapperWithPack

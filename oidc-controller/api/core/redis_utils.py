@@ -12,7 +12,7 @@ import time
 
 import redis
 import structlog
-from redis.cluster import RedisCluster, ClusterNode
+from redis.cluster import ClusterNode, RedisCluster
 from redis.sentinel import Sentinel
 
 from api.core.config import settings
@@ -427,7 +427,7 @@ def can_we_reach_cluster(startup_nodes: list[tuple[str, int]]) -> bool:
         bool: True if cluster is reachable, False otherwise
     """
     try:
-        from redis.cluster import RedisCluster, ClusterNode
+        from redis.cluster import ClusterNode, RedisCluster
 
         nodes = [ClusterNode(host, port) for host, port in startup_nodes]
         cluster_client = RedisCluster(

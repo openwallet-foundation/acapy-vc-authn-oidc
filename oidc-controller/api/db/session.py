@@ -1,12 +1,15 @@
 import json
+from pathlib import Path
+
 import structlog
-from pymongo import MongoClient, ASCENDING
+from pymongo import ASCENDING, MongoClient
 from pymongo.collection import Collection
 from pymongo.errors import OperationFailure
-from pathlib import Path
+
 from api.core.config import settings
-from .collections import COLLECTION_NAMES
+
 from ..authSessions.models import AuthSessionState
+from .collections import COLLECTION_NAMES
 
 
 async def get_async_session():

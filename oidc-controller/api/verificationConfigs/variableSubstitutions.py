@@ -5,13 +5,14 @@ Other users of this project can add their own variable substitutions or override
 the entire file to suit their own needs.
 """
 
-from datetime import datetime, timedelta
-import time
-import re
 import copy
+import re
+import time
+from datetime import datetime, timedelta
 
 import structlog
 from typing_extensions import Callable
+
 from ..core.config import settings
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)

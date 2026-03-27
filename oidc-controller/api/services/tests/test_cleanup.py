@@ -1,8 +1,9 @@
 """Tests for cleanup functions."""
 
 import unittest.mock
-from datetime import datetime, timedelta, UTC
-from unittest.mock import Mock, MagicMock, patch, AsyncMock
+from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
+
 import pytest
 
 from api.services.cleanup import (

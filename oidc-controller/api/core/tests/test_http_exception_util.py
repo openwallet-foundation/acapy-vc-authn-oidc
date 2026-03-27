@@ -1,18 +1,18 @@
 """Tests for HTTP exception utilities."""
 
-import pytest
 from unittest.mock import patch
-from pymongo.errors import WriteError
-from fastapi import HTTPException
-from fastapi import status as http_status
 
+import pytest
 from api.core.http_exception_util import (
-    raise_appropriate_http_exception,
-    check_and_raise_not_found_http_exception,
     CONFLICT_DEFAULT_MSG,
     NOT_FOUND_DEFAULT_MSG,
     UNKNOWN_DEFAULT_MSG,
+    check_and_raise_not_found_http_exception,
+    raise_appropriate_http_exception,
 )
+from fastapi import HTTPException
+from fastapi import status as http_status
+from pymongo.errors import WriteError
 
 
 class TestRaiseAppropriateHttpException:

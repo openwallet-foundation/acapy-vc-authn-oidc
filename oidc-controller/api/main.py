@@ -1,21 +1,34 @@
-import traceback
-import structlog
 import os
 import time
+import traceback
 import uuid
 from pathlib import Path
 
 import httpx
+import structlog
 import uvicorn
-from api.core.config import settings
 from fastapi import FastAPI
-from starlette.requests import Request
-from starlette.responses import Response
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi import status as http_status
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.requests import Request
+from starlette.responses import Response
 
+from api.core.acapy.config import MultiTenantAcapy, TractionTenantAcapy
+from api.core.config import settings, validate_redis_config
+from api.core.oidc.provider import init_provider
+from api.core.webhook_utils import register_tenant_webhook
+
+from .clientConfigurations.router import router as client_config_router
+from .core.redis_utils import (
+    _handle_redis_failure,
+    build_redis_url,
+    can_we_reach_cluster,
+    can_we_reach_redis,
+    can_we_reach_sentinel,
+    parse_host_port_pairs,
+)
 from .db.session import get_db, init_db
 from .routers import (
     acapy_handler,
@@ -24,25 +37,14 @@ from .routers import (
     presentation_request,
     well_known_oid_config,
 )
-from .verificationConfigs.router import router as ver_configs_router
-from .clientConfigurations.router import router as client_config_router
+from .routers.sse import (
+    build_async_redis_client,
+    set_redis_client,
+)
 from .routers.sse import (
     router as sse_router,
-    set_redis_client,
-    build_async_redis_client,
 )
-from .core.redis_utils import (
-    parse_host_port_pairs,
-    build_redis_url,
-    _handle_redis_failure,
-    can_we_reach_redis,
-    can_we_reach_cluster,
-    can_we_reach_sentinel,
-)
-from api.core.oidc.provider import init_provider
-from api.core.webhook_utils import register_tenant_webhook
-from api.core.acapy.config import MultiTenantAcapy, TractionTenantAcapy
-from api.core.config import validate_redis_config
+from .verificationConfigs.router import router as ver_configs_router
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
 

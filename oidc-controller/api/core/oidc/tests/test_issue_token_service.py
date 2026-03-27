@@ -1,12 +1,11 @@
-import pytest
 import json
+from copy import deepcopy
+from unittest.mock import patch
 
+import pytest
+from api.core.config import settings
 from api.core.oidc.issue_token_service import Token
 from api.core.oidc.tests.__mocks__ import auth_session, presentation, ver_config
-
-from copy import deepcopy
-from api.core.config import settings
-from unittest.mock import patch
 
 basic_valid_requested_attributes = {
     "req_attr_0": {

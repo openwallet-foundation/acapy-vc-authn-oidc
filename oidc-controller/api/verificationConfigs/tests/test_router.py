@@ -1,16 +1,15 @@
 """Tests for verification config router endpoints."""
 
+from unittest.mock import MagicMock, patch
+
+import mongomock
 import pytest
+from api.core.auth import get_api_key
+from api.db.session import get_db
+from api.verificationConfigs.models import VerificationConfig, VerificationProofRequest
+from api.verificationConfigs.router import router
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from unittest.mock import patch, MagicMock
-import mongomock
-
-from api.verificationConfigs.router import router
-from api.verificationConfigs.models import VerificationConfig, VerificationProofRequest
-from api.db.session import get_db
-from api.core.auth import get_api_key
-
 
 TEST_VER_CONFIG = VerificationConfig(
     ver_config_id="test-config",

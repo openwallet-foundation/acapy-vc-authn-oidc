@@ -1,17 +1,17 @@
-import canonicaljson
 import dataclasses
-import json
 import hashlib
+import json
 from datetime import datetime
 from typing import Any
 
+import canonicaljson
 import structlog
 from oic.oic.message import OpenIDSchema
 from pydantic import BaseModel
 
 from ...authSessions.models import AuthSession
-from ...verificationConfigs.models import ReqAttr, VerificationConfig
 from ...core.models import RevealedAttribute
+from ...verificationConfigs.models import ReqAttr, VerificationConfig
 from ..config import settings
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)

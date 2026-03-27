@@ -26,7 +26,6 @@ from api.routers.sse import (
     router,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -402,7 +401,8 @@ class TestSinglePodStream:
                 mock_settings.REDIS_MODE = "none"
 
                 # Immediately fire a terminal status so the stream closes
-                import threading, time
+                import threading
+                import time
 
                 def _fire():
                     time.sleep(0.05)

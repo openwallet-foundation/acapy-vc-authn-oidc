@@ -1,21 +1,22 @@
 """Tests for database session management."""
 
 import json
+from unittest.mock import MagicMock, mock_open, patch
+
 import pytest
-from unittest.mock import MagicMock, patch, mock_open
 from pymongo import ASCENDING
 from pymongo.collection import Collection
 from pymongo.errors import OperationFailure
 
+from api.authSessions.models import AuthSessionState
+from api.db.collections import COLLECTION_NAMES
 from api.db.session import (
     apply_expiration_times,
     create_ttl_indexes,
-    init_db,
-    get_db,
     get_async_session,
+    get_db,
+    init_db,
 )
-from api.db.collections import COLLECTION_NAMES
-from api.authSessions.models import AuthSessionState
 
 
 @pytest.fixture
