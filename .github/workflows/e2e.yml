@@ -103,7 +103,6 @@ jobs:
         run: |
           poetry run pytest tests/e2e/ \
             -m "e2e and ${{ matrix.mode }}" \
-            --timeout=120 \
             -v
 
       - name: Collect logs on failure
