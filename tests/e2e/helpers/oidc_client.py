@@ -9,7 +9,7 @@ Drives the full authorization code flow:
 
 import base64
 import re
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import parse_qs, urlparse
 
 import httpx
 

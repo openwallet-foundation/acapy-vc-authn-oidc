@@ -10,7 +10,6 @@ decline the proof request, which is not supported by ACAPY_AUTO_RESPOND_PRESENTA
 Those paths are covered at the integration-test layer (test_failure_paths.py).
 """
 
-import asyncio
 
 import httpx
 import pytest

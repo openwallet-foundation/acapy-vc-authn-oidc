@@ -11,12 +11,11 @@ Covered:
 """
 
 import asyncio
-from urllib.parse import urlparse
 
 import httpx
 import jwt
-from jwt.algorithms import RSAAlgorithm
 import pytest
+from jwt.algorithms import RSAAlgorithm
 
 pytestmark = [pytest.mark.e2e, pytest.mark.oob, pytest.mark.connection]
 

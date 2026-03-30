@@ -21,10 +21,10 @@ import os
 import sys
 import time
 import uuid
-import requests
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
 
+import requests
 
 # ---------------------------------------------------------------------------
 # Configuration

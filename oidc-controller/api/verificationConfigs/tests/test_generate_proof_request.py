@@ -3,7 +3,6 @@ from datetime import datetime
 from unittest.mock import patch
 
 import pytest
-
 from api.core.config import settings
 from api.verificationConfigs.helpers import VariableSubstitutionError
 from api.verificationConfigs.models import (

@@ -23,12 +23,10 @@ from pathlib import Path
 
 import httpx
 import pytest
-import pytest_asyncio
 
 from .helpers.aca_py import AcaPyAdminClient
 from .helpers.oidc_client import OIDCFlowClient
 from .helpers.sse_client import SSEClient
-
 
 # ---------------------------------------------------------------------------
 # Constants

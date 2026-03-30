@@ -69,8 +69,8 @@ async def test_tokens_from_redis_backed_session_are_valid(
     oidc_client, holder_admin, sse_client, ver_config_id
 ):
     """id_token issued via Redis-backed storage must pass RS256 signature check."""
-    from jwt.algorithms import RSAAlgorithm
     import httpx as _httpx
+    from jwt.algorithms import RSAAlgorithm
 
     tokens = await _complete_flow(oidc_client, holder_admin, sse_client, ver_config_id)
 
