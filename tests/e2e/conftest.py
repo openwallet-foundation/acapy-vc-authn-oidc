@@ -176,6 +176,84 @@ def e2e_ver_config_id(e2e_client_id, schema_id) -> str:
     return ver_config_id
 
 
+@pytest.fixture(scope="session")
+def e2e_consistent_ver_config_id(e2e_client_id, schema_id) -> str:
+    """Create a verification config with generate_consistent_identifier=True.
+
+    Uses subject_identifier="" (empty string) matching the canonical README
+    example. The empty string never matches any proof attribute, so the
+    generate_consistent_identifier hash branch always fires.
+    """
+    ver_config_id = "e2e-test-config-consistent"
+    payload = {
+        "ver_config_id": ver_config_id,
+        "subject_identifier": "",
+        "generate_consistent_identifier": True,
+        "include_v1_attributes": False,
+        "proof_request": {
+            "name": "E2E Consistent ID Test Proof",
+            "version": "1.0",
+            "requested_attributes": [
+                {
+                    "names": ["first_name", "last_name"],
+                    "restrictions": [{"schema_id": schema_id}],
+                }
+            ],
+            "requested_predicates": [],
+        },
+    }
+    r = httpx.post(
+        f"{CONTROLLER_URL}/ver_configs/",
+        json=payload,
+        headers=_api_headers(),
+        timeout=10.0,
+    )
+    if r.status_code == 409:
+        pass  # already exists — safe to reuse
+    else:
+        r.raise_for_status()
+    return ver_config_id
+
+
+@pytest.fixture(scope="session")
+def e2e_ephemeral_ver_config_id(e2e_client_id, schema_id) -> str:
+    """Create a verification config that produces an ephemeral sub (Option 2).
+
+    subject_identifier does not match any proof attribute and
+    generate_consistent_identifier=False, so pyop's internal UUID becomes
+    the sub — a different value every session (no cross-session correlation).
+    """
+    ver_config_id = "e2e-test-config-ephemeral"
+    payload = {
+        "ver_config_id": ver_config_id,
+        "subject_identifier": "",
+        "generate_consistent_identifier": False,
+        "include_v1_attributes": False,
+        "proof_request": {
+            "name": "E2E Ephemeral ID Test Proof",
+            "version": "1.0",
+            "requested_attributes": [
+                {
+                    "names": ["first_name", "last_name"],
+                    "restrictions": [{"schema_id": schema_id}],
+                }
+            ],
+            "requested_predicates": [],
+        },
+    }
+    r = httpx.post(
+        f"{CONTROLLER_URL}/ver_configs/",
+        json=payload,
+        headers=_api_headers(),
+        timeout=10.0,
+    )
+    if r.status_code == 409:
+        pass  # already exists — safe to reuse
+    else:
+        r.raise_for_status()
+    return ver_config_id
+
+
 # ---------------------------------------------------------------------------
 # Function-scoped: per-test helpers
 # ---------------------------------------------------------------------------

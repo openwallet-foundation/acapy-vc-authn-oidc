@@ -15,7 +15,7 @@ import asyncio
 import httpx
 import pytest
 
-pytestmark = [pytest.mark.e2e, pytest.mark.oob]
+pytestmark = [pytest.mark.e2e, pytest.mark.oob, pytest.mark.connection]
 
 
 # ---------------------------------------------------------------------------

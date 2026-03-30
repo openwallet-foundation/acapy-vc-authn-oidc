@@ -60,16 +60,29 @@ jobs:
             expire_time: 120
             test_path: tests/e2e/
             markers: "e2e and connection"
+            replicas: 1
+            redis_mode: none
           - mode: oob
             use_connection_based: "false"
             expire_time: 30
             test_path: tests/e2e/
             markers: "e2e and oob"
+            replicas: 1
+            redis_mode: none
           - mode: expiry
             use_connection_based: "false"
             expire_time: 10
             test_path: tests/e2e/test_failure_paths.py
             markers: "e2e"
+            replicas: 1
+            redis_mode: none
+          - mode: redis-multi-pod
+            use_connection_based: "false"
+            expire_time: 30
+            test_path: tests/e2e/
+            markers: "e2e and (oob or redis)"
+            replicas: 2
+            redis_mode: single
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -105,10 +118,8 @@ jobs:
           cp .env.example .env
           # Satisfy ngrok config requirement (not used in CI)
           sed -i 's/^NGROK_AUTHTOKEN=.*/NGROK_AUTHTOKEN=unused/' .env
-          # Single replica — simpler for e2e
-          sed -i 's/^CONTROLLER_REPLICAS=.*/CONTROLLER_REPLICAS=1/' .env
-          # No Redis needed for single pod
-          sed -i 's/^REDIS_MODE=.*/REDIS_MODE=none/' .env
+          sed -i 's/^CONTROLLER_REPLICAS=.*/CONTROLLER_REPLICAS=${{ matrix.replicas }}/' .env
+          sed -i 's/^REDIS_MODE=.*/REDIS_MODE=${{ matrix.redis_mode }}/' .env
           # Internal docker endpoint — no ngrok tunneling
           echo "AGENT_ENDPOINT=http://aca-py:8030" >> .env
           # Bypass manage script's finalizeEnvironment; set AGENT_ADMIN_MODE directly

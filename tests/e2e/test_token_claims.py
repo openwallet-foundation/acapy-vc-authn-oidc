@@ -18,7 +18,7 @@ import jwt
 from jwt.algorithms import RSAAlgorithm
 import pytest
 
-pytestmark = [pytest.mark.e2e, pytest.mark.oob]
+pytestmark = [pytest.mark.e2e, pytest.mark.oob, pytest.mark.connection]
 
 
 # ---------------------------------------------------------------------------
