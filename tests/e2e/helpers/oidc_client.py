@@ -150,15 +150,3 @@ class OIDCFlowClient:
             )
         r.raise_for_status()
         return r.json()
-
-    async def full_flow(
-        self, pres_req_conf_id: str, holder_admin_client
-    ) -> tuple[dict, str]:
-        """Drive the full OIDC flow with the holder agent and return (tokens, pid).
-
-        Caller is responsible for subscribing to SSE *before* calling this
-        to avoid a race between the holder responding and the SSE subscriber.
-        """
-        pid, invitation = await self.authorize(pres_req_conf_id)
-        await holder_admin_client.receive_invitation(invitation)
-        return pid, invitation

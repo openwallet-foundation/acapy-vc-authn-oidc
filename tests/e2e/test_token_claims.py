@@ -138,10 +138,9 @@ async def test_id_token_subject_from_credential(
 
     expected_sub = holder_credential_values["first_name"]
     # sub may be the raw value or a hash depending on generate_consistent_identifier
-    assert id_token["sub"], "id_token must have a non-empty sub"
-    # Loose check: the raw credential value should appear somewhere in sub
-    assert expected_sub in id_token["sub"] or id_token["sub"], (
-        f"id_token sub {id_token['sub']!r} should be derived from first_name={expected_sub!r}"
+    # sub format is raw_value@pres_req_conf_id (generate_consistent_identifier=False)
+    assert id_token["sub"].startswith(expected_sub), (
+        f"id_token sub {id_token['sub']!r} should start with first_name={expected_sub!r}"
     )
 
 

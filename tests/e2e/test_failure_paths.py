@@ -10,6 +10,7 @@ decline the proof request, which is not supported by ACAPY_AUTO_RESPOND_PRESENTA
 Those paths are covered at the integration-test layer (test_failure_paths.py).
 """
 
+import base64
 
 import httpx
 import pytest
@@ -84,8 +85,6 @@ async def test_callback_after_expiry_is_rejected(
 async def test_token_exchange_with_invalid_code_returns_4xx(oidc_client):
     """POST /token with a made-up auth code must return an error response."""
     async with httpx.AsyncClient(timeout=10) as client:
-        import base64
-
         creds = base64.b64encode(
             f"{oidc_client._client_id}:{oidc_client._client_secret}".encode()
         ).decode()

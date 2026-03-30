@@ -67,5 +67,9 @@ class SSEClient:
         raise TimeoutError(f"SSE stream ended without '{expected}' for pid={pid}")
 
     async def get_current_status(self, pid: str) -> str:
-        """Return the first status event emitted for *pid* (used for expiry checks)."""
+        """Return the first terminal status event for *pid* (used for expiry checks).
+
+        Passes expected="__any__" as a sentinel — _stream_until returns on the first
+        terminal status (verified/failed/abandoned/expired) regardless of expected.
+        """
         return await self.wait_for_status(pid, expected="__any__", timeout=10.0)

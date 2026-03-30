@@ -15,8 +15,8 @@ class AcaPyAdminClient:
     async def wait_for_ready(self, timeout: float = 120.0) -> None:
         """Poll /status until the agent is ready or timeout expires."""
         async with httpx.AsyncClient(timeout=self._timeout) as client:
-            deadline = asyncio.get_event_loop().time() + timeout
-            while asyncio.get_event_loop().time() < deadline:
+            deadline = asyncio.get_running_loop().time() + timeout
+            while asyncio.get_running_loop().time() < deadline:
                 try:
                     r = await client.get(f"{self._url}/status")
                     if r.status_code == 200:
@@ -52,8 +52,8 @@ class AcaPyAdminClient:
 
     async def wait_for_credential(self, timeout: float = 90.0) -> dict:
         """Wait until at least one credential appears in the wallet."""
-        deadline = asyncio.get_event_loop().time() + timeout
-        while asyncio.get_event_loop().time() < deadline:
+        deadline = asyncio.get_running_loop().time() + timeout
+        while asyncio.get_running_loop().time() < deadline:
             creds = await self.get_credentials()
             if creds:
                 return creds[0]

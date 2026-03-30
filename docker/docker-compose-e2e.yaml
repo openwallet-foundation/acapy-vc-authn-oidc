@@ -55,7 +55,7 @@ services:
     ports:
       - "5435:5432"
     volumes:
-      - holder-wallet-db:/var/lib/pgsql/data
+      - holder-wallet-db:/var/lib/postgresql/data
 
 networks:
   vc_auth:

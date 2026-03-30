@@ -591,20 +591,21 @@ e2e)
     esac
   done
 
-  configureEnvironment "${PYTEST_ARGS[@]}"
+  configureEnvironment "$@"
 
   # E2E uses internal Docker hostnames — no ngrok needed
   export AGENT_ENDPOINT="${AGENT_ENDPOINT:-http://aca-py:${AGENT_HTTP_PORT:-8030}}"
-  export REDIS_MODE=single
-  export REDIS_HOST=redis:6379
 
   [[ "${E2E_MODE}" == "oob" ]] && e2e_configure_oob || e2e_configure_connection
 
   if [[ "${MULTI_POD}" == "true" ]]; then
     echoInfo "Multi-pod mode: 2 controller replicas"
     export CONTROLLER_REPLICAS=2
+    export REDIS_MODE=single
+    export REDIS_HOST=redis:6379
   else
     export CONTROLLER_REPLICAS="${CONTROLLER_REPLICAS:-1}"
+    export REDIS_MODE=none
   fi
 
   finalizeEnvironment

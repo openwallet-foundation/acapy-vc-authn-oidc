@@ -15,6 +15,7 @@ Requires:
 """
 
 import asyncio
+import json
 
 import jwt
 import pytest
@@ -85,9 +86,7 @@ async def test_oob_id_token_contains_vc_claims(
     assert id_token.get("sub"), "id_token must have sub claim"
 
     # VC attributes appear in vc_presented_attributes or are reflected in sub
-    import json as _json
-
-    vc_attrs = _json.loads(id_token.get("vc_presented_attributes", "{}"))
+    vc_attrs = json.loads(id_token.get("vc_presented_attributes", "{}"))
     assert vc_attrs.get("first_name") == holder_credential_values[
         "first_name"
     ] or holder_credential_values["first_name"] in id_token.get("sub", ""), (

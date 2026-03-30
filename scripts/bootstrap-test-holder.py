@@ -119,8 +119,11 @@ def get_or_register_public_did() -> str:
             timeout=30,
         ).raise_for_status()
         log("DID registered on ledger")
+    except requests.exceptions.HTTPError as e:
+        log(f"Ledger registration HTTP error (continuing): {e}")
     except requests.exceptions.RequestException as e:
-        log(f"Ledger registration warning (continuing): {e}")
+        log(f"Ledger registration failed (network error): {e}")
+        raise
 
     time.sleep(3)
     make_request(
@@ -158,7 +161,8 @@ def get_or_create_schema() -> str:
     log(f"Looking for existing schema: {SCHEMA_NAME} v{SCHEMA_VERSION}")
     existing = make_request("GET", f"{ISSUER_ADMIN_URL}/schemas/created")
     for sid in existing.get("schema_ids", []):
-        if SCHEMA_NAME in sid and SCHEMA_VERSION in sid:
+        parts = sid.split(":")
+        if len(parts) >= 4 and parts[2] == SCHEMA_NAME and parts[3] == SCHEMA_VERSION:
             log(f"Using existing schema: {sid}")
             return sid
 
