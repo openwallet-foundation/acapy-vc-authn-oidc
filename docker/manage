@@ -588,7 +588,7 @@ e2e)
   # 3. Run the E2E tests filtered to the selected mode
   echoInfo "Running E2E tests (mode: ${E2E_MODE})..."
   poetry -C "${PROJECT_ROOT}" run pytest "${PROJECT_ROOT}/tests/e2e/" \
-    -m "e2e and ${E2E_MODE}" --timeout=120 "${PYTEST_ARGS[@]}"
+    -m "e2e and ${E2E_MODE}" "${PYTEST_ARGS[@]}"
   ;;
 *)
   usage

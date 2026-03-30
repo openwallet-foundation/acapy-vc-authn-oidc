@@ -58,9 +58,18 @@ jobs:
           - mode: connection
             use_connection_based: "true"
             expire_time: 120
+            test_path: tests/e2e/
+            markers: "e2e and connection"
           - mode: oob
             use_connection_based: "false"
             expire_time: 30
+            test_path: tests/e2e/
+            markers: "e2e and oob"
+          - mode: expiry
+            use_connection_based: "false"
+            expire_time: 10
+            test_path: tests/e2e/test_failure_paths.py
+            markers: "e2e"
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -79,6 +88,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip3 install --no-cache-dir poetry==2.3.2
+          poetry config virtualenvs.in-project true
           poetry install --no-root
 
       - name: Download images artifact
@@ -134,8 +144,8 @@ jobs:
           CONTROLLER_URL: http://localhost:5000
           HOLDER_ADMIN_URL: http://localhost:8079
         run: |
-          poetry run pytest tests/e2e/ \
-            -m "e2e and ${{ matrix.mode }}" \
+          poetry run pytest ${{ matrix.test_path }} \
+            -m "${{ matrix.markers }}" \
             -v
 
       - name: Collect logs on failure

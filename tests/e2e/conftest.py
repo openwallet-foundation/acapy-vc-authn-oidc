@@ -19,7 +19,6 @@ Tests are skipped automatically when the controller is not reachable.
 
 import json
 import os
-import uuid
 from pathlib import Path
 
 import httpx
@@ -89,6 +88,11 @@ def cred_def_id(bootstrap_output) -> str:
 
 
 @pytest.fixture(scope="session")
+def schema_id(bootstrap_output) -> str:
+    return bootstrap_output["schema_id"]
+
+
+@pytest.fixture(scope="session")
 def holder_credential_values(bootstrap_output) -> dict:
     return bootstrap_output["credential_values"]
 
@@ -134,9 +138,14 @@ def e2e_client_id() -> str:
 
 
 @pytest.fixture(scope="session")
-def e2e_ver_config_id(e2e_client_id, cred_def_id) -> str:
-    """Create a verification config restricted to the bootstrapped cred_def_id."""
-    ver_config_id = f"e2e-test-config-{uuid.uuid4().hex[:8]}"
+def e2e_ver_config_id(e2e_client_id, schema_id) -> str:
+    """Create a verification config restricted to the bootstrapped schema_id.
+
+    Uses schema_id (not cred_def_id) because the schema is stable across wallet
+    re-runs while cred_def_id changes each time, which would cause proof failures
+    when reusing a cached ver config.
+    """
+    ver_config_id = "e2e-test-config"
     payload = {
         "ver_config_id": ver_config_id,
         "subject_identifier": "first_name",
@@ -148,7 +157,7 @@ def e2e_ver_config_id(e2e_client_id, cred_def_id) -> str:
             "requested_attributes": [
                 {
                     "names": ["first_name", "last_name"],
-                    "restrictions": [{"cred_def_id": cred_def_id}],
+                    "restrictions": [{"schema_id": schema_id}],
                 }
             ],
             "requested_predicates": [],
@@ -160,7 +169,10 @@ def e2e_ver_config_id(e2e_client_id, cred_def_id) -> str:
         headers=_api_headers(),
         timeout=10.0,
     )
-    r.raise_for_status()
+    if r.status_code == 409:
+        pass  # already exists with correct schema restriction — safe to reuse
+    else:
+        r.raise_for_status()
     return ver_config_id
 
 

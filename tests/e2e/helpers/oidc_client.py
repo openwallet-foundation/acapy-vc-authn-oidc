@@ -66,20 +66,24 @@ class OIDCFlowClient:
         return pid, invitation
 
     def _parse_pid(self, html: str) -> str:
-        """Extract pid (MongoDB ObjectId) from the SSE URL in the rendered HTML."""
+        """Extract pid (MongoDB ObjectId) from the SSE URL in the rendered HTML.
+
+        Coupled to html-templates/ — looks for /sse/status/{24-char ObjectId}.
+        """
         m = re.search(r"/sse/status/([a-f0-9]{24})", html)
         if not m:
             # Fallback: callback URL contains ?pid=...
             m = re.search(r"[?&]pid=([a-f0-9]{24})", html)
         if not m:
             raise ValueError(
-                f"Could not find pid in authorize HTML (first 500 chars): {html[:500]!r}"
+                f"Could not find pid in authorize HTML (first 2000 chars): {html[:2000]!r}"
             )
         return m.group(1)
 
     def _parse_url_to_message(self, html: str) -> str:
         """Extract the QR-code URL from the rendered HTML.
 
+        Coupled to html-templates/ — looks for input value="/url/pres_exch/...".
         The real template renders it as: value="{{ url_to_message }}"
         """
         m = re.search(r'value="([^"]+/url/pres_exch/[^"]+)"', html)
@@ -88,7 +92,7 @@ class OIDCFlowClient:
             m = re.search(r"(https?://[^\s\"']+/url/pres_exch/[^\s\"'<>]+)", html)
         if not m:
             raise ValueError(
-                f"Could not find url_to_message in authorize HTML (first 500 chars): {html[:500]!r}"
+                f"Could not find url_to_message in authorize HTML (first 2000 chars): {html[:2000]!r}"
             )
         return m.group(1)
 
