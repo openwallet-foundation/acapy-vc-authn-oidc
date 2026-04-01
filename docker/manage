@@ -411,12 +411,16 @@ e2e_configure_connection() {
 
 e2e_start_stack() {
   echoInfo "Starting stack with E2E overlay..."
+  local scale_args=""
+  if [ -n "${CONTROLLER_REPLICAS:-}" ]; then
+    scale_args="--scale controller=${CONTROLLER_REPLICAS}"
+  fi
   CONTROLLER_URL="${CONTROLLER_URL:-http://localhost:5000}" \
   docker compose \
     -f docker-compose.yaml \
     -f docker-compose-e2e.yaml \
     -f docker-compose-issuer.yaml \
-    up -d --wait ${DEFAULT_CONTAINERS} ${ACAPY_CONTAINERS} ${PROD_CONTAINERS} \
+    up ${scale_args} -d --wait ${DEFAULT_CONTAINERS} ${ACAPY_CONTAINERS} ${PROD_CONTAINERS} \
       holder-aca-py holder-wallet-db issuer-aca-py issuer-wallet-db
 }
 
