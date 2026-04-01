@@ -19,6 +19,7 @@ class OutOfBandMessage(BaseModel):
         alias="@type",
     )
     goal_code: str = Field(default="aries.vc.verifier.once")
+    goal: str = Field(default="Request proof of credential")
     label: str = Field(
         default="acapy-vc-authn Out-of-Band present-proof authorization request"
     )
@@ -30,4 +31,4 @@ class OutOfBandMessage(BaseModel):
         alias="handshake_protocols", default=None
     )
 
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(populate_by_name=True, extra="allow")

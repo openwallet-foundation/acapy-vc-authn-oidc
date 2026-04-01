@@ -1,0 +1,176 @@
+name: E2E Tests
+
+on:
+  workflow_dispatch: # manual trigger, any branch
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+    paths:
+      - "oidc-controller/**"
+      - "tests/e2e/**"
+      - "scripts/bootstrap-test-holder.py"
+      - "docker/docker-compose*.yaml"
+      - "docker/agent/**"
+      - "pyproject.toml"
+      - "poetry.lock"
+
+jobs:
+  build-images:
+    name: Build Docker images
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Build controller image
+        run: |
+          docker build -t acapy-vc-authn-oidc-controller \
+            -f docker/oidc-controller/Dockerfile .
+
+      - name: Build ACA-Py image
+        run: |
+          docker build -t vc-authn-oidc-acapy:webvh \
+            -f docker/agent/Dockerfile docker/agent
+
+      - name: Save images
+        run: |
+          docker save acapy-vc-authn-oidc-controller vc-authn-oidc-acapy:webvh \
+            | gzip > e2e-images.tar.gz
+
+      - name: Upload images artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: e2e-images-${{ github.run_id }}
+          path: e2e-images.tar.gz
+          retention-days: 1
+
+  e2e:
+    name: E2E (${{ matrix.mode }})
+    needs: build-images
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - mode: connection
+            use_connection_based: "true"
+            expire_time: 120
+            test_path: tests/e2e/
+            markers: "e2e and connection"
+            replicas: 1
+            redis_mode: none
+          - mode: oob
+            use_connection_based: "false"
+            expire_time: 30
+            test_path: tests/e2e/
+            markers: "e2e and oob"
+            replicas: 1
+            redis_mode: none
+          - mode: expiry
+            use_connection_based: "false"
+            expire_time: 10
+            test_path: tests/e2e/test_failure_paths.py
+            markers: "e2e"
+            replicas: 1
+            redis_mode: none
+          - mode: redis-multi-pod
+            use_connection_based: "false"
+            expire_time: 30
+            test_path: tests/e2e/
+            markers: "e2e and (oob or redis)"
+            replicas: 2
+            redis_mode: single
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: "3.13"
+
+      - name: Cache poetry virtualenv
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: .venv
+          key: venv-${{ runner.os }}-py3.13-${{ hashFiles('poetry.lock') }}
+
+      - name: Install dependencies
+        run: |
+          pip3 install --no-cache-dir poetry==2.3.2
+          poetry config virtualenvs.in-project true
+          poetry install --no-root
+
+      - name: Download images artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: e2e-images-${{ github.run_id }}
+
+      - name: Load Docker images
+        run: docker load < e2e-images.tar.gz
+
+      - name: Create .env for CI
+        working-directory: docker
+        run: |
+          cp .env.example .env
+          # Satisfy ngrok config requirement (not used in CI)
+          sed -i 's/^NGROK_AUTHTOKEN=.*/NGROK_AUTHTOKEN=unused/' .env
+          sed -i 's/^CONTROLLER_REPLICAS=.*/CONTROLLER_REPLICAS=${{ matrix.replicas }}/' .env
+          sed -i 's/^REDIS_MODE=.*/REDIS_MODE=${{ matrix.redis_mode }}/' .env
+          # Internal docker endpoint — no ngrok tunneling
+          echo "AGENT_ENDPOINT=http://aca-py:8030" >> .env
+          # Bypass manage script's finalizeEnvironment; set AGENT_ADMIN_MODE directly
+          echo "AGENT_ADMIN_MODE=admin-api-key changeme" >> .env
+          # Controller public URL reachable from test runner on the host
+          echo "CONTROLLER_URL=http://localhost:5000" >> .env
+
+      - name: Start stack
+        working-directory: docker
+        env:
+          USE_CONNECTION_BASED_VERIFICATION: ${{ matrix.use_connection_based }}
+          CONTROLLER_PRESENTATION_EXPIRE_TIME: ${{ matrix.expire_time }}
+        run: |
+          docker compose \
+            -f docker-compose.yaml \
+            -f docker-compose-e2e.yaml \
+            -f docker-compose-issuer.yaml \
+            up -d --wait \
+            controller-lb controller-db redis controller \
+            aca-py wallet-db \
+            holder-aca-py holder-wallet-db \
+            issuer-aca-py issuer-wallet-db
+
+      - name: Bootstrap test credential
+        env:
+          ISSUER_ADMIN_URL: http://localhost:8078
+          HOLDER_ADMIN_URL: http://localhost:8079
+        run: |
+          poetry run python scripts/bootstrap-test-holder.py
+
+      - name: Run E2E tests (${{ matrix.mode }})
+        env:
+          CONTROLLER_URL: http://localhost:5000
+          HOLDER_ADMIN_URL: http://localhost:8079
+        run: |
+          poetry run pytest ${{ matrix.test_path }} \
+            -m "${{ matrix.markers }}" \
+            -v
+
+      - name: Collect logs on failure
+        if: failure()
+        working-directory: docker
+        run: |
+          docker compose \
+            -f docker-compose.yaml \
+            -f docker-compose-e2e.yaml \
+            -f docker-compose-issuer.yaml \
+            logs --no-color > ../e2e-logs-${{ matrix.mode }}.txt || true
+
+      - name: Upload logs artifact
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: e2e-logs-${{ matrix.mode }}
+          path: e2e-logs-${{ matrix.mode }}.txt
+          retention-days: 7

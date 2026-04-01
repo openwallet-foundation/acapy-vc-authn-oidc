@@ -46,7 +46,7 @@ services:
     ports:
       - 5434:5432
     volumes:
-      - issuer-wallet-db:/var/lib/pgsql/data
+      - issuer-wallet-db:/var/lib/postgresql/data
 
 networks:
   vc_auth:

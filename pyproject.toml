@@ -49,6 +49,9 @@ addopts = "-m 'not e2e and not integration'"
 markers = [
     "integration: integration tests (no external services required)",
     "e2e: end-to-end tests (requires running stack + bootstrap)",
+    "connection: tests requiring USE_CONNECTION_BASED_VERIFICATION=true",
+    "oob: tests requiring USE_CONNECTION_BASED_VERIFICATION=false",
+    "redis: tests requiring REDIS_MODE=single and CONTROLLER_REPLICAS>=2",
 ]
 
 [tool.coverage.run]
