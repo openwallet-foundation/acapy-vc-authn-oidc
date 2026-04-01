@@ -27,7 +27,7 @@ pytestmark = [pytest.mark.e2e, pytest.mark.oob, pytest.mark.connection]
 
 
 async def _run_full_flow(oidc_client, holder_admin, sse_client, ver_config_id) -> dict:
-    """Run the OIDC flow end-to-end and return the decoded id_token payload."""
+    """Run the OIDC flow end-to-end and return the full token response dict."""
     pid, invitation = await oidc_client.authorize(pres_req_conf_id=ver_config_id)
 
     sse_task = asyncio.create_task(
