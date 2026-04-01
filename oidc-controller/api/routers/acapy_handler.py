@@ -328,6 +328,12 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                         auth_session.proof_status = AuthSessionState.FAILED
                         await _update_auth_session(db, auth_session)
                         await notify(str(auth_session.id), "failed")
+                        await _cleanup__connection(
+                            client,
+                            auth_session,
+                            pres_ex_id,
+                            "missing by_format in webhook body",
+                        )
                         return {"status": "missing by_format"}
 
                     auth_session.proof_status = AuthSessionState.VERIFIED
