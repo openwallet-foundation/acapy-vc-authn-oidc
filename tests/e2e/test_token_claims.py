@@ -4,13 +4,14 @@ Verifies that credential attributes presented by the holder are
 correctly mapped to OIDC token claims.
 
 Covered:
-  - id_token standard OIDC claims (sub, iss, aud, iat, exp)
-  - id_token VC-specific claims (pres_req_conf_id, acr, vc_presented_attributes)
+  - id_token standard OIDC claims (sub, iss, aud, iat, exp, acr)
+  - id_token VC-specific claims (pres_req_conf_id, vc_presented_attributes)
   - id_token RS256 signature against the controller's JWKS endpoint
   - /userinfo endpoint (if enabled)
 """
 
 import asyncio
+import json
 
 import httpx
 import jwt
@@ -76,6 +77,10 @@ async def test_id_token_standard_claims(
         isinstance(aud, list) and oidc_client._client_id in aud
     ), f"id_token aud must equal client_id, got {aud!r}"
 
+    assert id_token.get("acr") == "vc_authn", (
+        f"id_token must have acr=vc_authn, got {id_token.get('acr')!r}"
+    )
+
 
 @pytest.mark.asyncio
 async def test_id_token_vc_claims(oidc_client, holder_admin, sse_client, ver_config_id):
@@ -88,8 +93,8 @@ async def test_id_token_vc_claims(oidc_client, holder_admin, sse_client, ver_con
         algorithms=["RS256"],
     )
 
-    assert id_token.get("acr") == "vc_authn", (
-        f"id_token must have acr=vc_authn, got {id_token.get('acr')!r}"
+    assert "vc_presented_attributes" in id_token, (
+        "id_token must contain vc_presented_attributes"
     )
     assert "pres_req_conf_id" in id_token, "id_token must contain pres_req_conf_id"
 
@@ -142,6 +147,30 @@ async def test_id_token_subject_from_credential(
     assert id_token["sub"].startswith(expected_sub), (
         f"id_token sub {id_token['sub']!r} should start with first_name={expected_sub!r}"
     )
+
+
+@pytest.mark.asyncio
+async def test_id_token_vc_presented_attributes(
+    oidc_client, holder_admin, sse_client, ver_config_id, holder_credential_values
+):
+    """id_token must contain vc_presented_attributes with the presented credential values."""
+    tokens = await _run_full_flow(oidc_client, holder_admin, sse_client, ver_config_id)
+
+    id_token = jwt.decode(
+        tokens["id_token"],
+        options={"verify_signature": False},
+        algorithms=["RS256"],
+    )
+
+    assert "vc_presented_attributes" in id_token, (
+        "id_token must contain vc_presented_attributes"
+    )
+
+    attrs = json.loads(id_token["vc_presented_attributes"])
+    for attr, expected in holder_credential_values.items():
+        assert attrs.get(attr) == expected, (
+            f"vc_presented_attributes[{attr!r}]={attrs.get(attr)!r}, expected {expected!r}"
+        )
 
 
 @pytest.mark.asyncio
