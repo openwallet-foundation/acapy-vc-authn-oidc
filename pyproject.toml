@@ -37,7 +37,7 @@ ruff = "^0.15.5"
 mongomock = "^4.3.0"
 pytest-asyncio = "^1.3.0"
 pytest-cov = "^7.0.0"
-pytest = "^9.0.1"
+pytest = "^9.0.3"
 respx = "^0.22"
 
 [tool.pytest.ini_options]
