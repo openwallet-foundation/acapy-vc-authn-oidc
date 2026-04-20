@@ -264,6 +264,16 @@ async def _sse_event_loop(
         pid, db
     )
     if status is not None:
+        # Last-Event-ID presence signals browser reconnect. We don't use the
+        # value (DB is source of truth), but logging it confirms the
+        # mobile-backgrounding recovery path is working in production.
+        if is_terminal:
+            logger.info(
+                "SSE initial-state emit is terminal",
+                pid=pid,
+                status=status,
+                is_reconnect=request.headers.get("last-event-id") is not None,
+            )
         yield _format_event({"status": status}, id=str(seq))
         seq += 1
         if is_terminal:

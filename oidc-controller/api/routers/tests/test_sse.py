@@ -989,3 +989,189 @@ class TestSseOnlyExpiry:
         assert b"expired" in resp.content
         # DB was patched — expiry was handled server-side via SSE, not polling
         mock_crud.patch.assert_awaited()
+
+
+# ---------------------------------------------------------------------------
+# Integration tests: reconnect-after-terminal-status (mobile backgrounding)
+# ---------------------------------------------------------------------------
+
+
+class TestReconnectAfterStatusChange:
+    """Simulates the mobile backgrounding flow:
+
+    1. Client opens SSE stream in NOT_STARTED.
+    2. Tab backgrounds → SSE connection drops (server-side it just ends).
+    3. ACA-Py webhook arrives while no subscriber is live; DB flips to
+       terminal status and notify() publishes (delivered to no one).
+    4. Tab returns → native EventSource (or visibilitychange handler)
+       reconnects, sending the Last-Event-ID header.
+    5. Server reads current DB state, emits the terminal status, closes.
+    """
+
+    def setup_method(self):
+        _signals.clear()
+        _latest.clear()
+        sse_module._redis_client = None
+
+    def teardown_method(self):
+        _signals.clear()
+        _latest.clear()
+        sse_module._redis_client = None
+
+    def test_reconnect_single_pod_receives_terminal_status_after_missed_notify(self):
+        app = _make_app()
+        not_started = _make_auth_session(AuthSessionState.NOT_STARTED)
+        not_started.expired_timestamp = datetime.now(UTC) + timedelta(seconds=300)
+        verified = _make_auth_session(AuthSessionState.VERIFIED)
+
+        mock_crud = MagicMock()
+        # Connect #1 reads NOT_STARTED; in between the DB flips; Connect #2
+        # reads VERIFIED.
+        mock_crud.get = AsyncMock(side_effect=[not_started, not_started, verified])
+        mock_crud.patch = AsyncMock()
+
+        with patch("api.routers.sse.AuthSessionCRUD", return_value=mock_crud):
+            with patch("api.routers.sse.settings") as mock_settings:
+                mock_settings.REDIS_MODE = "none"
+                client = TestClient(app, raise_server_exceptions=False)
+
+                # Connect #1 — client sees the initial NOT_STARTED state and
+                # closes (simulating tab backgrounding). The client does NOT
+                # fully consume the stream because the while loop would block
+                # on the wait_fn; closing the TestClient context ends it.
+                with client.stream(
+                    "GET", "/sse/status/507f1f77bcf86cd799439011"
+                ) as resp1:
+                    assert resp1.status_code == 200
+                    # Read just enough to confirm initial state arrived.
+                    chunks = []
+                    for chunk in resp1.iter_bytes():
+                        chunks.append(chunk)
+                        if b"not_started" in b"".join(chunks):
+                            break
+                    assert b"not_started" in b"".join(chunks)
+
+                # Simulate a missed notify() while backgrounded — nothing is
+                # listening, so _latest/_signals stays empty. This is exactly
+                # what happens in the real flow.
+                #
+                # Connect #2 — browser reconnects with Last-Event-ID header.
+                # Server reads DB (now VERIFIED), emits verified, closes.
+                resp2 = client.get(
+                    "/sse/status/507f1f77bcf86cd799439011",
+                    headers={"Last-Event-ID": "0"},
+                )
+                assert resp2.status_code == 200
+                assert b"verified" in resp2.content
+
+    def test_terminal_on_connect_logs_is_reconnect_from_last_event_id_header(self):
+        """When Last-Event-ID is present and the initial state is terminal, the
+        structured log records is_reconnect=True so production traffic can be
+        audited for the mobile backgrounding recovery path."""
+        app = _make_app()
+        mock_crud = MagicMock()
+        mock_crud.get = AsyncMock(
+            return_value=_make_auth_session(AuthSessionState.VERIFIED)
+        )
+
+        log_calls = []
+
+        def capture_info(msg, **kwargs):
+            log_calls.append((msg, kwargs))
+
+        with patch("api.routers.sse.AuthSessionCRUD", return_value=mock_crud):
+            with patch("api.routers.sse.settings") as mock_settings:
+                mock_settings.REDIS_MODE = "none"
+                with patch.object(
+                    sse_module.logger, "info", side_effect=capture_info
+                ):
+                    client = TestClient(app, raise_server_exceptions=False)
+                    resp = client.get(
+                        "/sse/status/507f1f77bcf86cd799439011",
+                        headers={"Last-Event-ID": "42"},
+                    )
+
+        assert resp.status_code == 200
+        terminal_logs = [
+            kwargs
+            for msg, kwargs in log_calls
+            if "SSE initial-state emit is terminal" in msg
+        ]
+        assert len(terminal_logs) == 1
+        assert terminal_logs[0]["is_reconnect"] is True
+        assert terminal_logs[0]["status"] == AuthSessionState.VERIFIED
+
+    def test_terminal_on_connect_logs_is_reconnect_false_without_header(self):
+        """First-time connect (no Last-Event-ID) logs is_reconnect=False."""
+        app = _make_app()
+        mock_crud = MagicMock()
+        mock_crud.get = AsyncMock(
+            return_value=_make_auth_session(AuthSessionState.VERIFIED)
+        )
+
+        log_calls = []
+
+        def capture_info(msg, **kwargs):
+            log_calls.append((msg, kwargs))
+
+        with patch("api.routers.sse.AuthSessionCRUD", return_value=mock_crud):
+            with patch("api.routers.sse.settings") as mock_settings:
+                mock_settings.REDIS_MODE = "none"
+                with patch.object(
+                    sse_module.logger, "info", side_effect=capture_info
+                ):
+                    client = TestClient(app, raise_server_exceptions=False)
+                    resp = client.get("/sse/status/507f1f77bcf86cd799439011")
+
+        assert resp.status_code == 200
+        terminal_logs = [
+            kwargs
+            for msg, kwargs in log_calls
+            if "SSE initial-state emit is terminal" in msg
+        ]
+        assert len(terminal_logs) == 1
+        assert terminal_logs[0]["is_reconnect"] is False
+
+    def test_reconnect_multi_pod_receives_terminal_status_after_missed_notify(self):
+        """Multi-pod variant: Redis pub/sub publish during disconnect is lost,
+        but reconnect reads DB and delivers terminal status."""
+        app = _make_app()
+        not_started = _make_auth_session(AuthSessionState.NOT_STARTED)
+        not_started.expired_timestamp = datetime.now(UTC) + timedelta(seconds=300)
+        verified = _make_auth_session(AuthSessionState.VERIFIED)
+
+        mock_crud = MagicMock()
+        mock_crud.get = AsyncMock(side_effect=[not_started, not_started, verified])
+        mock_crud.patch = AsyncMock()
+
+        mock_redis = MagicMock()
+        mock_pubsub = MagicMock()
+        mock_redis.pubsub.return_value = mock_pubsub
+        mock_pubsub.subscribe = AsyncMock()
+        mock_pubsub.unsubscribe = AsyncMock()
+        mock_pubsub.aclose = AsyncMock()
+        mock_pubsub.get_message = AsyncMock(return_value=None)
+        sse_module._redis_client = mock_redis
+
+        with patch("api.routers.sse.AuthSessionCRUD", return_value=mock_crud):
+            with patch("api.routers.sse.settings") as mock_settings:
+                mock_settings.REDIS_MODE = "single"
+                client = TestClient(app, raise_server_exceptions=False)
+
+                with client.stream(
+                    "GET", "/sse/status/507f1f77bcf86cd799439011"
+                ) as resp1:
+                    assert resp1.status_code == 200
+                    chunks = []
+                    for chunk in resp1.iter_bytes():
+                        chunks.append(chunk)
+                        if b"not_started" in b"".join(chunks):
+                            break
+                    assert b"not_started" in b"".join(chunks)
+
+                resp2 = client.get(
+                    "/sse/status/507f1f77bcf86cd799439011",
+                    headers={"Last-Event-ID": "0"},
+                )
+                assert resp2.status_code == 200
+                assert b"verified" in resp2.content
