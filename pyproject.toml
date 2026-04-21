@@ -17,28 +17,28 @@ package-mode = false
 
 [tool.poetry.dependencies]
 python = ">=3.13,<4.0"
-fastapi = "^0.135.0"
+fastapi = "^0.136.0"
 jinja2 = "^3.1.6"
 oic = "^1.7.0"
-pymongo = "^4.15.4"
+pymongo = "^4.17.0"
 pyop = { version = "^3.4.2", extras = ["redis"] }
-python-multipart = "^0.0.22" # required by fastapi to serve/upload files
+python-multipart = "^0.0.26" # required by fastapi to serve/upload files
 qrcode = { version = "^8.2", extras = ["pil"]}
 structlog = "^25.5.0"
-uvicorn = { version = "^0.41.0", extras = ["standard"] }
-redis = "^7.3.0"
+uvicorn = { version = "^0.44.0", extras = ["standard"] }
+redis = "^7.4.0"
 canonicaljson = "^2.0.0" # used to provide unique consistent user identifiers"
-pydantic-settings = "^2.12.0"
-pyjwt = "^2.11.0"
+pydantic-settings = "^2.14.0"
+pyjwt = "^2.12.1"
 httpx = "^0.28.1"
 
 [tool.poetry.group.dev.dependencies]
-ruff = "^0.15.5"
+ruff = "^0.15.11"
 mongomock = "^4.3.0"
 pytest-asyncio = "^1.3.0"
-pytest-cov = "^7.0.0"
-pytest = "^9.0.1"
-respx = "^0.22"
+pytest-cov = "^7.1.0"
+pytest = "^9.0.3"
+respx = "^0.23.1"
 
 [tool.pytest.ini_options]
 testpaths = ["oidc-controller"]
