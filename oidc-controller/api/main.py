@@ -55,7 +55,9 @@ logging_file_path = os.environ.get(
 
 
 os.environ["TZ"] = settings.TIMEZONE
-time.tzset()
+tzset = getattr(time, "tzset", None)
+if tzset is not None:
+    tzset()
 
 
 def get_application() -> FastAPI:
