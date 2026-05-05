@@ -1082,9 +1082,7 @@ class TestReconnectAfterStatusChange:
         with patch("api.routers.sse.AuthSessionCRUD", return_value=mock_crud):
             with patch("api.routers.sse.settings") as mock_settings:
                 mock_settings.REDIS_MODE = "none"
-                with patch.object(
-                    sse_module.logger, "info", side_effect=capture_info
-                ):
+                with patch.object(sse_module.logger, "info", side_effect=capture_info):
                     client = TestClient(app, raise_server_exceptions=False)
                     resp = client.get(
                         "/sse/status/507f1f77bcf86cd799439011",
@@ -1117,9 +1115,7 @@ class TestReconnectAfterStatusChange:
         with patch("api.routers.sse.AuthSessionCRUD", return_value=mock_crud):
             with patch("api.routers.sse.settings") as mock_settings:
                 mock_settings.REDIS_MODE = "none"
-                with patch.object(
-                    sse_module.logger, "info", side_effect=capture_info
-                ):
+                with patch.object(sse_module.logger, "info", side_effect=capture_info):
                     client = TestClient(app, raise_server_exceptions=False)
                     resp = client.get("/sse/status/507f1f77bcf86cd799439011")
 
