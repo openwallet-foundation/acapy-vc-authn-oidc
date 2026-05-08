@@ -49,9 +49,7 @@ async def get_proof_request_explorer(db: Database = Depends(get_db)):
     data = {
         "title": "Presentation Request Explorer",
     }
-    with open(
-        settings.CONTROLLER_TEMPLATE_DIR + "/ver_config_explorer.html", "r"
-    ) as f:
+    with open(settings.CONTROLLER_TEMPLATE_DIR + "/ver_config_explorer.html", "r") as f:
         template_file = f.read()
     env = Environment(loader=BaseLoader(), autoescape=True)
     template = env.from_string(template_file)

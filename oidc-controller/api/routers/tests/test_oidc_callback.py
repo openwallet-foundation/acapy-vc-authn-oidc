@@ -38,12 +38,15 @@ class TestAuthorizeCallbackRedirectValidation:
     # (1) Non-http(s) schemes must be rejected
     # ------------------------------------------------------------------
 
-    @pytest.mark.parametrize("bad_url", [
-        "javascript:alert(1)",
-        "data:text/html,<h1>hi</h1>",
-        "ftp://evil.example.com/callback",
-        "file:///etc/passwd",
-    ])
+    @pytest.mark.parametrize(
+        "bad_url",
+        [
+            "javascript:alert(1)",
+            "data:text/html,<h1>hi</h1>",
+            "ftp://evil.example.com/callback",
+            "file:///etc/passwd",
+        ],
+    )
     @patch("api.routers.oidc.AuthSessionCRUD")
     def test_non_https_scheme_rejected(self, mock_crud_cls, bad_url, client):
         """Redirect URLs with non-http(s) schemes must return 400."""
