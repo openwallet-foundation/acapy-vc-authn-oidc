@@ -89,7 +89,7 @@
                                                      ? "https://play.google.com/store/apps/details?id=ca.bc.gov.BCWallet"
                                                      : "https://apps.apple.com/us/app/bc-wallet/id1587380443"
        // Attempt to open the BC wallet if installed
-       window.location.href = "{{wallet_deep_link}}"
+       window.location.href = {{wallet_deep_link|tojson}}
      } else {
        document.getElementById("open-in-wallet").style.display = "none";
      }

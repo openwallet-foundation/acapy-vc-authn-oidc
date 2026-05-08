@@ -1,7 +1,7 @@
 import structlog
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
-from jinja2 import Template
+from jinja2 import Environment, BaseLoader
 from pymongo.database import Database
 
 from ..authSessions.crud import AuthSessionCRUD
@@ -49,13 +49,15 @@ async def send_connectionless_proof_req(
     if ".html" in settings.CONTROLLER_CAMERA_REDIRECT_URL:
         response = RedirectResponse(settings.CONTROLLER_CAMERA_REDIRECT_URL)
     else:
-        template_file = open(
+        with open(
             f"{settings.CONTROLLER_TEMPLATE_DIR}/{settings.CONTROLLER_CAMERA_REDIRECT_URL}.html",
             "r",
-        ).read()
+        ) as f:
+            template_file = f.read()
 
         wallet_deep_link = gen_deep_link(auth_session)
-        template = Template(template_file)
+        env = Environment(loader=BaseLoader(), autoescape=True)
+        template = env.from_string(template_file)
 
         # If the qrcode was scanned by mobile phone camera toggle the pending flag
         await toggle_pending(db, auth_session)
