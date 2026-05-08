@@ -12,7 +12,7 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi import status as http_status
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
-from jinja2 import Template
+from jinja2 import Environment, BaseLoader
 from oic.oic.message import AuthorizationRequest
 from pymongo.database import Database
 from pyop.exceptions import (
@@ -244,11 +244,13 @@ async def get_authorize(request: Request, db: Database = Depends(get_db)):
         "claims": metadata.claims,
     }
 
-    # Prepare the template
-    template_file = open(
+    # Prepare the template (autoescape=True prevents XSS via template injection)
+    with open(
         settings.CONTROLLER_TEMPLATE_DIR + "/verified_credentials.html", "r"
-    ).read()
-    template = Template(template_file)
+    ) as f:
+        template_file = f.read()
+    env = Environment(loader=BaseLoader(), autoescape=True)
+    template = env.from_string(template_file)
 
     # Render and return the template
     return template.render(data)
