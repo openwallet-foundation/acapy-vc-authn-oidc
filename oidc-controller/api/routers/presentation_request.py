@@ -1,7 +1,7 @@
 import structlog
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
-from jinja2 import Environment, BaseLoader
+from jinja2 import BaseLoader, Environment
 from pymongo.database import Database
 
 from ..authSessions.crud import AuthSessionCRUD

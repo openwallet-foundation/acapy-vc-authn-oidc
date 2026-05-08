@@ -12,7 +12,7 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi import status as http_status
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
-from jinja2 import Environment, BaseLoader
+from jinja2 import BaseLoader, Environment
 from oic.oic.message import AuthorizationRequest
 from pymongo.database import Database
 from pyop.exceptions import (
@@ -22,8 +22,8 @@ from pyop.exceptions import (
 )
 
 from ..authSessions.crud import AuthSessionCreate, AuthSessionCRUD
-from ..clientConfigurations.crud import ClientConfigurationCRUD
 from ..authSessions.models import AuthSession, AuthSessionPatch, AuthSessionState
+from ..clientConfigurations.crud import ClientConfigurationCRUD
 from ..core.acapy.client import AcapyClient
 from ..core.config import settings
 from ..core.logger_util import log_debug
