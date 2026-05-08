@@ -4,7 +4,7 @@ import time
 import uuid
 from datetime import UTC, datetime
 from typing import cast
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 import jwt
 import qrcode
@@ -22,6 +22,7 @@ from pyop.exceptions import (
 )
 
 from ..authSessions.crud import AuthSessionCreate, AuthSessionCRUD
+from ..clientConfigurations.crud import ClientConfigurationCRUD
 from ..authSessions.models import AuthSession, AuthSessionPatch, AuthSessionState
 from ..core.acapy.client import AcapyClient
 from ..core.config import settings
@@ -263,6 +264,30 @@ async def get_authorize_callback(pid: str, db: Database = Depends(get_db)):
     auth_session = await AuthSessionCRUD(db).get(pid)
 
     url = auth_session.response_url
+
+    # CWE-601: Validate redirect URL against the registered redirect_uris for
+    # the client. Prevents an open redirect if response_url is ever tampered
+    # with (e.g. via a DB-level attack). PyOP already validates redirect_uri at
+    # auth-request time; this is a defense-in-depth check at redirect time.
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise HTTPException(
+            status_code=http_status.HTTP_400_BAD_REQUEST,
+            detail="Invalid redirect URL",
+        )
+    client_id = auth_session.request_parameters.get("client_id")
+    if client_id:
+        client_config = await ClientConfigurationCRUD(db).get(client_id)
+        base_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+        if not any(
+            base_url.rstrip("/") == registered.rstrip("/")
+            for registered in client_config.redirect_uris
+        ):
+            raise HTTPException(
+                status_code=http_status.HTTP_400_BAD_REQUEST,
+                detail="Invalid redirect URL",
+            )
+
     return RedirectResponse(url)
 
 
