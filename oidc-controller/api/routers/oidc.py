@@ -237,7 +237,7 @@ async def get_authorize(request: Request, db: Database = Depends(get_db)):
         "url_to_message": url_to_message,
         "callback_url": callback_url,
         "pres_exch_id": auth_session.pres_exch_id,
-        "pid": auth_session.id,
+        "pid": str(auth_session.id),
         "controller_host": controller_host,
         "challenge_poll_uri": ChallengePollUri,
         "wallet_deep_link": wallet_deep_link,
