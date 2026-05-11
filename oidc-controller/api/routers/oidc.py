@@ -132,10 +132,8 @@ async def get_authorize(request: Request, db: Database = Depends(get_db)):
     except VariableSubstitutionError as e:
         return JSONResponse(
             status_code=http_status.HTTP_400_BAD_REQUEST,
-            content={
-                "detail": f"Variable substitution error: \
-'{e.variable_name}' not found in substitution map."
-            },
+            content={"detail": f"Variable substitution error: \
+'{e.variable_name}' not found in substitution map."},
         )
 
     use_public_did = not settings.USE_OOB_LOCAL_DID_SERVICE
@@ -276,17 +274,21 @@ async def get_authorize_callback(pid: str, db: Database = Depends(get_db)):
             detail="Invalid redirect URL",
         )
     client_id = auth_session.request_parameters.get("client_id")
-    if client_id:
-        client_config = await ClientConfigurationCRUD(db).get(client_id)
-        base_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
-        if not any(
-            base_url.rstrip("/") == registered.rstrip("/")
-            for registered in client_config.redirect_uris
-        ):
-            raise HTTPException(
-                status_code=http_status.HTTP_400_BAD_REQUEST,
-                detail="Invalid redirect URL",
-            )
+    if not client_id:
+        raise HTTPException(
+            status_code=http_status.HTTP_400_BAD_REQUEST,
+            detail="Missing client_id in auth session",
+        )
+    client_config = await ClientConfigurationCRUD(db).get(client_id)
+    base_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+    if not any(
+        base_url.rstrip("/") == registered.rstrip("/")
+        for registered in client_config.redirect_uris
+    ):
+        raise HTTPException(
+            status_code=http_status.HTTP_400_BAD_REQUEST,
+            detail="Invalid redirect URL",
+        )
 
     return RedirectResponse(url)
 
