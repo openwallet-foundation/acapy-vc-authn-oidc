@@ -138,8 +138,8 @@ class TestAuthorizeCallbackRedirectValidation:
         assert response.status_code in (302, 307)
 
     @patch("api.routers.oidc.AuthSessionCRUD")
-    def test_no_client_id_skips_allowlist_check(self, mock_crud_cls, client):
-        """When no client_id is stored in request_parameters the allowlist check is skipped."""
+    def test_no_client_id_returns_400(self, mock_crud_cls, client):
+        """When no client_id is stored in request_parameters a 400 is returned."""
         session = _make_auth_session("https://example.com/callback")
         session.request_parameters = {}  # no client_id key
         mock_crud = AsyncMock()
@@ -148,5 +148,5 @@ class TestAuthorizeCallbackRedirectValidation:
 
         response = client.get("/callback", params={"pid": str(ObjectId())})
 
-        # Scheme is valid; no allowlist to check → redirect proceeds
-        assert response.status_code in (302, 307)
+        assert response.status_code == 400
+        assert response.json()["detail"] == "Missing client_id in auth session"
