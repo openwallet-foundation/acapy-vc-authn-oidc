@@ -48,6 +48,9 @@ VerifiedCredentialUserInfoUri = f"/{provider.UserInfoUriEndpoint}"
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
 
+# Module-level Jinja2 environment — thread-safe, avoids per-request allocation.
+_jinja_env = Environment(loader=BaseLoader(), autoescape=True)
+
 router = APIRouter()
 
 
@@ -250,8 +253,7 @@ async def get_authorize(request: Request, db: Database = Depends(get_db)):
         settings.CONTROLLER_TEMPLATE_DIR + "/verified_credentials.html", "r"
     ) as f:
         template_file = f.read()
-    env = Environment(loader=BaseLoader(), autoescape=True)
-    template = env.from_string(template_file)
+    template = _jinja_env.from_string(template_file)
 
     # Render and return the template
     return template.render(data)

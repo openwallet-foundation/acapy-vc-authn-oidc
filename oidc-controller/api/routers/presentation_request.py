@@ -14,6 +14,9 @@ from ..routers.sse import notify
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
 
+# Module-level Jinja2 environment — thread-safe, avoids per-request allocation.
+_jinja_env = Environment(loader=BaseLoader(), autoescape=True)
+
 router = APIRouter()
 
 
@@ -56,8 +59,7 @@ async def send_connectionless_proof_req(
             template_file = f.read()
 
         wallet_deep_link = gen_deep_link(auth_session)
-        env = Environment(loader=BaseLoader(), autoescape=True)
-        template = env.from_string(template_file)
+        template = _jinja_env.from_string(template_file)
 
         # If the qrcode was scanned by mobile phone camera toggle the pending flag
         await toggle_pending(db, auth_session)

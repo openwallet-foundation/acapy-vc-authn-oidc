@@ -15,6 +15,9 @@ from .models import (
     VerificationConfigRead,
 )
 
+# Module-level Jinja2 environment — thread-safe, avoids per-request allocation.
+_jinja_env = Environment(loader=BaseLoader(), autoescape=True)
+
 router = APIRouter()
 
 
@@ -51,8 +54,7 @@ async def get_proof_request_explorer(db: Database = Depends(get_db)):
     }
     with open(settings.CONTROLLER_TEMPLATE_DIR + "/ver_config_explorer.html", "r") as f:
         template_file = f.read()
-    env = Environment(loader=BaseLoader(), autoescape=True)
-    template = env.from_string(template_file)
+    template = _jinja_env.from_string(template_file)
     #  get all from VerificationConfigCRUD and add to the jinja template
     ver_configs = await VerificationConfigCRUD(db).get_all()
     data["ver_configs"] = [vc.model_dump() for vc in ver_configs]
