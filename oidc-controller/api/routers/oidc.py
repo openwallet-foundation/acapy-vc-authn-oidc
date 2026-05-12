@@ -132,8 +132,10 @@ async def get_authorize(request: Request, db: Database = Depends(get_db)):
     except VariableSubstitutionError as e:
         return JSONResponse(
             status_code=http_status.HTTP_400_BAD_REQUEST,
-            content={"detail": f"Variable substitution error: \
-'{e.variable_name}' not found in substitution map."},
+            content={
+                "detail": f"Variable substitution error: \
+'{e.variable_name}' not found in substitution map."
+            },
         )
 
     use_public_did = not settings.USE_OOB_LOCAL_DID_SERVICE
