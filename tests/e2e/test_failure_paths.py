@@ -11,6 +11,7 @@ Those paths are covered at the integration-test layer (test_failure_paths.py).
 """
 
 import base64
+from urllib.parse import parse_qs, urlparse
 
 import httpx
 import pytest
@@ -52,7 +53,13 @@ async def test_expired_session_emits_sse_expired(
 async def test_callback_after_expiry_is_rejected(
     oidc_client, sse_client, ver_config_id
 ):
-    """GET /callback after session expiry should not return a usable auth code."""
+    """After session expiry, any auth code from /callback must not yield tokens.
+
+    The controller validates the redirect URL (scheme, client_id, registered URI)
+    in /callback but does not gate on proof status — so /callback redirects even
+    for expired sessions.  Security is enforced at the token endpoint: the code
+    must not be exchangeable for tokens.
+    """
     pid, _ = await oidc_client.authorize(pres_req_conf_id=ver_config_id)
 
     try:
@@ -62,18 +69,39 @@ async def test_callback_after_expiry_is_rejected(
             "Expiry window too long — set CONTROLLER_PRESENTATION_EXPIRE_TIME=5"
         )
 
-    # /callback on an expired session should redirect without a usable code
     async with httpx.AsyncClient(timeout=10, follow_redirects=False) as client:
         r = await client.get(f"{oidc_client._url}/callback", params={"pid": pid})
 
-    # Either 4xx/5xx or a redirect to RP with an error parameter
-    if r.status_code in (200, 307, 302, 301):
-        location = r.headers.get("location", "")
-        # If there IS a redirect, it should carry an error, not a code
-        if "code=" in location and "error" not in location:
-            pytest.fail(f"Expired session returned an auth code in {location!r}")
-    elif r.status_code >= 400:
-        pass  # Expected: controller refuses the callback
+    # /callback validates redirect URL but not proof status — it redirects even
+    # for expired sessions.  A 4xx is also acceptable if the session was cleaned up.
+    if r.status_code >= 400:
+        return  # Already rejected — security property holds
+
+    assert r.status_code in (301, 302, 303, 307, 308), (
+        f"Unexpected status from /callback on expired session: {r.status_code}"
+    )
+
+    code = parse_qs(urlparse(r.headers.get("location", "")).query).get("code", [None])[0]
+    if not code:
+        return  # No code in redirect — cannot issue a token
+
+    # The code from an expired session must be rejected at the token endpoint.
+    creds = base64.b64encode(
+        f"{oidc_client._client_id}:{oidc_client._client_secret}".encode()
+    ).decode()
+    async with httpx.AsyncClient(timeout=10) as token_client:
+        tr = await token_client.post(
+            f"{oidc_client._url}/token",
+            data={
+                "grant_type": "authorization_code",
+                "code": code,
+                "redirect_uri": oidc_client._redirect_uri,
+            },
+            headers={"Authorization": f"Basic {creds}"},
+        )
+    assert tr.status_code >= 400, (
+        f"Token endpoint must reject code from expired session, got {tr.status_code}"
+    )
 
 
 # ---------------------------------------------------------------------------
