@@ -4,7 +4,7 @@ import time
 import uuid
 from datetime import UTC, datetime
 from typing import cast
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 import jwt
 import qrcode
@@ -12,7 +12,7 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi import status as http_status
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
-from jinja2 import Template
+from jinja2 import BaseLoader, Environment
 from oic.oic.message import AuthorizationRequest
 from pymongo.database import Database
 from pyop.exceptions import (
@@ -23,6 +23,7 @@ from pyop.exceptions import (
 
 from ..authSessions.crud import AuthSessionCreate, AuthSessionCRUD
 from ..authSessions.models import AuthSession, AuthSessionPatch, AuthSessionState
+from ..clientConfigurations.crud import ClientConfigurationCRUD
 from ..core.acapy.client import AcapyClient
 from ..core.config import settings
 from ..core.logger_util import log_debug
@@ -46,6 +47,9 @@ VerifiedCredentialTokenUri = f"/{provider.TokenUriEndpoint}"
 VerifiedCredentialUserInfoUri = f"/{provider.UserInfoUriEndpoint}"
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
+
+# Module-level Jinja2 environment — thread-safe, avoids per-request allocation.
+_jinja_env = Environment(loader=BaseLoader(), autoescape=True)
 
 router = APIRouter()
 
@@ -236,7 +240,7 @@ async def get_authorize(request: Request, db: Database = Depends(get_db)):
         "url_to_message": url_to_message,
         "callback_url": callback_url,
         "pres_exch_id": auth_session.pres_exch_id,
-        "pid": auth_session.id,
+        "pid": str(auth_session.id),
         "controller_host": controller_host,
         "challenge_poll_uri": ChallengePollUri,
         "wallet_deep_link": wallet_deep_link,
@@ -244,11 +248,12 @@ async def get_authorize(request: Request, db: Database = Depends(get_db)):
         "claims": metadata.claims,
     }
 
-    # Prepare the template
-    template_file = open(
+    # Prepare the template (autoescape=True prevents XSS via template injection)
+    with open(
         settings.CONTROLLER_TEMPLATE_DIR + "/verified_credentials.html", "r"
-    ).read()
-    template = Template(template_file)
+    ) as f:
+        template_file = f.read()
+    template = _jinja_env.from_string(template_file)
 
     # Render and return the template
     return template.render(data)
@@ -261,6 +266,34 @@ async def get_authorize_callback(pid: str, db: Database = Depends(get_db)):
     auth_session = await AuthSessionCRUD(db).get(pid)
 
     url = auth_session.response_url
+
+    # CWE-601: Validate redirect URL against the registered redirect_uris for
+    # the client. Prevents an open redirect if response_url is ever tampered
+    # with (e.g. via a DB-level attack). PyOP already validates redirect_uri at
+    # auth-request time; this is a defense-in-depth check at redirect time.
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise HTTPException(
+            status_code=http_status.HTTP_400_BAD_REQUEST,
+            detail="Invalid redirect URL",
+        )
+    client_id = auth_session.request_parameters.get("client_id")
+    if not client_id:
+        raise HTTPException(
+            status_code=http_status.HTTP_400_BAD_REQUEST,
+            detail="Missing client_id in auth session",
+        )
+    client_config = await ClientConfigurationCRUD(db).get(client_id)
+    base_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+    if not any(
+        base_url.rstrip("/") == registered.rstrip("/")
+        for registered in client_config.redirect_uris
+    ):
+        raise HTTPException(
+            status_code=http_status.HTTP_400_BAD_REQUEST,
+            detail="Invalid redirect URL",
+        )
+
     return RedirectResponse(url)
 
 

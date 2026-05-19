@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 from fastapi import status as http_status
 from fastapi.responses import HTMLResponse
-from jinja2 import Template
+from jinja2 import BaseLoader, Environment
 from pymongo.database import Database
 
 from ..core.auth import get_api_key
@@ -14,6 +14,9 @@ from .models import (
     VerificationConfigPatch,
     VerificationConfigRead,
 )
+
+# Module-level Jinja2 environment — thread-safe, avoids per-request allocation.
+_jinja_env = Environment(loader=BaseLoader(), autoescape=True)
 
 router = APIRouter()
 
@@ -49,10 +52,9 @@ async def get_proof_request_explorer(db: Database = Depends(get_db)):
     data = {
         "title": "Presentation Request Explorer",
     }
-    template_file = open(
-        settings.CONTROLLER_TEMPLATE_DIR + "/ver_config_explorer.html", "r"
-    ).read()
-    template = Template(template_file)
+    with open(settings.CONTROLLER_TEMPLATE_DIR + "/ver_config_explorer.html", "r") as f:
+        template_file = f.read()
+    template = _jinja_env.from_string(template_file)
     #  get all from VerificationConfigCRUD and add to the jinja template
     ver_configs = await VerificationConfigCRUD(db).get_all()
     data["ver_configs"] = [vc.model_dump() for vc in ver_configs]
