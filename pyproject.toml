@@ -33,7 +33,7 @@ pyjwt = "^2.13.0"
 httpx = "^0.28.1"
 
 [tool.poetry.group.dev.dependencies]
-ruff = "^0.15.15"
+ruff = "^0.15.16"
 mongomock = "^4.3.0"
 pytest-asyncio = "^1.4.0"
 pytest-cov = "^7.1.0"
