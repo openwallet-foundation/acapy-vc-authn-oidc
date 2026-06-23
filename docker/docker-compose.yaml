@@ -113,7 +113,7 @@ services:
       retries: 3
 
   controller-db:
-    image: mongo:8.2
+    image: mongo:8.3
     environment:
       - MONGO_INITDB_ROOT_USERNAME=${OIDC_CONTROLLER_DB_USER}
       - MONGO_INITDB_ROOT_PASSWORD=${OIDC_CONTROLLER_DB_USER_PWD}
@@ -128,7 +128,7 @@ services:
       - vc_auth
 
   keycloak:
-    image: quay.io/keycloak/keycloak:26.5
+    image: quay.io/keycloak/keycloak:26.6.3
     command: start-dev --import-realm
     ports:
       - 8880:8080
@@ -149,7 +149,7 @@ services:
       - vc_auth
 
   keycloak-db:
-    image: postgres:15-alpine
+    image: postgres:17-alpine
     environment:
       - POSTGRES_USER=${KEYCLOAK_DB_USER}
       - POSTGRES_PASSWORD=${KEYCLOAK_DB_PASSWORD}
@@ -213,7 +213,7 @@ services:
       ]
 
   wallet-db:
-    image: postgres:15-alpine
+    image: postgres:17-alpine
     environment:
       - POSTGRES_USER=${POSTGRESQL_WALLET_USER}
       - POSTGRES_PASSWORD=${POSTGRESQL_WALLET_PASSWORD}

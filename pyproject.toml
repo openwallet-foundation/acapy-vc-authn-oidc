@@ -39,6 +39,7 @@ pytest-asyncio = "^1.4.0"
 pytest-cov = "^7.1.0"
 pytest = "^9.0.3"
 respx = "^0.23.1"
+httpx2 = "^2.4.0"
 
 [tool.pytest.ini_options]
 testpaths = ["oidc-controller"]

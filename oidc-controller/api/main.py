@@ -2,6 +2,7 @@ import os
 import time
 import traceback
 import uuid
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import httpx
@@ -60,92 +61,8 @@ if tzset is not None:
     tzset()
 
 
-def get_application() -> FastAPI:
-    application = FastAPI(
-        title=settings.TITLE,
-        description=settings.DESCRIPTION,
-        debug=settings.DEBUG,
-        # middleware=None,
-    )
-    return application
-
-
-app = get_application()
-
-# Include routers
-app.include_router(ver_configs_router, prefix="/ver_configs", tags=["ver_configs"])
-app.include_router(client_config_router, prefix="/clients", tags=["oidc_clients"])
-app.include_router(well_known_oid_config.router, tags=[".well-known"])
-app.include_router(
-    oidc.router, tags=["OpenID Connect Provider"], include_in_schema=False
-)
-app.include_router(acapy_handler.router, prefix="/webhooks", include_in_schema=False)
-app.include_router(presentation_request.router, include_in_schema=False)
-app.include_router(cleanup.router, tags=["cleanup"])
-app.include_router(sse_router, include_in_schema=False)
-
-# DEPRECATED PATHS - For backwards compatibility with vc-authn-oidc 1.0
-app.include_router(
-    oidc.router, prefix="/vc/connect", tags=["oidc-deprecated"], include_in_schema=False
-)
-
-origins = ["*"]
-
-if origins:
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=origins,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-
-
-@app.middleware("http")
-async def logging_middleware(request: Request, call_next) -> Response:
-    structlog.threadlocal.clear_threadlocal()
-    structlog.threadlocal.bind_threadlocal(
-        logger="uvicorn.access",
-        request_id=str(uuid.uuid4()),
-        cookies=request.cookies,
-        scope=request.scope,
-        url=str(request.url),
-    )
-    start_time = time.time()
-    try:
-        response: Response = await call_next(request)
-        return response
-    except Exception:
-        process_time = time.time() - start_time
-        logger.info(
-            "failed to process a request",
-            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
-            process_time=process_time,
-        )
-
-        # Need to explicitly log the traceback
-        logger.error(traceback.format_exc())
-
-        return JSONResponse(
-            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
-            content={
-                "status": "error",
-                "message": "Internal Server Error",
-                "process_time": process_time,
-            },
-        )
-    else:
-        process_time = time.time() - start_time
-        logger.info(
-            "processed a request",
-            status_code=response.status_code,
-            process_time=process_time,
-        )
-
-
-@app.on_event("startup")
-async def on_tenant_startup():
-    """Register any events we need to respond to."""
+async def _startup(app: FastAPI):
+    """Startup logic. Extracted for testability."""
     # Mount static assets here (not at module level) so the directory is
     # validated at startup time rather than at import time, which allows
     # CONTROLLER_TEMPLATE_DIR to be set via fixtures in tests.
@@ -265,14 +182,102 @@ async def on_tenant_startup():
     logger.info(">>> Starting up app new ...")
 
 
-@app.on_event("shutdown")
-async def on_tenant_shutdown():
-    """Gracefully shutdown services."""
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Manage application startup and shutdown."""
+    await _startup(app)
+
+    yield
+
     logger.info(">>> Shutting down app ...")
     if hasattr(app.state, "http_client"):
         await app.state.http_client.aclose()
     if hasattr(app.state, "redis_client"):
         await app.state.redis_client.aclose()
+
+
+def get_application() -> FastAPI:
+    application = FastAPI(
+        title=settings.TITLE,
+        description=settings.DESCRIPTION,
+        debug=settings.DEBUG,
+        lifespan=lifespan,
+    )
+    return application
+
+
+app = get_application()
+
+# Include routers
+app.include_router(ver_configs_router, prefix="/ver_configs", tags=["ver_configs"])
+app.include_router(client_config_router, prefix="/clients", tags=["oidc_clients"])
+app.include_router(well_known_oid_config.router, tags=[".well-known"])
+app.include_router(
+    oidc.router, tags=["OpenID Connect Provider"], include_in_schema=False
+)
+app.include_router(acapy_handler.router, prefix="/webhooks", include_in_schema=False)
+app.include_router(presentation_request.router, include_in_schema=False)
+app.include_router(cleanup.router, tags=["cleanup"])
+app.include_router(sse_router, include_in_schema=False)
+
+# DEPRECATED PATHS - For backwards compatibility with vc-authn-oidc 1.0
+app.include_router(
+    oidc.router, prefix="/vc/connect", tags=["oidc-deprecated"], include_in_schema=False
+)
+
+origins = ["*"]
+
+if origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+
+@app.middleware("http")
+async def logging_middleware(request: Request, call_next) -> Response:
+    structlog.contextvars.clear_contextvars()
+    structlog.contextvars.bind_contextvars(
+        logger="uvicorn.access",
+        request_id=str(uuid.uuid4()),
+        cookies=request.cookies,
+        method=request.method,
+        path=request.url.path,
+        url=str(request.url),
+    )
+    start_time = time.time()
+    try:
+        response: Response = await call_next(request)
+        return response
+    except Exception:
+        process_time = time.time() - start_time
+        logger.info(
+            "failed to process a request",
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            process_time=process_time,
+        )
+
+        # Need to explicitly log the traceback
+        logger.error(traceback.format_exc())
+
+        return JSONResponse(
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={
+                "status": "error",
+                "message": "Internal Server Error",
+                "process_time": process_time,
+            },
+        )
+    else:
+        process_time = time.time() - start_time
+        logger.info(
+            "processed a request",
+            status_code=response.status_code,
+            process_time=process_time,
+        )
 
 
 @app.get("/", tags=["liveness", "readiness"])

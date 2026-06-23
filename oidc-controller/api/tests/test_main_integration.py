@@ -27,7 +27,10 @@ async def test_logging_middleware_exception_handling():
     """
     # Mock request object
     mock_request = MagicMock(spec=Request)
-    mock_request.url = "http://testserver/error"
+    mock_url = MagicMock()
+    mock_url.path = "/error"
+    mock_url.__str__ = lambda self: "http://testserver/error"
+    mock_request.url = mock_url
     mock_request.cookies = {}
     mock_request.scope = {"type": "http"}
 
