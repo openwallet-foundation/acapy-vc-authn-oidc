@@ -6,7 +6,7 @@ services:
 
   # Holder agent for E2E tests — auto-accepts invites and responds to proof requests
   holder-aca-py:
-    image: ghcr.io/openwallet-foundation/acapy-agent:py3.13-1.5.1
+    image: ghcr.io/openwallet-foundation/acapy-agent:py3.13-1.6.0
     environment:
       - ACAPY_LABEL=test-holder-agent
       - ACAPY_ENDPOINT=http://holder-aca-py:8041
@@ -45,7 +45,7 @@ services:
       ]
 
   holder-wallet-db:
-    image: postgres:15-alpine
+    image: postgres:17-alpine
     environment:
       - POSTGRES_USER=${HOLDER_POSTGRESQL_WALLET_USER:-holder_wallet_user}
       - POSTGRES_PASSWORD=${HOLDER_POSTGRESQL_WALLET_PASSWORD:-holder_wallet_password}

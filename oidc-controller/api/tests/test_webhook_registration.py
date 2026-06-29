@@ -6,7 +6,7 @@ import pytest
 import respx
 
 from api.core.webhook_utils import _register_via_tenant_api, register_tenant_webhook
-from api.main import on_tenant_startup
+from api.main import _startup, app
 
 
 @pytest.fixture
@@ -217,7 +217,7 @@ async def test_startup_multi_tenant_injects_fetcher(mock_settings):
         mock_acapy_class.return_value = mock_acapy_instance
         mock_acapy_instance.get_wallet_token = "bound-method-ref"
 
-        await on_tenant_startup()
+        await _startup(app)
 
         assert mock_register.called
         _, kwargs = mock_register.call_args
@@ -243,7 +243,7 @@ async def test_startup_traction_mode_config(mock_settings):
         mock_traction_class.return_value = mock_traction_instance
         mock_traction_instance.get_wallet_token = "traction-token-fetcher"
 
-        await on_tenant_startup()
+        await _startup(app)
 
         assert mock_register.called
         _, kwargs = mock_register.call_args
@@ -264,7 +264,7 @@ async def test_startup_single_tenant_skips_registration(mock_settings):
             "api.main.register_tenant_webhook", new_callable=AsyncMock
         ) as mock_register,
     ):
-        await on_tenant_startup()
+        await _startup(app)
 
         assert not mock_register.called
 
@@ -347,7 +347,7 @@ async def test_startup_redis_check_success(mock_settings):
         patch("api.main.build_async_redis_client", new_callable=AsyncMock),
         patch("api.main.set_redis_client"),
     ):
-        await on_tenant_startup()
+        await _startup(app)
 
         mock_reach.assert_called_once_with("redis://localhost")
 
@@ -370,7 +370,7 @@ async def test_startup_redis_check_failure(mock_settings):
             RuntimeError,
             match="REDIS_MODE=single is configured but Redis is not reachable",
         ):
-            await on_tenant_startup()
+            await _startup(app)
 
 
 @pytest.mark.asyncio
