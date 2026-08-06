@@ -1,12 +1,10 @@
 version: 2
 tunnels:
+  # ngrok's free plan only grants one hostname per account, so both the
+  # controller and the aca-py agent are exposed through this single tunnel.
+  # nginx (controller-lb) routes "/agent" through to aca-py; see nginx.conf.
   controller-ngrok:
     addr: controller-lb:80
-    proto: http
-    schemes:
-      - https
-  aca-py-ngrok:
-    addr: aca-py:8030
     proto: http
     schemes:
       - https

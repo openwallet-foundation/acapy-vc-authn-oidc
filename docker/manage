@@ -347,12 +347,11 @@ function setNgrokEndpoints() {
   if [ -n "$AGENT_ENDPOINT" ]; then
     echo "AGENT_ENDPOINT is already set to: $AGENT_ENDPOINT"
   else
-    echoInfo "Determining ngrok url for agent service..."
-    getNgrokUrl http://${DOCKERHOST}:4046/api/tunnels agent-ngrok.json NGROK_AGENT_URL aca-py-ngrok
+    # ngrok's free plan only grants one hostname per account, so the agent
+    # shares the controller's tunnel via nginx's "/agent" path (see nginx.conf).
+    export AGENT_ENDPOINT="${CONTROLLER_URL}/agent"
 
-    export AGENT_ENDPOINT=${NGROK_AGENT_URL}
-
-    echoSuccess "The agent url is: ${NGROK_AGENT_URL}"
+    echoSuccess "The agent url is: ${AGENT_ENDPOINT}"
   fi
 }
 
