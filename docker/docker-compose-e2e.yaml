@@ -6,7 +6,7 @@ services:
 
   # Holder agent for E2E tests — auto-accepts invites and responds to proof requests
   holder-aca-py:
-    image: ghcr.io/openwallet-foundation/acapy-agent:py3.13-1.6.0
+    image: ghcr.io/openwallet-foundation/acapy-agent:py3.13-1.6.1
     environment:
       - ACAPY_LABEL=test-holder-agent
       - ACAPY_ENDPOINT=http://holder-aca-py:8041
