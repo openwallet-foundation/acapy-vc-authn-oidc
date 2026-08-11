@@ -10,7 +10,11 @@
   },
   "dependencies": {
     "bootstrap": "^5.3.3",
-    "nuxt": "^4.4.7",
+    "nuxt": "^4.5.2",
     "nuxt-oidc-auth": "^1.0.0-beta.10"
+  },
+  "overrides": {
+    "@nuxt/devtools-ui-kit": "^3.4.1",
+    "esbuild": "^0.28.2"
   }
 }
