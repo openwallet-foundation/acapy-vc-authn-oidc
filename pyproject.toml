@@ -29,7 +29,7 @@ uvicorn = { version = "^0.52.1", extras = ["standard"] }
 redis = "^8.1.0"
 canonicaljson = "^2.0.0" # used to provide unique consistent user identifiers"
 pydantic-settings = "^2.15.0"
-pyjwt = "^2.13.0"
+pyjwt = "^2.15.0"
 httpx = "^0.28.1"
 
 [tool.poetry.group.dev.dependencies]
