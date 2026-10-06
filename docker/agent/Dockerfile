@@ -1,9 +1,9 @@
-FROM ghcr.io/openwallet-foundation/acapy-agent:py3.13-1.6.1 AS base
+FROM ghcr.io/openwallet-foundation/acapy-agent:1.7.0 AS base
 
 # Install webvh plugin from acapy-plugins repository
 USER root
 
-RUN pip install git+https://github.com/openwallet-foundation/acapy-plugins@1.6.1#subdirectory=webvh
+RUN pip install git+https://github.com/openwallet-foundation/acapy-plugins@1.7.0.1#subdirectory=webvh
 
 # Switch back to default aries user
 USER aries

@@ -1,6 +1,6 @@
 [project]
 name = "acapy-vc-authn-oidc"
-version = "2.4.1"
+version = "2.4.2"
 description = "Verifiable Credential Identity Provider for OpenID Connect."
 authors = [ { name = "OpenWallet Foundation" } ]
 license = "Apache-2.0"
@@ -17,7 +17,7 @@ package-mode = false
 
 [tool.poetry.dependencies]
 python = ">=3.13,<4.0"
-fastapi = "^0.141.1"
+fastapi = "^0.142.2"
 jinja2 = "^3.1.6"
 oic = "^1.7.0"
 pymongo = "^4.17.0"
@@ -25,7 +25,7 @@ pyop = { version = "^3.4.2", extras = ["redis"] }
 python-multipart = "^0.0.32" # required by fastapi to serve/upload files
 qrcode = { version = "^8.2", extras = ["pil"]}
 structlog = "^26.1.0"
-uvicorn = { version = "^0.52.1", extras = ["standard"] }
+uvicorn = { version = "^0.54.0", extras = ["standard"] }
 redis = "^8.1.0"
 canonicaljson = "^2.0.0" # used to provide unique consistent user identifiers"
 pydantic-settings = "^2.15.0"
