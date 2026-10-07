@@ -52,7 +52,9 @@ class AcapyClient:
 
         format_key = settings.ACAPY_PROOF_FORMAT
         present_proof_payload = {
-            "presentation_request": {format_key: presentation_request_configuration}
+            "presentation_request": {format_key: presentation_request_configuration},
+            "auto_remove": True,
+            "auto_remove_on_failure": True,
         }
 
         resp = await self._http_client.post(
@@ -205,6 +207,9 @@ class AcapyClient:
         present_proof_payload = {
             "connection_id": connection_id,
             "presentation_request": {format_key: presentation_request_configuration},
+            "auto_remove": True,
+            # Ignored by ACA-Py 1.7 send-request; failures rely on --no-preserve-failed-exchange-records
+            "auto_remove_on_failure": True,
         }
 
         resp = await self._http_client.post(

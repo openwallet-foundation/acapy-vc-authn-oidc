@@ -85,6 +85,32 @@ async def test_create_presentation_returns_sucessfully_with_valid_data(http_clie
 
 @pytest.mark.asyncio
 @respx.mock
+async def test_presentation_requests_ask_acapy_to_auto_remove_records(http_client):
+    create_route = respx.post(
+        settings.ACAPY_ADMIN_URL + CREATE_PRESENTATION_REQUEST_URL,
+    ).mock(return_value=httpx.Response(200, json=create_presentation_response_http))
+    send_route = respx.post(
+        settings.ACAPY_ADMIN_URL + SEND_PRESENTATION_REQUEST_URL,
+    ).mock(return_value=httpx.Response(200, json=create_presentation_response_http))
+
+    with mock.patch.object(
+        CreatePresentationResponse, "model_validate", return_value={"result": "success"}
+    ):
+        client = AcapyClient(http_client)
+        client.agent_config.get_headers = mock.AsyncMock(return_value={"x-api-key": ""})
+        await client.create_presentation_request(presentation_request_configuration)
+        await client.send_presentation_request_by_connection(
+            "conn-1", presentation_request_configuration
+        )
+
+    for route in (create_route, send_route):
+        body = json.loads(route.calls[0].request.content)
+        assert body["auto_remove"] is True
+        assert body["auto_remove_on_failure"] is True
+
+
+@pytest.mark.asyncio
+@respx.mock
 async def test_create_presentation_throws_assertion_error_with_non_200_resp_from_acapy(
     http_client,
 ):
