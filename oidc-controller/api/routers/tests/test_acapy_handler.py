@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from bson import ObjectId
+from fastapi import HTTPException
 from pymongo.database import Database
 
 from api.authSessions.models import AuthSession, AuthSessionState
@@ -1059,6 +1060,73 @@ class TestProverRoleWebhooks:
 # ===================================================================
 # Miscellaneous coverage tests
 # ===================================================================
+
+
+class TestRecordRemovalWebhooks:
+    """Webhooks caused by record deletion must not touch the database or ACA-Py."""
+
+    @pytest.mark.asyncio
+    @patch("api.routers.acapy_handler.AuthSessionCRUD")
+    @patch("api.routers.acapy_handler.AcapyClient")
+    async def test_deleted_presentation_webhook_is_ignored(
+        self, mock_acapy_client, mock_auth_session_crud, mock_request, mock_db
+    ):
+        webhook_body = {"pres_ex_id": "test-pres-ex-id", "state": "deleted"}
+        mock_request.body.return_value = json.dumps(webhook_body).encode("ascii")
+
+        result = await post_topic(mock_request, "present_proof_v2_0", mock_db)
+
+        assert result == {"status": "ignored"}
+        mock_auth_session_crud.assert_not_called()
+        mock_acapy_client.return_value.send_problem_report.assert_not_called()
+        mock_acapy_client.return_value.delete_connection.assert_not_called()
+
+    @pytest.mark.asyncio
+    @patch("api.routers.acapy_handler.settings.USE_CONNECTION_BASED_VERIFICATION", True)
+    @patch("api.routers.acapy_handler.AuthSessionCRUD")
+    async def test_deleted_connection_webhook_is_ignored(
+        self, mock_auth_session_crud, mock_request, mock_db
+    ):
+        webhook_body = {"connection_id": "test-connection-id", "state": "deleted"}
+        mock_request.body.return_value = json.dumps(webhook_body).encode("ascii")
+
+        result = await post_topic(mock_request, "connections", mock_db)
+
+        assert result == {}
+        mock_auth_session_crud.assert_not_called()
+
+    @pytest.mark.asyncio
+    @patch("api.routers.acapy_handler.AuthSessionCRUD")
+    @patch("api.routers.acapy_handler.AcapyClient")
+    async def test_unknown_presentation_exchange_is_acknowledged(
+        self, mock_acapy_client, mock_auth_session_crud, mock_request, mock_db
+    ):
+        webhook_body = {"pres_ex_id": "gone-pres-ex-id", "state": "abandoned"}
+        mock_request.body.return_value = json.dumps(webhook_body).encode("ascii")
+        mock_auth_session_crud.return_value.get_by_pres_exch_id = AsyncMock(
+            side_effect=HTTPException(status_code=404, detail="not found")
+        )
+
+        result = await post_topic(mock_request, "present_proof_v2_0", mock_db)
+
+        assert result == {"status": "unknown presentation exchange"}
+        mock_acapy_client.return_value.send_problem_report.assert_not_called()
+
+    @pytest.mark.asyncio
+    @patch("api.routers.acapy_handler.AuthSessionCRUD")
+    @patch("api.routers.acapy_handler.AcapyClient")
+    async def test_non_404_lookup_errors_still_propagate(
+        self, mock_acapy_client, mock_auth_session_crud, mock_request, mock_db
+    ):
+        webhook_body = {"pres_ex_id": "test-pres-ex-id", "state": "done"}
+        mock_request.body.return_value = json.dumps(webhook_body).encode("ascii")
+        mock_auth_session_crud.return_value.get_by_pres_exch_id = AsyncMock(
+            side_effect=HTTPException(status_code=400, detail="bad")
+        )
+
+        with pytest.raises(HTTPException) as exc_info:
+            await post_topic(mock_request, "present_proof_v2_0", mock_db)
+        assert exc_info.value.status_code == 400
 
 
 class TestMiscWebhookCoverage:

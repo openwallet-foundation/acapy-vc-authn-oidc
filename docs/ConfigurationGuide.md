@@ -92,6 +92,25 @@ Several functions in ACAPy VC-AuthN can be tweaked by using the following enviro
 | LOG_LEVEL                 | "DEBUG", "INFO", "WARNING", or "ERROR" | sets the minimum log level that will be printed to standard out                                                                                                                                                                                                                                                                                                                                                                                        | Defaults to DEBUG                                                                                                                       |
 | SIEM_AUDIT_ENABLED        | bool                                   | Enables or disables SIEM audit event logging. When `false`, all audit events (session lifecycle, proof verification, token issuance, etc.) are silently suppressed.                                                                                                                                                                                                                                                                                    | Defaults to `true` (audit logging is **on**).                                                                                           |
 | SIEM_IP_SALT              | string                                 | Salt used for one-way hashing of client IP addresses in SIEM audit logs. Should be rotated periodically. Only relevant when `SIEM_AUDIT_ENABLED` is `true`.                                                                                                                                                                                                                                                                                           | Defaults to a built-in placeholder. **Set a unique value in production.**                                                               |
+| CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS | int | Age after which `DELETE /cleanup` removes verifier presentation exchange records, and OOB invitations/connections that progressed past the invitation stage but never finished. | Defaults to `24`. |
+| CONTROLLER_CLEANUP_MAX_PRESENTATION_RECORDS | int (1-10000) | Maximum presentation exchange records deleted per cleanup run. | Defaults to `1000`. The response reports `has_more: true` when the limit is reached. |
+| CONTROLLER_CLEANUP_MAX_CONNECTIONS | int (1-20000) | Maximum OOB invitations and, separately, connections deleted per cleanup run. | Defaults to `2000`. |
+| CONTROLLER_CLEANUP_CONCURRENCY | int (1-50) | Maximum concurrent ACA-Py delete calls during a cleanup run. | Defaults to `5`. Keep low to avoid load spikes on the agent and its webhook traffic. |
+| CONTROLLER_CLEANUP_MAX_DURATION_SECONDS | int | Time budget for a single cleanup run; the run stops cleanly and reports `has_more: true` when exceeded. | Defaults to `240`. Keep below the HTTP timeout of whatever calls `/cleanup`. |
+
+### ACA-Py Record Cleanup
+
+VC-AuthN asks ACA-Py to delete presentation exchange records automatically when an exchange completes (`auto_remove`) or fails (`auto_remove_on_failure`). For connection-based verification, also start ACA-Py with `--no-preserve-failed-exchange-records` (`ACAPY_NO_PRESERVE_FAILED_EXCHANGE_RECORDS=true`), because the `send-request` endpoint ignores the per-request failure flag.
+
+Records for flows that never complete (QR code never scanned, wallet never answers, browser closed) produce no webhook and must be removed by calling `DELETE /cleanup` periodically, e.g. from a Kubernetes CronJob every 15 minutes. Each run:
+
+- deletes verifier presentation exchanges older than `CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS`;
+- deletes unused connectionless OOB invitations and invitation-state connections older than `CONTROLLER_PRESENTATION_EXPIRE_TIME`, and other single-use invitations and connections older than the retention period;
+- only deletes connections where VC-AuthN issued the invitation, and never deletes multi-use or static invitations and their connections;
+- is bounded by the per-run limits and `CONTROLLER_CLEANUP_MAX_DURATION_SECONDS`, returning `has_more: true` when stale records remain for the next run;
+- returns `409` if another cleanup is already running in the same controller process.
+
+Use `DELETE /cleanup?dry_run=true` to preview what would be deleted.
 
 ### SIEM Audit Logging
 

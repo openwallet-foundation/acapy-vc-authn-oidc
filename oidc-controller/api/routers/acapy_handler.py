@@ -3,7 +3,7 @@ import time
 from datetime import UTC, datetime
 
 import structlog
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic.plugin import Any
 from pymongo.database import Database
 
@@ -274,6 +274,13 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
             state = webhook_body.get("state")
             role = webhook_body.get("role")
 
+            # Emitted by ACA-Py for every record removal (auto-remove, cleanup)
+            if state == "deleted":
+                logger.debug(
+                    "Ignoring deleted presentation record", pres_ex_id=pres_ex_id
+                )
+                return {"status": "ignored"}
+
             # SIEM Audit: Log webhook receipt (safe metadata only)
             audit_webhook_received(
                 topic="present_proof_v2_0",
@@ -305,9 +312,20 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                 return {"status": "prover-role event logged"}
 
             # Existing verifier-role code continues below...
-            auth_session: AuthSession = await AuthSessionCRUD(db).get_by_pres_exch_id(
-                webhook_body["pres_ex_id"]
-            )
+            try:
+                auth_session: AuthSession = await AuthSessionCRUD(
+                    db
+                ).get_by_pres_exch_id(webhook_body["pres_ex_id"])
+            except HTTPException as e:
+                if e.status_code != 404:
+                    raise
+                # Acknowledge so ACA-Py does not retry for a session that no longer exists
+                logger.info(
+                    "No auth session for presentation exchange, ignoring webhook",
+                    pres_ex_id=pres_ex_id,
+                    state=state,
+                )
+                return {"status": "unknown presentation exchange"}
 
             if webhook_body["state"] == "presentation-received":
                 logger.info("presentation-received")

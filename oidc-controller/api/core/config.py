@@ -189,6 +189,14 @@ class GlobalConfig(BaseSettings):
     CONTROLLER_CLEANUP_MAX_CONNECTIONS: int = int(
         os.environ.get("CONTROLLER_CLEANUP_MAX_CONNECTIONS", 2000)
     )
+    # Maximum concurrent ACA-Py delete calls during a cleanup cycle (default: 5)
+    CONTROLLER_CLEANUP_CONCURRENCY: int = int(
+        os.environ.get("CONTROLLER_CLEANUP_CONCURRENCY", 5)
+    )
+    # Time budget for a single cleanup cycle in seconds (default: 240)
+    CONTROLLER_CLEANUP_MAX_DURATION_SECONDS: int = int(
+        os.environ.get("CONTROLLER_CLEANUP_MAX_DURATION_SECONDS", 240)
+    )
 
     CONTROLLER_SESSION_TIMEOUT_CONFIG_FILE: str | None = os.environ.get(
         "CONTROLLER_SESSION_TIMEOUT_CONFIG_FILE"

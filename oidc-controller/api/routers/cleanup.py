@@ -37,6 +37,7 @@ Production Deployment:
     - Resource limits prevent excessive processing and DoS protection
 """
 
+import asyncio
 from datetime import UTC, datetime
 from typing import Optional
 
@@ -57,6 +58,9 @@ validate_cleanup_configuration()
 
 router = APIRouter()
 
+# Per-process guard; the CronJob's concurrencyPolicy: Forbid covers cross-pod overlap
+_cleanup_lock = asyncio.Lock()
+
 
 @router.delete("/cleanup", dependencies=[Depends(get_api_key)])
 async def cleanup_endpoint(
@@ -65,10 +69,13 @@ async def cleanup_endpoint(
         False, description="Preview what would be deleted without actually deleting"
     ),
     max_records: Optional[int] = Query(
-        None, description="Override max presentation records limit"
+        None, ge=1, le=10000, description="Override max presentation records limit"
     ),
     max_connections: Optional[int] = Query(
-        None, description="Override max connections limit"
+        None,
+        ge=1,
+        le=20000,
+        description="Override max OOB records and connections limit",
     ),
 ) -> JSONResponse:
     """
@@ -79,8 +86,14 @@ async def cleanup_endpoint(
     limits to prevent DoS and provides dry-run capability for safe testing.
 
     The cleanup operation processes:
-    - Presentation records older than CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS
-    - Connection invitations in "invitation" state older than CONTROLLER_PRESENTATION_EXPIRE_TIME
+    - Verifier presentation records older than CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS
+    - Single-use OOB invitations and connections issued by VC-AuthN: unused ones
+      older than CONTROLLER_PRESENTATION_EXPIRE_TIME, the rest older than
+      CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS
+
+    Each run is bounded by the per-run limits and CONTROLLER_CLEANUP_MAX_DURATION_SECONDS;
+    "has_more" in the response indicates stale records may remain for the next run.
+    Returns 409 if a cleanup is already running in this process.
 
     Authentication: Requires X-API-Key header with controller API key.
     Designed for: Kubernetes CronJob scheduling or manual operations.
@@ -88,10 +101,8 @@ async def cleanup_endpoint(
     Args:
         dry_run (bool): If True, only report what would be deleted without actual deletion.
                        Useful for testing and validation in production environments.
-        max_records (int, optional): Override default max presentation records to process.
-                                   Prevents excessive resource usage on large datasets.
-        max_connections (int, optional): Override default max connections to process.
-                                       Provides granular control over cleanup scope.
+        max_records (int, optional): Override max presentation records deleted per run.
+        max_connections (int, optional): Override max OOB records and connections deleted per run.
 
     Returns:
         JSONResponse: Detailed cleanup statistics including:
@@ -107,14 +118,18 @@ async def cleanup_endpoint(
         {
             "status": "completed",
             "timestamp": "2024-01-01T02:00:00.000Z",
+            "has_more": false,
             "statistics": {
                 "total_presentation_records": 150,
                 "cleaned_presentation_records": 45,
+                "total_oob_records": 60,
+                "cleaned_oob_records": 20,
                 "total_connections": 75,
                 "cleaned_connections": 12,
                 "failed_cleanups": 0,
                 "hit_presentation_limit": false,
                 "hit_connection_limit": false,
+                "hit_time_budget": false,
                 "error_count": 0
             },
             "has_errors": false
@@ -123,26 +138,40 @@ async def cleanup_endpoint(
     try:
         logger.info("Cleanup triggered via HTTP endpoint", dry_run=dry_run)
 
-        # Execute the cleanup
-        stats = await perform_cleanup(
-            http_client=request.app.state.http_client,
-            dry_run=dry_run,
-            max_presentation_records=max_records,
-            max_connections=max_connections,
-        )
+        if _cleanup_lock.locked():
+            logger.warning("Cleanup already in progress, rejecting request")
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "status": "in_progress",
+                    "timestamp": datetime.now(UTC).isoformat(),
+                },
+            )
+
+        async with _cleanup_lock:
+            stats = await perform_cleanup(
+                http_client=request.app.state.http_client,
+                dry_run=dry_run,
+                max_presentation_records=max_records,
+                max_connections=max_connections,
+            )
 
         # Prepare response data
         response_data = {
             "status": "completed",
             "timestamp": datetime.now(UTC).isoformat(),
+            "has_more": stats["has_more"],
             "statistics": {
                 "total_presentation_records": stats["total_presentation_records"],
                 "cleaned_presentation_records": stats["cleaned_presentation_records"],
+                "total_oob_records": stats["total_oob_records"],
+                "cleaned_oob_records": stats["cleaned_oob_records"],
                 "total_connections": stats["total_connections"],
                 "cleaned_connections": stats["cleaned_connections"],
                 "failed_cleanups": stats["failed_cleanups"],
                 "hit_presentation_limit": stats["hit_presentation_limit"],
                 "hit_connection_limit": stats["hit_connection_limit"],
+                "hit_time_budget": stats["hit_time_budget"],
                 "error_count": len(stats["errors"]),
             },
         }
@@ -161,8 +190,10 @@ async def cleanup_endpoint(
         logger.info(
             "Cleanup completed successfully via HTTP endpoint",
             cleaned_presentations=stats["cleaned_presentation_records"],
+            cleaned_oob_records=stats["cleaned_oob_records"],
             cleaned_connections=stats["cleaned_connections"],
             failed_cleanups=stats["failed_cleanups"],
+            has_more=stats["has_more"],
         )
 
         return JSONResponse(status_code=200, content=response_data)

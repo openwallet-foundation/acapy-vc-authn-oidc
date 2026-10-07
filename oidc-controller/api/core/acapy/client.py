@@ -23,6 +23,8 @@ PRESENT_PROOF_PROBLEM_REPORT_URL = (
     "/present-proof-2.0/records/{pres_ex_id}/problem-report"
 )
 OOB_CREATE_INVITATION = "/out-of-band/create-invitation"
+OOB_RECORDS_URI = "/out-of-band/records"
+OOB_INVITATIONS_URI = "/out-of-band/invitations"
 CONNECTIONS_URI = "/connections"
 
 
@@ -52,7 +54,9 @@ class AcapyClient:
 
         format_key = settings.ACAPY_PROOF_FORMAT
         present_proof_payload = {
-            "presentation_request": {format_key: presentation_request_configuration}
+            "presentation_request": {format_key: presentation_request_configuration},
+            "auto_remove": True,
+            "auto_remove_on_failure": True,
         }
 
         resp = await self._http_client.post(
@@ -96,7 +100,8 @@ class AcapyClient:
                 headers=await self.agent_config.get_headers(),
             )
 
-            success = resp.status_code == 200
+            # 404 means it is already gone (e.g. ACA-Py auto-removal), the desired end state
+            success = resp.status_code in (200, 404)
             if success:
                 logger.debug("<<< delete_presentation_record -> Success")
             else:
@@ -111,29 +116,63 @@ class AcapyClient:
             )
             return False
 
-    async def get_all_presentation_records(self) -> list[dict]:
-        """Get all presentation records for cleanup purposes"""
-        logger.debug(">>> get_all_presentation_records")
+    async def _get_records_page(
+        self, uri: str, limit: int, offset: int, filters: dict | None = None
+    ) -> list[dict]:
+        """Fetch one page of records from a paginated ACA-Py list endpoint.
+
+        Raises on transport or HTTP errors so callers can stop instead of
+        mistaking a failure for an empty result set.
+        """
+        params = {"limit": limit, "offset": offset, **(filters or {})}
+        resp = await self._http_client.get(
+            self.acapy_host + uri,
+            headers=await self.agent_config.get_headers(),
+            params=params,
+        )
+        resp.raise_for_status()
+        return resp.json().get("results", [])
+
+    async def get_presentation_records_page(
+        self, limit: int, offset: int = 0, role: str | None = "verifier"
+    ) -> list[dict]:
+        """Get a page of presentation exchange records (verifier role by default)."""
+        filters = {"role": role} if role else None
+        return await self._get_records_page(
+            PRESENT_PROOF_RECORDS, limit, offset, filters
+        )
+
+    async def get_connections_page(self, limit: int, offset: int = 0) -> list[dict]:
+        """Get a page of connection records in any state."""
+        return await self._get_records_page(CONNECTIONS_URI, limit, offset)
+
+    async def get_oob_records_page(
+        self, limit: int, offset: int = 0, role: str | None = "sender"
+    ) -> list[dict]:
+        """Get a page of out-of-band records (sender role by default)."""
+        filters = {"role": role} if role else None
+        return await self._get_records_page(OOB_RECORDS_URI, limit, offset, filters)
+
+    async def delete_oob_invitation(self, invi_msg_id: str) -> bool:
+        """Delete the OOB record and any connection created from an invitation."""
+        logger.debug(">>> delete_oob_invitation", invi_msg_id=invi_msg_id)
 
         try:
-            resp = await self._http_client.get(
-                f"{self.acapy_host}{PRESENT_PROOF_RECORDS}",
+            resp = await self._http_client.delete(
+                f"{self.acapy_host}{OOB_INVITATIONS_URI}/{invi_msg_id}",
                 headers=await self.agent_config.get_headers(),
             )
-
-            if resp.status_code != 200:
+            # 404 means it is already gone, which is the desired end state
+            success = resp.status_code in (200, 404)
+            if not success:
                 logger.warning(
-                    f"Failed to get presentation records: {resp.status_code}, {resp.content}"
+                    f"<<< delete_oob_invitation -> Failed: {resp.status_code}, {resp.content}"
                 )
-                return []
-
-            records = resp.json().get("results", [])
-            logger.debug(f"<<< get_all_presentation_records -> {len(records)} records")
-            return records
+            return success
 
         except Exception as e:
-            logger.error(f"Failed to get all presentation records: {e}")
-            return []
+            logger.error(f"Failed to delete OOB invitation {invi_msg_id}: {e}")
+            return False
 
     async def get_wallet_did(self, public=False) -> WalletDid:
         logger.debug(">>> get_wallet_did")
@@ -205,6 +244,9 @@ class AcapyClient:
         present_proof_payload = {
             "connection_id": connection_id,
             "presentation_request": {format_key: presentation_request_configuration},
+            "auto_remove": True,
+            # Ignored by ACA-Py 1.7 send-request; failures rely on --no-preserve-failed-exchange-records
+            "auto_remove_on_failure": True,
         }
 
         resp = await self._http_client.post(
@@ -268,76 +310,6 @@ class AcapyClient:
         logger.debug(f"<<< list_connections -> {len(connections)} connections")
         return connections
 
-    async def _get_connections_page(
-        self, state: str | None = None, limit: int = 100, offset: int = 0
-    ) -> list[dict]:
-        """Get a page of connections with pagination support."""
-        logger.debug(
-            f">>> _get_connections_page: state={state}, limit={limit}, offset={offset}"
-        )
-
-        params = {
-            "limit": limit,
-            "offset": offset,
-            **({"state": state} if state else {}),
-        }
-
-        try:
-            resp = await self._http_client.get(
-                self.acapy_host + CONNECTIONS_URI,
-                headers=await self.agent_config.get_headers(),
-                params=params,
-            )
-
-            if resp.status_code != 200:
-                logger.warning(f"Failed to get connections page: {resp.status_code}")
-                return []
-
-            connections = resp.json().get("results", [])
-            logger.debug(f"<<< _get_connections_page -> {len(connections)} connections")
-            return connections
-
-        except Exception as e:
-            logger.error(f"Error getting connections page: {e}")
-            return []
-
-    async def get_connections_batched(
-        self, state: str = "invitation", batch_size: int = 100
-    ):
-        """
-        Get connections in batches using async iterator pattern for memory efficiency.
-
-        Yields:
-            list[dict]: Batches of connection records
-        """
-        logger.debug(
-            f">>> get_connections_batched: state={state}, batch_size={batch_size}"
-        )
-
-        offset = 0
-        total_yielded = 0
-
-        while True:
-            batch = await self._get_connections_page(state, batch_size, offset)
-
-            if not batch:
-                break
-
-            total_yielded += len(batch)
-            logger.debug(
-                f"Yielding batch of {len(batch)} connections (total so far: {total_yielded})"
-            )
-            yield batch
-
-            if len(batch) < batch_size:
-                break
-
-            offset += batch_size
-
-        logger.debug(
-            f"<<< get_connections_batched -> yielded {total_yielded} total connections"
-        )
-
     async def delete_connection(self, connection_id: str) -> bool:
         """
         Delete a connection.
@@ -346,7 +318,7 @@ class AcapyClient:
             connection_id: The ID of the connection to delete
 
         Returns:
-            bool: True if deletion was successful
+            bool: True if the connection was deleted or no longer exists
         """
         logger.debug(">>> delete_connection", connection_id=connection_id)
 
@@ -356,7 +328,8 @@ class AcapyClient:
                 headers=await self.agent_config.get_headers(),
             )
 
-            success = resp.status_code == 200
+            # 404 means it is already gone (e.g. removed with its OOB invitation)
+            success = resp.status_code in (200, 404)
             if success:
                 logger.debug("<<< delete_connection -> Success")
             else:

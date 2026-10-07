@@ -1,5 +1,6 @@
 """Tests for HTTP cleanup router endpoints."""
 
+import asyncio
 import json
 from unittest.mock import ANY, MagicMock, patch
 
@@ -7,7 +8,27 @@ import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
+from api.routers import cleanup as cleanup_router_module
 from api.routers.cleanup import cleanup_endpoint, cleanup_health_check, router
+
+
+def full_stats(**overrides):
+    stats = {
+        "total_presentation_records": 0,
+        "cleaned_presentation_records": 0,
+        "total_oob_records": 0,
+        "cleaned_oob_records": 0,
+        "total_connections": 0,
+        "cleaned_connections": 0,
+        "failed_cleanups": 0,
+        "errors": [],
+        "hit_presentation_limit": False,
+        "hit_connection_limit": False,
+        "hit_time_budget": False,
+        "has_more": False,
+    }
+    stats.update(overrides)
+    return stats
 
 
 @pytest.fixture
@@ -55,20 +76,21 @@ class BaseCleanupRouterTest:
         hit_connection_limit=False,
     ):
         """Create cleanup statistics with optional overrides."""
-        return {
-            "total_presentation_records": total_presentations
+        return full_stats(
+            total_presentation_records=total_presentations
             or RouterTestConstants.DEFAULT_TOTAL_PRESENTATIONS,
-            "cleaned_presentation_records": cleaned_presentations
+            cleaned_presentation_records=cleaned_presentations
             or RouterTestConstants.DEFAULT_CLEANED_PRESENTATIONS,
-            "total_connections": total_connections
+            total_connections=total_connections
             or RouterTestConstants.DEFAULT_TOTAL_CONNECTIONS,
-            "cleaned_connections": cleaned_connections
+            cleaned_connections=cleaned_connections
             or RouterTestConstants.DEFAULT_CLEANED_CONNECTIONS,
-            "failed_cleanups": failed_cleanups,
-            "errors": errors or [],
-            "hit_presentation_limit": hit_presentation_limit,
-            "hit_connection_limit": hit_connection_limit,
-        }
+            failed_cleanups=failed_cleanups,
+            errors=errors or [],
+            hit_presentation_limit=hit_presentation_limit,
+            hit_connection_limit=hit_connection_limit,
+            has_more=hit_presentation_limit or hit_connection_limit,
+        )
 
     def assert_cleanup_response(
         self,
@@ -260,6 +282,63 @@ class TestCleanupRouter(BaseCleanupRouterTest):
         stats = response_data["statistics"]
         assert stats["hit_presentation_limit"] is True
         assert stats["hit_connection_limit"] is True
+        assert response_data["has_more"] is True
+
+    @pytest.mark.asyncio
+    @patch("api.routers.cleanup.perform_cleanup")
+    async def test_cleanup_endpoint_reports_oob_and_budget_stats(
+        self, mock_perform_cleanup, mock_request
+    ):
+        mock_perform_cleanup.return_value = full_stats(
+            total_oob_records=7,
+            cleaned_oob_records=4,
+            hit_time_budget=True,
+            has_more=True,
+        )
+
+        response = await cleanup_endpoint(
+            mock_request, dry_run=False, max_records=None, max_connections=None
+        )
+
+        data = json.loads(response.body)
+        assert data["has_more"] is True
+        assert data["statistics"]["total_oob_records"] == 7
+        assert data["statistics"]["cleaned_oob_records"] == 4
+        assert data["statistics"]["hit_time_budget"] is True
+
+    @pytest.mark.asyncio
+    @patch("api.routers.cleanup.perform_cleanup")
+    async def test_cleanup_endpoint_rejects_overlapping_run(
+        self, mock_perform_cleanup, mock_request
+    ):
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        async def slow_cleanup(**kwargs):
+            started.set()
+            await release.wait()
+            return full_stats()
+
+        mock_perform_cleanup.side_effect = slow_cleanup
+
+        first = asyncio.create_task(
+            cleanup_endpoint(
+                mock_request, dry_run=False, max_records=None, max_connections=None
+            )
+        )
+        await started.wait()
+
+        second = await cleanup_endpoint(
+            mock_request, dry_run=False, max_records=None, max_connections=None
+        )
+        release.set()
+        first_response = await first
+
+        assert second.status_code == 409
+        assert json.loads(second.body)["status"] == "in_progress"
+        assert first_response.status_code == 200
+        assert mock_perform_cleanup.call_count == 1
+        assert not cleanup_router_module._cleanup_lock.locked()
 
     @patch("api.routers.cleanup.perform_cleanup")
     @patch("api.core.auth.get_api_key")
@@ -400,16 +479,12 @@ class TestCleanupRouterIntegration:
     def test_cleanup_endpoint_http_success(self, mock_perform_cleanup, client):
         """Test cleanup endpoint via HTTP with valid authentication."""
         # Setup mock
-        mock_stats = {
-            "total_presentation_records": 50,
-            "cleaned_presentation_records": 15,
-            "total_connections": 25,
-            "cleaned_connections": 5,
-            "failed_cleanups": 0,
-            "errors": [],
-            "hit_presentation_limit": False,
-            "hit_connection_limit": False,
-        }
+        mock_stats = full_stats(
+            total_presentation_records=50,
+            cleaned_presentation_records=15,
+            total_connections=25,
+            cleaned_connections=5,
+        )
         mock_perform_cleanup.return_value = mock_stats
 
         # Make HTTP request with authentication
@@ -447,16 +522,12 @@ class TestCleanupRouterIntegration:
     ):
         """Test cleanup endpoint via HTTP with query parameters."""
         # Setup mock
-        mock_stats = {
-            "total_presentation_records": 30,
-            "cleaned_presentation_records": 10,
-            "total_connections": 15,
-            "cleaned_connections": 3,
-            "failed_cleanups": 0,
-            "errors": [],
-            "hit_presentation_limit": False,
-            "hit_connection_limit": False,
-        }
+        mock_stats = full_stats(
+            total_presentation_records=30,
+            cleaned_presentation_records=10,
+            total_connections=15,
+            cleaned_connections=3,
+        )
         mock_perform_cleanup.return_value = mock_stats
 
         # Make HTTP request with query parameters
@@ -474,6 +545,21 @@ class TestCleanupRouterIntegration:
         )
 
         assert response.status_code == 200
+
+    @patch("api.core.auth.API_KEY", "test-api-key")
+    @patch("api.routers.cleanup.perform_cleanup")
+    @pytest.mark.parametrize(
+        "query", ["max_records=0", "max_records=10001", "max_connections=0"]
+    )
+    def test_cleanup_endpoint_http_rejects_out_of_range_limits(
+        self, mock_perform_cleanup, client, query
+    ):
+        response = client.delete(
+            f"/cleanup?{query}", headers={"X-API-Key": "test-api-key"}
+        )
+
+        assert response.status_code == 422
+        mock_perform_cleanup.assert_not_called()
 
     def test_cleanup_health_endpoint_http(self, client):
         """Test cleanup health endpoint via HTTP (no authentication required)."""
