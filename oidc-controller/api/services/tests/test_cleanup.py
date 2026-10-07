@@ -86,6 +86,7 @@ class FakeAcapy:
         fail_ids=(),
         failing_phases=(),
         delete_delay=0.0,
+        fetch_delay=0.0,
     ):
         self.store = {
             "pres": list(presentations),
@@ -95,6 +96,7 @@ class FakeAcapy:
         self.fail_ids = set(fail_ids)
         self.failing_phases = set(failing_phases)
         self.delete_delay = delete_delay
+        self.fetch_delay = fetch_delay
         self.deleted = {"pres": [], "oob": [], "conn": []}
         self.in_flight = 0
         self.max_in_flight = 0
@@ -104,7 +106,7 @@ class FakeAcapy:
         self.page_calls += 1
         if kind in self.failing_phases:
             raise RuntimeError(f"{kind} listing unavailable")
-        await asyncio.sleep(0)
+        await asyncio.sleep(self.fetch_delay)
         return list(self.store[kind][offset : offset + limit])
 
     async def _delete(self, kind, key, record_id):
@@ -427,22 +429,48 @@ class TestLimitsAndBudget:
         assert stats["has_more"] is True
 
     @pytest.mark.asyncio
-    async def test_time_budget_stops_cleanup(self):
+    async def test_time_budget_cancels_outstanding_deletions(self):
+        records = [pres(f"old-{i}", OLD) for i in range(PAGE_SIZE)]
         fake = FakeAcapy(
-            presentations=[pres(f"old-{i}", OLD) for i in range(PAGE_SIZE * 3)],
+            presentations=records,
             connections=[conn("expired", EXPIRED)],
+            delete_delay=0.05,
         )
-        clock = iter([0, 0, 0, 1000, 1000, 1000, 1000])
-        settings = make_settings(CONTROLLER_CLEANUP_MAX_DURATION_SECONDS=10)
-        fake_time = SimpleNamespace(monotonic=lambda: next(clock))
+        settings = make_settings(
+            CONTROLLER_CLEANUP_MAX_DURATION_SECONDS=0.12,
+            CONTROLLER_CLEANUP_CONCURRENCY=5,
+        )
 
-        with patch.object(cleanup_module, "time", fake_time):
-            stats = await run_cleanup(fake, settings=settings)
+        loop = asyncio.get_running_loop()
+        started = loop.time()
+        stats = await run_cleanup(fake, settings=settings)
+        elapsed = loop.time() - started
 
+        deleted = len(fake.deleted["pres"])
+        assert elapsed < 0.5
+        assert 0 < deleted < len(records)
+        assert stats["cleaned_presentation_records"] == deleted
+        assert len(fake.store["pres"]) == len(records) - deleted
+        assert stats["failed_cleanups"] == 0
+        assert fake.in_flight == 0
         assert stats["hit_time_budget"] is True
         assert stats["has_more"] is True
-        assert len(fake.deleted["pres"]) == PAGE_SIZE
         assert fake.deleted["conn"] == []
+
+    @pytest.mark.asyncio
+    async def test_time_budget_bounds_slow_page_fetch(self):
+        fake = FakeAcapy(presentations=[pres("old", OLD)], fetch_delay=5)
+        settings = make_settings(CONTROLLER_CLEANUP_MAX_DURATION_SECONDS=0.05)
+
+        loop = asyncio.get_running_loop()
+        started = loop.time()
+        stats = await run_cleanup(fake, settings=settings)
+
+        assert loop.time() - started < 0.5
+        assert stats["hit_time_budget"] is True
+        assert stats["has_more"] is True
+        assert stats["total_presentation_records"] == 0
+        assert fake.page_calls == 1
 
     @pytest.mark.asyncio
     async def test_deletes_run_with_bounded_concurrency(self):

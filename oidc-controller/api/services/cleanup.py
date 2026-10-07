@@ -177,13 +177,20 @@ async def _sweep(
     offset = 0
     selected = 0
 
-    while True:
-        if time.monotonic() >= deadline:
-            stats["hit_time_budget"] = True
-            logger.warning("Cleanup time budget exhausted", phase=phase)
-            return True
+    def budget_exhausted() -> bool:
+        stats["hit_time_budget"] = True
+        logger.warning("Cleanup time budget exhausted", phase=phase)
+        return True
 
-        page = await fetch_page(PAGE_SIZE, offset)
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return budget_exhausted()
+
+        try:
+            page = await asyncio.wait_for(fetch_page(PAGE_SIZE, offset), remaining)
+        except TimeoutError:
+            return budget_exhausted()
         stats[total_key] += len(page)
 
         stale_ids = [r[id_key] for r in page if r.get(id_key) and is_stale(r)]
@@ -197,15 +204,31 @@ async def _sweep(
                 )
             stats[cleaned_key] += len(stale_ids)
             deleted = 0
-        else:
-            results = await asyncio.gather(
-                *(
+        elif stale_ids:
+            tasks = [
+                asyncio.create_task(
                     _delete_one(delete, record_id, semaphore, phase, stats)
-                    for record_id in stale_ids
                 )
+                for record_id in stale_ids
+            ]
+            done, pending = await asyncio.wait(
+                tasks, timeout=max(deadline - time.monotonic(), 0)
             )
-            deleted = sum(results)
+            for task in pending:
+                task.cancel()
+            # Let cancelled requests unwind before the lock is released
+            await asyncio.gather(*pending, return_exceptions=True)
+            deleted = sum(task.result() for task in done)
             stats[cleaned_key] += deleted
+            if pending:
+                logger.warning(
+                    "Cancelled outstanding deletions",
+                    phase=phase,
+                    cancelled=len(pending),
+                )
+                return budget_exhausted()
+        else:
+            deleted = 0
 
         if selected >= max_deletes:
             logger.warning(
