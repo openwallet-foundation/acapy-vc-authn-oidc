@@ -42,12 +42,26 @@ class TestAcapyClientCleanup:
     async def test_delete_presentation_record_failure(self, acapy_client):
         pres_ex_id = "test-pres-ex-id"
         respx.delete(f"{BASE_URL}/present-proof-2.0/records/{pres_ex_id}").mock(
-            return_value=httpx.Response(404, content=b"Record not found")
+            return_value=httpx.Response(500, content=b"Internal server error")
         )
 
         result = await acapy_client.delete_presentation_record(pres_ex_id)
 
         assert result is False
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_delete_presentation_record_already_gone_counts_as_success(
+        self, acapy_client
+    ):
+        pres_ex_id = "test-pres-ex-id"
+        respx.delete(f"{BASE_URL}/present-proof-2.0/records/{pres_ex_id}").mock(
+            return_value=httpx.Response(404, content=b"Record not found")
+        )
+
+        result = await acapy_client.delete_presentation_record(pres_ex_id)
+
+        assert result is True
 
     @respx.mock
     @pytest.mark.asyncio
@@ -184,7 +198,7 @@ class TestAcapyClientCleanup:
             return_value=httpx.Response(200)
         )
         respx.delete(f"{BASE_URL}/connections/{connection_id}").mock(
-            return_value=httpx.Response(404)
+            return_value=httpx.Response(500)
         )
 
         (
@@ -208,10 +222,10 @@ class TestAcapyClientCleanup:
         pres_ex_id = "test-pres-ex-id"
         connection_id = "test-connection-id"
         respx.delete(f"{BASE_URL}/present-proof-2.0/records/{pres_ex_id}").mock(
-            return_value=httpx.Response(404)
+            return_value=httpx.Response(500)
         )
         respx.delete(f"{BASE_URL}/connections/{connection_id}").mock(
-            return_value=httpx.Response(404)
+            return_value=httpx.Response(500)
         )
 
         (

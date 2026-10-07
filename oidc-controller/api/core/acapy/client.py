@@ -100,7 +100,8 @@ class AcapyClient:
                 headers=await self.agent_config.get_headers(),
             )
 
-            success = resp.status_code == 200
+            # 404 means it is already gone (e.g. ACA-Py auto-removal), the desired end state
+            success = resp.status_code in (200, 404)
             if success:
                 logger.debug("<<< delete_presentation_record -> Success")
             else:
@@ -317,7 +318,7 @@ class AcapyClient:
             connection_id: The ID of the connection to delete
 
         Returns:
-            bool: True if deletion was successful
+            bool: True if the connection was deleted or no longer exists
         """
         logger.debug(">>> delete_connection", connection_id=connection_id)
 
@@ -327,7 +328,8 @@ class AcapyClient:
                 headers=await self.agent_config.get_headers(),
             )
 
-            success = resp.status_code == 200
+            # 404 means it is already gone (e.g. removed with its OOB invitation)
+            success = resp.status_code in (200, 404)
             if success:
                 logger.debug("<<< delete_connection -> Success")
             else:

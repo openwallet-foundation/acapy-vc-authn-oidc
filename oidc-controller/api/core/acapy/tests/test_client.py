@@ -413,12 +413,28 @@ async def test_delete_connection_returns_false_on_failed_deletion(http_client):
 
     respx.delete(
         settings.ACAPY_ADMIN_URL + CONNECTIONS_URI + "/" + connection_id,
-    ).mock(return_value=httpx.Response(404))
+    ).mock(return_value=httpx.Response(500))
 
     client = AcapyClient(http_client)
     client.agent_config.get_headers = mock.AsyncMock(return_value={"x-api-key": ""})
     result = await client.delete_connection(connection_id)
     assert result is False
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_delete_connection_returns_true_when_already_gone(http_client):
+    """Test that delete_connection treats a missing connection as deleted."""
+    connection_id = "test-connection-id"
+
+    respx.delete(
+        settings.ACAPY_ADMIN_URL + CONNECTIONS_URI + "/" + connection_id,
+    ).mock(return_value=httpx.Response(404))
+
+    client = AcapyClient(http_client)
+    client.agent_config.get_headers = mock.AsyncMock(return_value={"x-api-key": ""})
+    result = await client.delete_connection(connection_id)
+    assert result is True
 
 
 @pytest.mark.asyncio
