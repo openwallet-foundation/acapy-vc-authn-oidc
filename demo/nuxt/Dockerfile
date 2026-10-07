@@ -1,4 +1,4 @@
-FROM docker.io/node:24-bookworm
+FROM docker.io/node:25-bookworm
 ENV NO_UPDATE_NOTIFIER=true
 WORKDIR /opt/app-root/src
 COPY package*.json ./
