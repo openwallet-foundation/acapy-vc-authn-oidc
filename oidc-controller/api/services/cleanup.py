@@ -148,6 +148,7 @@ async def _delete_one(
 
     if not deleted:
         stats["failed_cleanups"] += 1
+        stats["has_more"] = True
         _record_error(stats, f"Failed to delete {phase} record {record_id}")
     return deleted
 

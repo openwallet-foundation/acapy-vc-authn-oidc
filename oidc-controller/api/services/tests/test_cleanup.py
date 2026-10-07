@@ -283,6 +283,21 @@ class TestPaginationWhileDeleting:
         assert stats["failed_cleanups"] == 2
         assert stats["cleaned_presentation_records"] == len(records) - 2
         assert {r["pres_ex_id"] for r in fake.store["pres"]} == {"old-0", "old-1"}
+        assert stats["has_more"] is True
+
+    @pytest.mark.asyncio
+    async def test_failed_deletion_on_partial_final_page_sets_has_more(self):
+        fake = FakeAcapy(
+            presentations=[pres("old", OLD), pres("recent", RECENT)],
+            fail_ids={"old"},
+        )
+
+        stats = await run_cleanup(fake)
+
+        assert stats["failed_cleanups"] == 1
+        assert stats["has_more"] is True
+        assert stats["hit_presentation_limit"] is False
+        assert stats["hit_time_budget"] is False
 
 
 class TestOobRecords:
@@ -495,6 +510,7 @@ class TestErrorHandling:
 
         assert stats["failed_cleanups"] == len(records)
         assert len(stats["errors"]) == MAX_REPORTED_ERRORS
+        assert stats["has_more"] is True
 
 
 class TestNonBlocking:
