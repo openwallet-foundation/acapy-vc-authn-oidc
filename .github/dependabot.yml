@@ -12,7 +12,7 @@ updates:
     groups:
       all-actions:
         patterns: [ "*" ]
-  
+
   # Maintain dependencies for Python packages
   - package-ecosystem: "pip"
     directory: "/"
@@ -25,21 +25,9 @@ updates:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
 
-  # Maintain dependencies for Vue
+  # Maintain dependencies for the Nuxt demo
   - package-ecosystem: "npm"
-    directory: "/demo/vue/app"
-    schedule:
-      interval: "weekly"
-      day: "monday"
-      time: "04:00"
-      timezone: "Canada/Pacific"
-    ignore:
-      - dependency-name: "*"
-        update-types: ["version-update:semver-major", "version-update:semver-patch"]
-
-  # Maintain dependencies for Vue
-  - package-ecosystem: "npm"
-    directory: "/demo/vue/app/frontend"
+    directory: "/demo/nuxt"
     schedule:
       interval: "weekly"
       day: "monday"
@@ -57,10 +45,10 @@ updates:
       day: "monday"
       time: "04:00"
       timezone: "Canada/Pacific"
-        
-    # Maintain dependencies for docker
+
+  # Maintain dependencies for docker
   - package-ecosystem: "docker"
-    directory: "/demo/vue"
+    directory: "/demo/nuxt"
     schedule:
       interval: "weekly"
       day: "monday"
