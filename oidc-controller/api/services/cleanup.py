@@ -1,5 +1,8 @@
-"""Cleanup functions for presentation records and connections."""
+"""Cleanup of stale ACA-Py presentation exchanges, OOB invitations and connections."""
 
+import asyncio
+import time
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 from typing import TypedDict
 
@@ -11,45 +14,66 @@ from ..core.config import settings
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
 
+PAGE_SIZE = 100
+MAX_REPORTED_ERRORS = 50
+UNUSED_OOB_STATES = {"initial", "await-response"}
+UNUSED_CONNECTION_STATES = {"invitation"}
+REUSABLE_INVITATION_MODES = {"multi", "static"}
+# Stored their_role (RFC 160) when VC-AuthN issued the invitation
+INVITEE_ROLE = "invitee"
+
 
 class CleanupStats(TypedDict):
     """Statistics for cleanup operations."""
 
     total_presentation_records: int
     cleaned_presentation_records: int
+    total_oob_records: int
+    cleaned_oob_records: int
     total_connections: int
     cleaned_connections: int
     failed_cleanups: int
     errors: list[str]
     hit_presentation_limit: bool
     hit_connection_limit: bool
+    hit_time_budget: bool
+    has_more: bool
 
 
 def validate_cleanup_configuration():
     """Validate cleanup configuration settings at startup."""
     errors = []
 
-    # Validate retention hours (should be positive)
     retention_hours = settings.CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS
     if retention_hours <= 0:
         errors.append(
             f"CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS must be positive, got {retention_hours}"
         )
 
-    # Validate resource limits (should be positive and reasonable)
     max_records = settings.CONTROLLER_CLEANUP_MAX_PRESENTATION_RECORDS
-    if not (1 <= max_records <= 10000):  # Reasonable upper bound
+    if not (1 <= max_records <= 10000):
         errors.append(
             f"CONTROLLER_CLEANUP_MAX_PRESENTATION_RECORDS must be between 1 and 10000, got {max_records}"
         )
 
     max_connections = settings.CONTROLLER_CLEANUP_MAX_CONNECTIONS
-    if not (1 <= max_connections <= 20000):  # Reasonable upper bound
+    if not (1 <= max_connections <= 20000):
         errors.append(
             f"CONTROLLER_CLEANUP_MAX_CONNECTIONS must be between 1 and 20000, got {max_connections}"
         )
 
-    # Validate expiration time (should be positive)
+    concurrency = settings.CONTROLLER_CLEANUP_CONCURRENCY
+    if not (1 <= concurrency <= 50):
+        errors.append(
+            f"CONTROLLER_CLEANUP_CONCURRENCY must be between 1 and 50, got {concurrency}"
+        )
+
+    max_duration = settings.CONTROLLER_CLEANUP_MAX_DURATION_SECONDS
+    if max_duration <= 0:
+        errors.append(
+            f"CONTROLLER_CLEANUP_MAX_DURATION_SECONDS must be positive, got {max_duration}"
+        )
+
     expire_time = settings.CONTROLLER_PRESENTATION_EXPIRE_TIME
     if expire_time <= 0:
         errors.append(
@@ -66,6 +90,8 @@ def validate_cleanup_configuration():
         retention_hours=retention_hours,
         max_presentation_records=max_records,
         max_connections=max_connections,
+        concurrency=concurrency,
+        max_duration_seconds=max_duration,
         expire_time_seconds=expire_time,
         operation="config_validation",
     )
@@ -90,272 +116,116 @@ def _parse_record_timestamp(created_at_str: str, record_id: str) -> datetime | N
         return None
 
 
-def _should_clean_record(record: dict, cutoff_time: datetime) -> bool:
-    """Check if a record should be cleaned up based on age."""
+def _created_before(record: dict, cutoff: datetime, id_key: str) -> bool:
+    """Return True if the record was created before the cutoff (unparseable -> False)."""
     created_at_str = record.get("created_at")
     if not created_at_str:
-        raise ValueError(
-            f"Record {record.get('pres_ex_id', 'unknown')} missing created_at timestamp"
-        )
-
-    record_time = _parse_record_timestamp(
-        created_at_str, record.get("pres_ex_id", "unknown")
-    )
-    # Invalid timestamp format - just skip this record (don't treat as failure)
-    return record_time < cutoff_time if record_time else False
+        return False
+    record_time = _parse_record_timestamp(created_at_str, record.get(id_key, "unknown"))
+    return record_time is not None and record_time < cutoff
 
 
-async def _cleanup_single_presentation_record(
-    client: "AcapyClient", record: dict, stats: CleanupStats, dry_run: bool
-) -> None:
-    """Clean up a single presentation record and update stats."""
-    pres_ex_id = record.get("pres_ex_id")
+def _record_error(stats: CleanupStats, message: str) -> None:
+    if len(stats["errors"]) < MAX_REPORTED_ERRORS:
+        stats["errors"].append(message)
 
-    if dry_run:
-        stats["cleaned_presentation_records"] += 1
-        logger.info(
-            "dry_run: would delete presentation record",
-            pres_ex_id=pres_ex_id,
-            phase="presentation_records",
-        )
-        return
 
-    try:
-        (
-            presentation_deleted,
-            _,
-            errors,
-        ) = await client.delete_presentation_record_and_connection(pres_ex_id, None)
-
-        if presentation_deleted:
-            stats["cleaned_presentation_records"] += 1
-            logger.debug(
-                "Cleaned up old presentation record",
-                pres_ex_id=pres_ex_id,
-                phase="presentation_records",
+async def _delete_one(
+    delete: Callable[[str], Awaitable[bool]],
+    record_id: str,
+    semaphore: asyncio.Semaphore,
+    phase: str,
+    stats: CleanupStats,
+) -> bool:
+    async with semaphore:
+        try:
+            deleted = await delete(record_id)
+        except Exception as e:
+            logger.error(
+                "Error deleting record", phase=phase, record_id=record_id, error=str(e)
             )
-        else:
-            stats["failed_cleanups"] += 1
+            deleted = False
 
-        # Log any errors from the cleanup operation
-        for error in errors:
-            stats["errors"].append(error)
-            logger.warning(
-                "Cleanup operation error", error=error, phase="presentation_records"
-            )
-
-    except Exception as record_error:
+    if not deleted:
         stats["failed_cleanups"] += 1
-        error_msg = f"Error processing record {pres_ex_id}: {record_error}"
-        stats["errors"].append(error_msg)
-        logger.error(
-            "Error processing presentation record",
-            pres_ex_id=pres_ex_id,
-            error=str(record_error),
-            phase="presentation_records",
-        )
+        _record_error(stats, f"Failed to delete {phase} record {record_id}")
+    return deleted
 
 
-async def _cleanup_presentation_records(
-    client: "AcapyClient", stats: CleanupStats, max_records: int, dry_run: bool
-) -> datetime:
-    """Clean up old presentation records phase."""
-    phase_start = datetime.now(UTC)
-
-    # Get configuration
-    retention_hours = settings.CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS
-    cutoff_time = datetime.now(UTC) - timedelta(hours=retention_hours)
-
-    # Fetch records
-    records = await client.get_all_presentation_records()
-    stats["total_presentation_records"] = len(records)
-
-    logger.info(
-        "Found presentation records for cleanup evaluation",
-        phase="presentation_records",
-        total_records=len(records),
-        fetch_duration_ms=int((datetime.now(UTC) - phase_start).total_seconds() * 1000),
-    )
-
-    # Apply resource limits
-    if len(records) > max_records:
-        stats["hit_presentation_limit"] = True
-        records = records[:max_records]
-        logger.warning(
-            "Limited presentation record processing due to resource limits",
-            max_allowed=max_records,
-            total_found=stats["total_presentation_records"],
-            phase="presentation_records",
-        )
-
-    # Process each record
-    for record in records:
-        try:
-            if _should_clean_record(record, cutoff_time):
-                await _cleanup_single_presentation_record(
-                    client, record, stats, dry_run
-                )
-            else:
-                logger.debug(
-                    "Record too recent to clean up",
-                    pres_ex_id=record.get("pres_ex_id"),
-                    phase="presentation_records",
-                )
-        except Exception as record_error:
-            # Handle cases where record processing fails (e.g., missing timestamp)
-            stats["failed_cleanups"] += 1
-            error_msg = f"Error processing record {record.get('pres_ex_id', 'unknown')}: {record_error}"
-            stats["errors"].append(error_msg)
-            logger.error(
-                "Error processing presentation record",
-                pres_ex_id=record.get("pres_ex_id", "unknown"),
-                error=str(record_error),
-                phase="presentation_records",
-            )
-
-    return phase_start
-
-
-async def _cleanup_single_connection(
-    client: "AcapyClient",
-    connection: dict,
-    cutoff_time: datetime,
-    stats: CleanupStats,
+async def _sweep(
+    *,
+    phase: str,
+    fetch_page: Callable[[int, int], Awaitable[list[dict]]],
+    id_key: str,
+    is_stale: Callable[[dict], bool],
+    delete: Callable[[str], Awaitable[bool]],
+    max_deletes: int,
+    deadline: float,
+    semaphore: asyncio.Semaphore,
     dry_run: bool,
-) -> None:
-    """Clean up a single connection and update stats."""
-    connection_id = connection.get("connection_id")
-    created_at_str = connection.get("created_at")
+    stats: CleanupStats,
+    total_key: str,
+    cleaned_key: str,
+) -> bool:
+    """Page through records deleting stale ones.
 
-    if not created_at_str:
-        logger.warning(
-            "Connection missing created_at timestamp", connection_id=connection_id
-        )
-        return
+    Returns True if the sweep stopped early (limit or time budget) and more
+    stale records may remain.
+    """
+    phase_start = time.monotonic()
+    offset = 0
+    selected = 0
 
-    connection_time = _parse_record_timestamp(created_at_str, connection_id)
-    if connection_time is None:
-        return
+    while True:
+        if time.monotonic() >= deadline:
+            stats["hit_time_budget"] = True
+            logger.warning("Cleanup time budget exhausted", phase=phase)
+            return True
 
-    if connection_time < cutoff_time:
+        page = await fetch_page(PAGE_SIZE, offset)
+        stats[total_key] += len(page)
+
+        stale_ids = [r[id_key] for r in page if r.get(id_key) and is_stale(r)]
+        stale_ids = stale_ids[: max_deletes - selected]
+        selected += len(stale_ids)
+
         if dry_run:
-            stats["cleaned_connections"] += 1
-            logger.info(
-                "dry_run: would delete connection invitation",
-                connection_id=connection_id,
-                phase="connections",
-            )
-            return
-
-        logger.debug(
-            "Cleaning up expired connection invitation",
-            connection_id=connection_id,
-            phase="connections",
-        )
-
-        try:
-            connection_deleted = await client.delete_connection(connection_id)
-
-            if connection_deleted:
-                stats["cleaned_connections"] += 1
-                logger.debug(
-                    "Cleaned up expired connection invitation",
-                    connection_id=connection_id,
-                    phase="connections",
+            for record_id in stale_ids:
+                logger.info(
+                    "dry_run: would delete record", phase=phase, record_id=record_id
                 )
-            else:
-                stats["failed_cleanups"] += 1
-                error_msg = (
-                    f"Failed to delete expired connection invitation {connection_id}"
+            stats[cleaned_key] += len(stale_ids)
+            deleted = 0
+        else:
+            results = await asyncio.gather(
+                *(
+                    _delete_one(delete, record_id, semaphore, phase, stats)
+                    for record_id in stale_ids
                 )
-                stats["errors"].append(error_msg)
-                logger.warning(
-                    "Failed to delete expired connection invitation",
-                    connection_id=connection_id,
-                    phase="connections",
-                )
-        except Exception as connection_error:
-            stats["failed_cleanups"] += 1
-            error_msg = (
-                f"Error processing connection {connection_id}: {connection_error}"
             )
-            stats["errors"].append(error_msg)
-            logger.error(
-                "Error processing connection",
-                connection_id=connection_id,
-                error=str(connection_error),
-                phase="connections",
+            deleted = sum(results)
+            stats[cleaned_key] += deleted
+
+        if selected >= max_deletes:
+            logger.warning(
+                "Cleanup limit reached", phase=phase, max_deletes=max_deletes
             )
-    else:
-        logger.debug(
-            "Connection invitation too recent to clean up",
-            connection_id=connection_id,
-            phase="connections",
-        )
+            return True
 
-
-async def _cleanup_connections(
-    client: "AcapyClient",
-    stats: CleanupStats,
-    presentation_phase_start: datetime,
-    max_connections: int,
-    dry_run: bool,
-) -> None:
-    """Clean up expired connections phase."""
-    phase_start = datetime.now(UTC)
-
-    # Get configuration
-    expire_seconds = settings.CONTROLLER_PRESENTATION_EXPIRE_TIME
-    cutoff_time = datetime.now(UTC) - timedelta(seconds=expire_seconds)
-
-    logger.info(
-        "Starting connection cleanup with API-level filtering",
-        phase="connections",
-        presentation_cleanup_duration_ms=int(
-            (phase_start - presentation_phase_start).total_seconds() * 1000
-        ),
-    )
-
-    total_connections = 0
-    processed_connections = 0
-
-    async for connection_batch in client.get_connections_batched(state="invitation"):
-        total_connections += len(connection_batch)
-        logger.debug(
-            f"Processing batch of {len(connection_batch)} invitation connections"
-        )
-
-        for connection in connection_batch:
-            # Apply resource limit check
-            if processed_connections >= max_connections:
-                stats["hit_connection_limit"] = True
-                logger.warning(
-                    "Hit connection processing limit, stopping early",
-                    max_allowed=max_connections,
-                    total_found=total_connections,
-                    phase="connections",
-                )
-                break
-
-            processed_connections += 1
-            await _cleanup_single_connection(
-                client, connection, cutoff_time, stats, dry_run
-            )
-
-        # Break out of batch loop if we hit the limit
-        if stats["hit_connection_limit"]:
+        if len(page) < PAGE_SIZE:
             break
 
-    # Set total connections count after processing all batches
-    stats["total_connections"] = total_connections
-    phase_duration = datetime.now(UTC) - phase_start
+        # Deleted records no longer occupy positions in the listing
+        offset += len(page) - deleted
+
     logger.info(
-        "Processed invitation connections",
-        phase="connections",
-        processed_connections=processed_connections,
-        total_connections=total_connections,
-        connection_cleanup_duration_ms=int(phase_duration.total_seconds() * 1000),
+        "Cleanup phase completed",
+        phase=phase,
+        examined=stats[total_key],
+        cleaned=stats[cleaned_key],
+        duration_ms=int((time.monotonic() - phase_start) * 1000),
     )
+    return False
 
 
 async def perform_cleanup(
@@ -365,20 +235,30 @@ async def perform_cleanup(
     max_connections: int | None = None,
 ) -> CleanupStats:
     """
-    Perform comprehensive cleanup of expired presentation data and connections.
+    Delete stale ACA-Py records created by VC-AuthN.
+
+    Phases, in order:
+    - verifier presentation exchanges older than the retention period
+    - sender OOB invitations: connectionless unused ones after the presentation
+      expiry time, any other after the retention period (deleting an OOB
+      invitation also deletes connections created from it)
+    - connections where VC-AuthN was the inviter: unused invitations after the
+      presentation expiry time, any other state after the retention period
+
+    Multi-use/static invitations and their connections are never deleted.
 
     Args:
         http_client: The shared httpx AsyncClient
         dry_run: If True, only report what would be deleted without actual deletion
-        max_presentation_records: Override default max presentation records limit
-        max_connections: Override default max connections limit
+        max_presentation_records: Override max presentation records deleted per run
+        max_connections: Override max OOB records and connections deleted per run
 
     Returns:
         CleanupStats with detailed information about cleanup operations
     """
-    start_time = datetime.now(UTC)
+    start = time.monotonic()
+    deadline = start + settings.CONTROLLER_CLEANUP_MAX_DURATION_SECONDS
 
-    # Resolve effective limits: use caller override if provided, otherwise fall back to settings
     effective_max_records = (
         max_presentation_records
         if max_presentation_records is not None
@@ -390,65 +270,133 @@ async def perform_cleanup(
         else settings.CONTROLLER_CLEANUP_MAX_CONNECTIONS
     )
 
+    now = datetime.now(UTC)
+    retention_cutoff = now - timedelta(
+        hours=settings.CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS
+    )
+    expiry_cutoff = now - timedelta(
+        seconds=settings.CONTROLLER_PRESENTATION_EXPIRE_TIME
+    )
+
     logger.info(
-        "Starting cleanup of old presentation records and expired connections",
+        "Starting cleanup of stale ACA-Py records",
         dry_run=dry_run,
         max_presentation_records=effective_max_records,
         max_connections=effective_max_connections,
     )
 
-    # Initialize stats tracking
-    cleanup_stats: CleanupStats = {
+    stats: CleanupStats = {
         "total_presentation_records": 0,
         "cleaned_presentation_records": 0,
+        "total_oob_records": 0,
+        "cleaned_oob_records": 0,
         "total_connections": 0,
         "cleaned_connections": 0,
         "failed_cleanups": 0,
         "errors": [],
         "hit_presentation_limit": False,
         "hit_connection_limit": False,
+        "hit_time_budget": False,
+        "has_more": False,
     }
 
     client = AcapyClient(http_client)
+    semaphore = asyncio.Semaphore(settings.CONTROLLER_CLEANUP_CONCURRENCY)
 
-    try:
-        presentation_phase_start = await _cleanup_presentation_records(
-            client, cleanup_stats, effective_max_records, dry_run
-        )
-        await _cleanup_connections(
-            client,
-            cleanup_stats,
-            presentation_phase_start,
-            effective_max_connections,
-            dry_run,
-        )
+    def oob_is_stale(record: dict) -> bool:
+        if record.get("multi_use"):
+            return False
+        # Linked connections may still be mid-flow; only the retention period is safe
+        unused = record.get("state") in UNUSED_OOB_STATES
+        if unused and not record.get("connection_id"):
+            return _created_before(record, expiry_cutoff, "invi_msg_id")
+        return _created_before(record, retention_cutoff, "invi_msg_id")
 
-    except Exception as e:
-        error_msg = f"Cleanup operation failed: {e}"
-        cleanup_stats["errors"].append(error_msg)
-        logger.error("Cleanup operation failed", error=str(e))
+    def connection_is_stale(record: dict) -> bool:
+        if record.get("their_role") != INVITEE_ROLE:
+            return False
+        if record.get("invitation_mode") in REUSABLE_INVITATION_MODES:
+            return False
+        if record.get("state") in UNUSED_CONNECTION_STATES:
+            return _created_before(record, expiry_cutoff, "connection_id")
+        return _created_before(record, retention_cutoff, "connection_id")
 
-    limit_info = ""
-    if cleanup_stats["hit_presentation_limit"] or cleanup_stats["hit_connection_limit"]:
-        limits_hit = []
-        if cleanup_stats["hit_presentation_limit"]:
-            limits_hit.append("presentation record limit")
-        if cleanup_stats["hit_connection_limit"]:
-            limits_hit.append("connection limit")
-        limit_info = f" (hit {' and '.join(limits_hit)})"
+    phases = [
+        dict(
+            phase="presentation_records",
+            fetch_page=client.get_presentation_records_page,
+            id_key="pres_ex_id",
+            is_stale=lambda r: _created_before(r, retention_cutoff, "pres_ex_id"),
+            delete=client.delete_presentation_record,
+            max_deletes=effective_max_records,
+            total_key="total_presentation_records",
+            cleaned_key="cleaned_presentation_records",
+            limit_flag="hit_presentation_limit",
+        ),
+        dict(
+            phase="oob_records",
+            fetch_page=client.get_oob_records_page,
+            id_key="invi_msg_id",
+            is_stale=oob_is_stale,
+            delete=client.delete_oob_invitation,
+            max_deletes=effective_max_connections,
+            total_key="total_oob_records",
+            cleaned_key="cleaned_oob_records",
+            limit_flag="hit_connection_limit",
+        ),
+        dict(
+            phase="connections",
+            fetch_page=client.get_connections_page,
+            id_key="connection_id",
+            is_stale=connection_is_stale,
+            delete=client.delete_connection,
+            max_deletes=effective_max_connections,
+            total_key="total_connections",
+            cleaned_key="cleaned_connections",
+            limit_flag="hit_connection_limit",
+        ),
+    ]
 
-    total_duration = datetime.now(UTC) - start_time
+    for phase_config in phases:
+        limit_flag = phase_config.pop("limit_flag")
+        try:
+            stopped_early = await _sweep(
+                **phase_config,
+                deadline=deadline,
+                semaphore=semaphore,
+                dry_run=dry_run,
+                stats=stats,
+            )
+        except Exception as e:
+            logger.error(
+                "Cleanup phase failed", phase=phase_config["phase"], error=str(e)
+            )
+            _record_error(stats, f"Cleanup phase {phase_config['phase']} failed: {e}")
+            stats["has_more"] = True
+            continue
+
+        if stopped_early:
+            stats["has_more"] = True
+            if stats["hit_time_budget"]:
+                break
+            stats[limit_flag] = True
+
     logger.info(
-        f"Cleanup completed{limit_info}",
+        "Cleanup completed",
         operation="cleanup_completed",
-        total_duration_ms=int(total_duration.total_seconds() * 1000),
-        cleaned_presentation_records=cleanup_stats["cleaned_presentation_records"],
-        cleaned_connections=cleanup_stats["cleaned_connections"],
-        failed_cleanups=cleanup_stats["failed_cleanups"],
-        total_presentation_records=cleanup_stats["total_presentation_records"],
-        total_connections=cleanup_stats["total_connections"],
-        hit_presentation_limit=cleanup_stats["hit_presentation_limit"],
-        hit_connection_limit=cleanup_stats["hit_connection_limit"],
-        error_count=len(cleanup_stats["errors"]),
+        dry_run=dry_run,
+        total_duration_ms=int((time.monotonic() - start) * 1000),
+        cleaned_presentation_records=stats["cleaned_presentation_records"],
+        cleaned_oob_records=stats["cleaned_oob_records"],
+        cleaned_connections=stats["cleaned_connections"],
+        failed_cleanups=stats["failed_cleanups"],
+        total_presentation_records=stats["total_presentation_records"],
+        total_oob_records=stats["total_oob_records"],
+        total_connections=stats["total_connections"],
+        hit_presentation_limit=stats["hit_presentation_limit"],
+        hit_connection_limit=stats["hit_connection_limit"],
+        hit_time_budget=stats["hit_time_budget"],
+        has_more=stats["has_more"],
+        error_count=len(stats["errors"]),
     )
-    return cleanup_stats
+    return stats

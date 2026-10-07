@@ -1,1617 +1,525 @@
-"""Tests for cleanup functions."""
+"""Tests for the ACA-Py record cleanup service."""
 
-import unittest.mock
+import asyncio
 from datetime import UTC, datetime, timedelta
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 import pytest
 
+from api.services import cleanup as cleanup_module
 from api.services.cleanup import (
+    MAX_REPORTED_ERRORS,
+    PAGE_SIZE,
+    _parse_record_timestamp,
     perform_cleanup,
+    validate_cleanup_configuration,
 )
 
-
-async def _batch_gen(batches):
-    """Async generator helper for mocking get_connections_batched."""
-    for batch in batches:
-        yield batch
+RETENTION_HOURS = 24
+EXPIRE_SECONDS = 300
 
 
-class TestConstants:
-    """Constants for cleanup tests."""
-
-    # Default settings
-    DEFAULT_RETENTION_HOURS = 24
-    DEFAULT_MAX_PRESENTATION_RECORDS = 1000
-    DEFAULT_MAX_CONNECTIONS = 2000
-    DEFAULT_EXPIRE_TIME = 600
-
-    # Time offsets for test data
-    OLD_RECORD_AGE_HOURS = 25
-    RECENT_RECORD_AGE_HOURS = 1
-    EXPIRED_CONNECTION_AGE_SECONDS = 700
-    RECENT_CONNECTION_AGE_SECONDS = 300
+def make_settings(**overrides):
+    values = {
+        "CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS": RETENTION_HOURS,
+        "CONTROLLER_CLEANUP_MAX_PRESENTATION_RECORDS": 1000,
+        "CONTROLLER_CLEANUP_MAX_CONNECTIONS": 2000,
+        "CONTROLLER_CLEANUP_CONCURRENCY": 5,
+        "CONTROLLER_CLEANUP_MAX_DURATION_SECONDS": 240,
+        "CONTROLLER_PRESENTATION_EXPIRE_TIME": EXPIRE_SECONDS,
+    }
+    values.update(overrides)
+    return SimpleNamespace(**values)
 
 
-class BaseCleanupTest:
-    """Base class for cleanup tests with shared fixtures and utilities."""
+def ts(**delta) -> str:
+    return (datetime.now(UTC) - timedelta(**delta)).isoformat().replace("+00:00", "Z")
 
-    def configure_default_settings(self, mock_settings):
-        """Configure mock settings with default values."""
-        mock_settings.CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS = (
-            TestConstants.DEFAULT_RETENTION_HOURS
-        )
-        mock_settings.CONTROLLER_CLEANUP_MAX_PRESENTATION_RECORDS = (
-            TestConstants.DEFAULT_MAX_PRESENTATION_RECORDS
-        )
-        mock_settings.CONTROLLER_CLEANUP_MAX_CONNECTIONS = (
-            TestConstants.DEFAULT_MAX_CONNECTIONS
-        )
-        mock_settings.CONTROLLER_PRESENTATION_EXPIRE_TIME = (
-            TestConstants.DEFAULT_EXPIRE_TIME
-        )
-        return mock_settings
 
-    def configure_mock_client(self, mock_client_class):
-        """Create and configure a mock ACA-Py client."""
-        mock_client = Mock()
-        mock_client_class.return_value = mock_client
-        return mock_client
+OLD = {"hours": RETENTION_HOURS + 1}
+RECENT = {"hours": 1}
+EXPIRED = {"seconds": EXPIRE_SECONDS + 60}
+FRESH = {"seconds": 10}
 
-    def create_test_timestamps(self):
-        """Create standard test timestamps."""
-        return {
-            "old_time": datetime.now(UTC)
-            - timedelta(hours=TestConstants.OLD_RECORD_AGE_HOURS),
-            "recent_time": datetime.now(UTC)
-            - timedelta(hours=TestConstants.RECENT_RECORD_AGE_HOURS),
-            "expired_connection_time": datetime.now(UTC)
-            - timedelta(seconds=TestConstants.EXPIRED_CONNECTION_AGE_SECONDS),
-            "recent_connection_time": datetime.now(UTC)
-            - timedelta(seconds=TestConstants.RECENT_CONNECTION_AGE_SECONDS),
-        }
 
-    def create_presentation_record(
-        self, pres_ex_id: str, created_at: datetime, state: str = "done"
-    ):
-        """Create a test presentation record."""
-        return {
-            "pres_ex_id": pres_ex_id,
-            "created_at": created_at.isoformat().replace("+00:00", "Z"),
-            "state": state,
-        }
+def pres(pres_ex_id, age, state="request-sent"):
+    return {"pres_ex_id": pres_ex_id, "created_at": ts(**age), "state": state}
 
-    def create_connection(
+
+def oob(invi_msg_id, age, state="await-response", multi_use=False, connection_id=None):
+    record = {
+        "invi_msg_id": invi_msg_id,
+        "created_at": ts(**age),
+        "state": state,
+        "multi_use": multi_use,
+    }
+    if connection_id:
+        record["connection_id"] = connection_id
+    return record
+
+
+def conn(
+    connection_id,
+    age,
+    state="invitation",
+    invitation_mode="once",
+    their_role="invitee",
+):
+    return {
+        "connection_id": connection_id,
+        "created_at": ts(**age),
+        "state": state,
+        "invitation_mode": invitation_mode,
+        "their_role": their_role,
+    }
+
+
+class FakeAcapy:
+    """In-memory ACA-Py admin API that pages and deletes like the real one."""
+
+    def __init__(
         self,
-        connection_id: str,
-        created_at: datetime,
-        invitation_key: str = None,
-        state: str = "invitation",
+        presentations=(),
+        oob_records=(),
+        connections=(),
+        fail_ids=(),
+        failing_phases=(),
+        delete_delay=0.0,
     ):
-        """Create a test connection."""
-        return {
-            "connection_id": connection_id,
-            "created_at": created_at.isoformat().replace("+00:00", "Z"),
-            "invitation_key": invitation_key or f"key-{connection_id}",
-            "state": state,
+        self.store = {
+            "pres": list(presentations),
+            "oob": list(oob_records),
+            "conn": list(connections),
         }
+        self.fail_ids = set(fail_ids)
+        self.failing_phases = set(failing_phases)
+        self.delete_delay = delete_delay
+        self.deleted = {"pres": [], "oob": [], "conn": []}
+        self.in_flight = 0
+        self.max_in_flight = 0
+        self.page_calls = 0
 
-    def create_cleanup_stats(self, **overrides):
-        """Create cleanup statistics with optional overrides."""
-        default_stats = {
-            "total_presentation_records": 0,
-            "cleaned_presentation_records": 0,
-            "total_connections": 0,
-            "cleaned_connections": 0,
-            "failed_cleanups": 0,
-            "errors": [],
-            "hit_presentation_limit": False,
-            "hit_connection_limit": False,
-        }
-        default_stats.update(overrides)
-        return default_stats
+    async def _page(self, kind, limit, offset):
+        self.page_calls += 1
+        if kind in self.failing_phases:
+            raise RuntimeError(f"{kind} listing unavailable")
+        await asyncio.sleep(0)
+        return list(self.store[kind][offset : offset + limit])
 
-    def assert_cleanup_stats(
-        self,
-        result,
-        expected_total_presentations=None,
-        expected_cleaned_presentations=None,
-        expected_total_connections=None,
-        expected_cleaned_connections=None,
-        expected_failed_cleanups=None,
-        expected_error_count=None,
-        expected_hit_presentation_limit=None,
-        expected_hit_connection_limit=None,
+    async def _delete(self, kind, key, record_id):
+        self.in_flight += 1
+        self.max_in_flight = max(self.max_in_flight, self.in_flight)
+        try:
+            await asyncio.sleep(self.delete_delay)
+            if record_id in self.fail_ids:
+                return False
+            self.store[kind] = [r for r in self.store[kind] if r[key] != record_id]
+            self.deleted[kind].append(record_id)
+            return True
+        finally:
+            self.in_flight -= 1
+
+    async def get_presentation_records_page(self, limit, offset=0):
+        return await self._page("pres", limit, offset)
+
+    async def get_oob_records_page(self, limit, offset=0):
+        return await self._page("oob", limit, offset)
+
+    async def get_connections_page(self, limit, offset=0):
+        return await self._page("conn", limit, offset)
+
+    async def delete_presentation_record(self, record_id):
+        return await self._delete("pres", "pres_ex_id", record_id)
+
+    async def delete_oob_invitation(self, record_id):
+        return await self._delete("oob", "invi_msg_id", record_id)
+
+    async def delete_connection(self, record_id):
+        return await self._delete("conn", "connection_id", record_id)
+
+
+async def run_cleanup(fake, settings=None, **kwargs):
+    with (
+        patch.object(cleanup_module, "AcapyClient", return_value=fake),
+        patch.object(cleanup_module, "settings", settings or make_settings()),
     ):
-        """Helper to assert cleanup statistics."""
-        if expected_total_presentations is not None:
-            assert result["total_presentation_records"] == expected_total_presentations
-        if expected_cleaned_presentations is not None:
-            assert (
-                result["cleaned_presentation_records"] == expected_cleaned_presentations
-            )
-        if expected_total_connections is not None:
-            assert result["total_connections"] == expected_total_connections
-        if expected_cleaned_connections is not None:
-            assert result["cleaned_connections"] == expected_cleaned_connections
-        if expected_failed_cleanups is not None:
-            assert result["failed_cleanups"] == expected_failed_cleanups
-        if expected_error_count is not None:
-            assert len(result["errors"]) == expected_error_count
-        if expected_hit_presentation_limit is not None:
-            assert result["hit_presentation_limit"] == expected_hit_presentation_limit
-        if expected_hit_connection_limit is not None:
-            assert result["hit_connection_limit"] == expected_hit_connection_limit
+        return await perform_cleanup(MagicMock(), **kwargs)
 
 
-class TestPerformCleanup(BaseCleanupTest):
-    """Test standalone perform_cleanup function."""
+class TestConfigurationValidation:
+    def test_valid_configuration(self):
+        with patch.object(cleanup_module, "settings", make_settings()):
+            validate_cleanup_configuration()
 
-    @patch("api.services.cleanup.AcapyClient")
-    @patch("api.services.cleanup.settings")
+    @pytest.mark.parametrize(
+        "override, message",
+        [
+            (
+                {"CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS": 0},
+                "CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS must be positive",
+            ),
+            (
+                {"CONTROLLER_CLEANUP_MAX_PRESENTATION_RECORDS": 0},
+                "CONTROLLER_CLEANUP_MAX_PRESENTATION_RECORDS must be between 1 and 10000",
+            ),
+            (
+                {"CONTROLLER_CLEANUP_MAX_PRESENTATION_RECORDS": 10001},
+                "CONTROLLER_CLEANUP_MAX_PRESENTATION_RECORDS must be between 1 and 10000",
+            ),
+            (
+                {"CONTROLLER_CLEANUP_MAX_CONNECTIONS": 20001},
+                "CONTROLLER_CLEANUP_MAX_CONNECTIONS must be between 1 and 20000",
+            ),
+            (
+                {"CONTROLLER_CLEANUP_CONCURRENCY": 0},
+                "CONTROLLER_CLEANUP_CONCURRENCY must be between 1 and 50",
+            ),
+            (
+                {"CONTROLLER_CLEANUP_CONCURRENCY": 51},
+                "CONTROLLER_CLEANUP_CONCURRENCY must be between 1 and 50",
+            ),
+            (
+                {"CONTROLLER_CLEANUP_MAX_DURATION_SECONDS": 0},
+                "CONTROLLER_CLEANUP_MAX_DURATION_SECONDS must be positive",
+            ),
+            (
+                {"CONTROLLER_PRESENTATION_EXPIRE_TIME": -1},
+                "CONTROLLER_PRESENTATION_EXPIRE_TIME must be positive",
+            ),
+        ],
+    )
+    def test_invalid_values_are_rejected(self, override, message):
+        with patch.object(cleanup_module, "settings", make_settings(**override)):
+            with pytest.raises(ValueError, match=message):
+                validate_cleanup_configuration()
+
+    def test_multiple_errors_reported_together(self):
+        settings = make_settings(
+            CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS=0,
+            CONTROLLER_CLEANUP_CONCURRENCY=0,
+        )
+        with patch.object(cleanup_module, "settings", settings):
+            with pytest.raises(ValueError) as exc_info:
+                validate_cleanup_configuration()
+        assert "RETENTION_HOURS" in str(exc_info.value)
+        assert "CONCURRENCY" in str(exc_info.value)
+
+
+class TestTimestampParsing:
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "2024-01-01T12:00:00Z",
+            "2024-01-01T12:00:00+00:00",
+            "2024-01-01T12:00:00.123456Z",
+            "2024-01-01T12:00:00",
+        ],
+    )
+    def test_supported_formats_are_timezone_aware(self, value):
+        parsed = _parse_record_timestamp(value, "rec")
+        assert parsed is not None
+        assert parsed.tzinfo is not None
+
+    def test_invalid_timestamp_returns_none(self):
+        assert _parse_record_timestamp("not-a-date", "rec") is None
+
+
+class TestPresentationRecords:
     @pytest.mark.asyncio
-    async def test_perform_cleanup_success(self, mock_settings, mock_client_class):
-        """Test successful cleanup of old presentation records."""
-        # Configure default settings and override expire time for this specific test
-        self.configure_default_settings(mock_settings)
-        mock_settings.CONTROLLER_PRESENTATION_EXPIRE_TIME = 10
+    async def test_deletes_only_records_older_than_retention(self):
+        fake = FakeAcapy(presentations=[pres("old", OLD), pres("recent", RECENT)])
 
-        # Configure mock client
-        mock_client = self.configure_mock_client(mock_client_class)
+        stats = await run_cleanup(fake)
 
-        # Create test timestamps and data using utilities
-        timestamps = self.create_test_timestamps()
-        # Override connection times for this specific test
-        expired_connection_time = datetime.now(UTC) - timedelta(seconds=30)
-        recent_connection_time = datetime.now(UTC) - timedelta(seconds=5)
+        assert fake.deleted["pres"] == ["old"]
+        assert stats["total_presentation_records"] == 2
+        assert stats["cleaned_presentation_records"] == 1
+        assert stats["has_more"] is False
 
-        mock_records = [
-            self.create_presentation_record(
-                "old-record-1", timestamps["old_time"], "done"
-            ),
-            self.create_presentation_record(
-                "recent-record", timestamps["recent_time"], "done"
-            ),
+    @pytest.mark.asyncio
+    async def test_records_without_or_with_bad_timestamp_are_skipped(self):
+        broken = {"pres_ex_id": "bad", "created_at": "garbage"}
+        missing = {"pres_ex_id": "missing"}
+        fake = FakeAcapy(presentations=[broken, missing, pres("old", OLD)])
+
+        stats = await run_cleanup(fake)
+
+        assert fake.deleted["pres"] == ["old"]
+        assert stats["failed_cleanups"] == 0
+
+
+class TestPaginationWhileDeleting:
+    @pytest.mark.asyncio
+    async def test_all_stale_records_across_pages_are_deleted(self):
+        records = [pres(f"old-{i}", OLD) for i in range(PAGE_SIZE * 2 + 50)]
+        fake = FakeAcapy(presentations=records)
+
+        stats = await run_cleanup(fake)
+
+        assert len(fake.deleted["pres"]) == len(records)
+        assert fake.store["pres"] == []
+        assert stats["cleaned_presentation_records"] == len(records)
+
+    @pytest.mark.asyncio
+    async def test_interleaved_recent_records_do_not_hide_stale_ones(self):
+        records = [
+            pres(f"rec-{i}", OLD if i % 3 else RECENT) for i in range(PAGE_SIZE * 3)
         ]
+        fake = FakeAcapy(presentations=records)
 
-        mock_connections = [
-            self.create_connection(
-                "expired-conn-1", expired_connection_time, "key1", "invitation"
-            ),
-            self.create_connection(
-                "recent-conn", recent_connection_time, "key2", "invitation"
-            ),
-        ]
+        await run_cleanup(fake)
 
-        # Mock ACA-Py responses
-        mock_client.get_all_presentation_records = AsyncMock(return_value=mock_records)
-        mock_client.get_connections_batched = MagicMock(
-            return_value=_batch_gen([mock_connections])
-        )
-        mock_client.delete_presentation_record_and_connection = AsyncMock(
-            return_value=(True, False, [])
-        )
-        mock_client.delete_connection = AsyncMock(return_value=True)
+        remaining = {r["pres_ex_id"] for r in fake.store["pres"]}
+        assert remaining == {f"rec-{i}" for i in range(PAGE_SIZE * 3) if i % 3 == 0}
 
-        # Act
-        result = await perform_cleanup(MagicMock())
-
-        # Assert using utility
-        self.assert_cleanup_stats(
-            result,
-            expected_total_presentations=2,
-            expected_cleaned_presentations=1,
-            expected_total_connections=2,
-            expected_cleaned_connections=1,
-            expected_failed_cleanups=0,
-            expected_error_count=0,
-        )
-
-        # Verify the old record was deleted, recent record was not
-        mock_client.delete_presentation_record_and_connection.assert_called_once_with(
-            "old-record-1", None
-        )
-        mock_client.delete_connection.assert_called_once_with("expired-conn-1")
-
-    @patch("api.services.cleanup.AcapyClient")
-    @patch("api.services.cleanup.settings")
     @pytest.mark.asyncio
-    async def test_perform_cleanup_no_records(self, mock_settings, mock_client_class):
-        """Test cleanup when no records exist."""
-        # Configure default settings and override expire time for this specific test
-        self.configure_default_settings(mock_settings)
-        mock_settings.CONTROLLER_PRESENTATION_EXPIRE_TIME = 10
+    async def test_failed_deletions_do_not_cause_infinite_loop(self):
+        records = [pres(f"old-{i}", OLD) for i in range(PAGE_SIZE + 10)]
+        fake = FakeAcapy(presentations=records, fail_ids={"old-0", "old-1"})
 
-        # Configure mock client
-        mock_client = self.configure_mock_client(mock_client_class)
+        stats = await run_cleanup(fake)
 
-        mock_client.get_all_presentation_records = AsyncMock(return_value=[])
-        mock_client.get_connections_batched = MagicMock(return_value=_batch_gen([]))
+        assert stats["failed_cleanups"] == 2
+        assert stats["cleaned_presentation_records"] == len(records) - 2
+        assert {r["pres_ex_id"] for r in fake.store["pres"]} == {"old-0", "old-1"}
 
-        # Act
-        result = await perform_cleanup(MagicMock())
 
-        # Assert using utility
-        self.assert_cleanup_stats(
-            result,
-            expected_total_presentations=0,
-            expected_cleaned_presentations=0,
-            expected_total_connections=0,
-            expected_cleaned_connections=0,
-            expected_failed_cleanups=0,
-            expected_error_count=0,
+class TestOobRecords:
+    @pytest.mark.asyncio
+    async def test_unused_invitations_deleted_after_expiry(self):
+        fake = FakeAcapy(
+            oob_records=[oob("expired", EXPIRED), oob("fresh", FRESH)],
         )
 
-    @patch("api.services.cleanup.AcapyClient")
-    @patch("api.services.cleanup.settings")
+        stats = await run_cleanup(fake)
+
+        assert fake.deleted["oob"] == ["expired"]
+        assert stats["cleaned_oob_records"] == 1
+
     @pytest.mark.asyncio
-    async def test_perform_cleanup_deletion_failures(
-        self, mock_settings, mock_client_class
+    async def test_used_invitations_deleted_only_after_retention(self):
+        fake = FakeAcapy(
+            oob_records=[
+                oob("done-recent", EXPIRED, state="done"),
+                oob("done-old", OLD, state="done"),
+            ],
+        )
+
+        await run_cleanup(fake)
+
+        assert fake.deleted["oob"] == ["done-old"]
+
+    @pytest.mark.asyncio
+    async def test_multi_use_invitations_are_never_deleted(self):
+        fake = FakeAcapy(oob_records=[oob("multi", OLD, multi_use=True)])
+
+        await run_cleanup(fake)
+
+        assert fake.deleted["oob"] == []
+
+    @pytest.mark.asyncio
+    async def test_invitations_linked_to_a_connection_wait_for_retention(self):
+        fake = FakeAcapy(
+            oob_records=[
+                oob("linked-expired", EXPIRED, connection_id="conn-1"),
+                oob("linked-old", OLD, connection_id="conn-2"),
+            ],
+        )
+
+        await run_cleanup(fake)
+
+        assert fake.deleted["oob"] == ["linked-old"]
+
+
+class TestConnections:
+    @pytest.mark.asyncio
+    async def test_unused_invitations_deleted_after_expiry(self):
+        fake = FakeAcapy(
+            connections=[conn("expired", EXPIRED), conn("fresh", FRESH)],
+        )
+
+        await run_cleanup(fake)
+
+        assert fake.deleted["conn"] == ["expired"]
+
+    @pytest.mark.asyncio
+    async def test_stuck_connections_in_any_state_deleted_after_retention(self):
+        fake = FakeAcapy(
+            connections=[
+                conn("request-old", OLD, state="request"),
+                conn("active-old", OLD, state="active"),
+                conn("active-recent", EXPIRED, state="active"),
+                conn("response-recent", RECENT, state="response"),
+            ],
+        )
+
+        await run_cleanup(fake)
+
+        assert sorted(fake.deleted["conn"]) == ["active-old", "request-old"]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("mode", ["multi", "static"])
+    async def test_reusable_invitation_connections_are_never_deleted(self, mode):
+        fake = FakeAcapy(
+            connections=[conn("reusable", OLD, state="active", invitation_mode=mode)]
+        )
+
+        await run_cleanup(fake)
+
+        assert fake.deleted["conn"] == []
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("their_role", ["inviter", None])
+    async def test_connections_not_initiated_by_vc_authn_are_never_deleted(
+        self, their_role
     ):
-        """Test handling of deletion failures."""
-        # Configure default settings and override expire time for this specific test
-        self.configure_default_settings(mock_settings)
-        mock_settings.CONTROLLER_PRESENTATION_EXPIRE_TIME = 10
-
-        # Configure mock client
-        mock_client = self.configure_mock_client(mock_client_class)
-
-        # Create test data using utilities
-        timestamps = self.create_test_timestamps()
-        mock_records = [
-            self.create_presentation_record(
-                "old-record-1", timestamps["old_time"], "done"
-            )
-        ]
-
-        mock_client.get_all_presentation_records = AsyncMock(return_value=mock_records)
-        mock_client.get_connections_batched = MagicMock(return_value=_batch_gen([]))
-
-        # Mock deletion failure
-        mock_client.delete_presentation_record_and_connection = AsyncMock(
-            side_effect=Exception("Deletion failed")
+        fake = FakeAcapy(
+            connections=[
+                conn("received", OLD, state="active", their_role=their_role),
+                conn("received-invite", OLD, their_role=their_role),
+            ]
         )
 
-        # Act
-        result = await perform_cleanup(MagicMock())
+        await run_cleanup(fake)
 
-        # Assert using utility
-        self.assert_cleanup_stats(
-            result,
-            expected_total_presentations=1,
-            expected_cleaned_presentations=0,
-            expected_failed_cleanups=1,
-            expected_error_count=1,
-        )
-        assert "Deletion failed" in result["errors"][0]
+        assert fake.deleted["conn"] == []
 
-    @patch("api.services.cleanup.AcapyClient")
-    @patch("api.services.cleanup.settings")
+
+class TestLimitsAndBudget:
     @pytest.mark.asyncio
-    async def test_perform_cleanup_invalid_timestamp(
-        self, mock_settings, mock_client_class
-    ):
-        """Test handling of records with invalid timestamps."""
-        # Arrange
-        mock_settings.CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS = 24
-        mock_settings.CONTROLLER_CLEANUP_MAX_PRESENTATION_RECORDS = 1000
-        mock_settings.CONTROLLER_CLEANUP_MAX_CONNECTIONS = 2000
-        mock_settings.CONTROLLER_PRESENTATION_EXPIRE_TIME = 10
+    async def test_presentation_limit_sets_has_more(self):
+        fake = FakeAcapy(presentations=[pres(f"old-{i}", OLD) for i in range(10)])
 
-        mock_client = Mock()
-        mock_client_class.return_value = mock_client
+        stats = await run_cleanup(fake, max_presentation_records=3)
 
-        mock_records = [
-            {
-                "pres_ex_id": "invalid-record",
-                "created_at": "invalid-timestamp",
-                "state": "done",
-            }
-        ]
+        assert len(fake.deleted["pres"]) == 3
+        assert stats["hit_presentation_limit"] is True
+        assert stats["has_more"] is True
 
-        mock_client.get_all_presentation_records = AsyncMock(return_value=mock_records)
-        mock_client.get_connections_batched = MagicMock(return_value=_batch_gen([]))
-
-        # Act
-        result = await perform_cleanup(MagicMock())
-
-        # Assert
-        assert result["total_presentation_records"] == 1
-        assert result["cleaned_presentation_records"] == 0
-        assert (
-            result["failed_cleanups"] == 0
-        )  # Invalid timestamps are handled gracefully, not counted as failures
-        assert (
-            len(result["errors"]) == 0
-        )  # No errors added to the error list for invalid timestamps
-
-    @patch("api.services.cleanup.AcapyClient")
-    @patch("api.services.cleanup.settings")
     @pytest.mark.asyncio
-    async def test_perform_cleanup_api_exception(
-        self, mock_settings, mock_client_class
-    ):
-        """Test handling of API exceptions during record retrieval."""
-        # Arrange
-        mock_settings.CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS = 24
-        mock_settings.CONTROLLER_CLEANUP_MAX_PRESENTATION_RECORDS = 1000
-        mock_settings.CONTROLLER_CLEANUP_MAX_CONNECTIONS = 2000
-        mock_settings.CONTROLLER_PRESENTATION_EXPIRE_TIME = 10
-
-        mock_client = Mock()
-        mock_client_class.return_value = mock_client
-        mock_client.get_all_presentation_records = AsyncMock(
-            side_effect=Exception("API Error")
+    async def test_connection_limit_applies_to_oob_and_connection_phases(self):
+        fake = FakeAcapy(
+            oob_records=[oob(f"oob-{i}", EXPIRED) for i in range(5)],
+            connections=[conn(f"conn-{i}", EXPIRED) for i in range(5)],
         )
 
-        # Act
-        result = await perform_cleanup(MagicMock())
+        stats = await run_cleanup(fake, max_connections=2)
 
-        # Assert - function should handle exception gracefully and return error stats
-        assert result["failed_cleanups"] == 0  # No records were processed
-        assert len(result["errors"]) == 1
-        assert (
-            "API Error" in result["errors"][0]
-            or "Cleanup operation failed" in result["errors"][0]
+        assert len(fake.deleted["oob"]) == 2
+        assert len(fake.deleted["conn"]) == 2
+        assert stats["hit_connection_limit"] is True
+        assert stats["has_more"] is True
+
+    @pytest.mark.asyncio
+    async def test_time_budget_stops_cleanup(self):
+        fake = FakeAcapy(
+            presentations=[pres(f"old-{i}", OLD) for i in range(PAGE_SIZE * 3)],
+            connections=[conn("expired", EXPIRED)],
+        )
+        clock = iter([0, 0, 0, 1000, 1000, 1000, 1000])
+        settings = make_settings(CONTROLLER_CLEANUP_MAX_DURATION_SECONDS=10)
+        fake_time = SimpleNamespace(monotonic=lambda: next(clock))
+
+        with patch.object(cleanup_module, "time", fake_time):
+            stats = await run_cleanup(fake, settings=settings)
+
+        assert stats["hit_time_budget"] is True
+        assert stats["has_more"] is True
+        assert len(fake.deleted["pres"]) == PAGE_SIZE
+        assert fake.deleted["conn"] == []
+
+    @pytest.mark.asyncio
+    async def test_deletes_run_with_bounded_concurrency(self):
+        fake = FakeAcapy(
+            presentations=[pres(f"old-{i}", OLD) for i in range(40)],
+            delete_delay=0.005,
+        )
+        settings = make_settings(CONTROLLER_CLEANUP_CONCURRENCY=3)
+
+        await run_cleanup(fake, settings=settings)
+
+        assert fake.max_in_flight == 3
+        assert fake.store["pres"] == []
+
+
+class TestDryRun:
+    @pytest.mark.asyncio
+    async def test_dry_run_reports_without_deleting(self):
+        fake = FakeAcapy(
+            presentations=[pres("old", OLD), pres("recent", RECENT)],
+            oob_records=[oob("expired", EXPIRED)],
+            connections=[conn("expired", EXPIRED)],
         )
 
-    def test_cleanup_timestamp_parsing_variations(self):
-        """Test different timestamp format parsing."""
-        # Test various ISO format variations that ACA-Py might return
-        test_cases = [
-            "2024-01-01T12:00:00Z",  # UTC with Z
-            "2024-01-01T12:00:00+00:00",  # UTC with offset
-            "2024-01-01T12:00:00.123456Z",  # With microseconds and Z
-            "2024-01-01T12:00:00.123456+00:00",  # With microseconds and offset
-        ]
+        stats = await run_cleanup(fake, dry_run=True)
 
-        from api.services.cleanup import _parse_record_timestamp
+        assert fake.deleted == {"pres": [], "oob": [], "conn": []}
+        assert stats["cleaned_presentation_records"] == 1
+        assert stats["cleaned_oob_records"] == 1
+        assert stats["cleaned_connections"] == 1
 
-        for timestamp_str in test_cases:
-            # Test that our parsing logic handles these formats
+    @pytest.mark.asyncio
+    async def test_dry_run_paginates_through_all_records(self):
+        fake = FakeAcapy(presentations=[pres(f"old-{i}", OLD) for i in range(250)])
+
+        stats = await run_cleanup(fake, dry_run=True)
+
+        assert stats["total_presentation_records"] == 250
+        assert stats["cleaned_presentation_records"] == 250
+
+
+class TestErrorHandling:
+    @pytest.mark.asyncio
+    async def test_listing_failure_does_not_stop_other_phases(self):
+        fake = FakeAcapy(
+            presentations=[pres("old", OLD)],
+            connections=[conn("expired", EXPIRED)],
+            failing_phases={"pres"},
+        )
+
+        stats = await run_cleanup(fake)
+
+        assert fake.deleted["conn"] == ["expired"]
+        assert stats["has_more"] is True
+        assert any("presentation_records" in e for e in stats["errors"])
+
+    @pytest.mark.asyncio
+    async def test_reported_errors_are_capped(self):
+        records = [pres(f"old-{i}", OLD) for i in range(MAX_REPORTED_ERRORS + 20)]
+        fake = FakeAcapy(
+            presentations=records, fail_ids={r["pres_ex_id"] for r in records}
+        )
+
+        stats = await run_cleanup(fake)
+
+        assert stats["failed_cleanups"] == len(records)
+        assert len(stats["errors"]) == MAX_REPORTED_ERRORS
+
+
+class TestNonBlocking:
+    @pytest.mark.asyncio
+    async def test_event_loop_stays_responsive_during_cleanup(self):
+        fake = FakeAcapy(
+            presentations=[pres(f"old-{i}", OLD) for i in range(50)],
+            delete_delay=0.002,
+        )
+        ticks = []
+        done = asyncio.Event()
+
+        async def ticker():
+            while not done.is_set():
+                start = asyncio.get_running_loop().time()
+                await asyncio.sleep(0.005)
+                ticks.append(asyncio.get_running_loop().time() - start)
+
+        async def cleanup():
             try:
-                result = _parse_record_timestamp(timestamp_str, "test-record-id")
-                assert isinstance(result, datetime)
-                # All test cases should represent the same moment in time
-                expected = datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
-                # Allow for microsecond differences
-                assert abs((result - expected).total_seconds()) < 1
-            except Exception as e:
-                pytest.fail(f"Failed to parse timestamp '{timestamp_str}': {e}")
+                await run_cleanup(fake)
+            finally:
+                done.set()
 
+        await asyncio.gather(cleanup(), ticker())
 
-class TestCleanupConfigurationValidation:
-    """Test cleanup configuration validation."""
-
-    @patch("api.services.cleanup.settings")
-    def test_validate_cleanup_configuration_success(self, mock_settings):
-        """Test successful configuration validation with valid settings."""
-        from api.services.cleanup import validate_cleanup_configuration
-
-        # Arrange - set all valid settings
-        mock_settings.CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS = 24
-        mock_settings.CONTROLLER_CLEANUP_MAX_PRESENTATION_RECORDS = 1000
-        mock_settings.CONTROLLER_CLEANUP_MAX_CONNECTIONS = 2000
-        mock_settings.CONTROLLER_PRESENTATION_EXPIRE_TIME = 600
-
-        # Act & Assert - should not raise any exception
-        validate_cleanup_configuration()
-
-    @patch("api.services.cleanup.settings")
-    def test_validate_cleanup_configuration_negative_retention_hours(
-        self, mock_settings
-    ):
-        """Test validation failure with negative retention hours."""
-        from api.services.cleanup import validate_cleanup_configuration
-
-        # Arrange
-        mock_settings.CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS = -1
-        mock_settings.CONTROLLER_CLEANUP_MAX_PRESENTATION_RECORDS = 1000
-        mock_settings.CONTROLLER_CLEANUP_MAX_CONNECTIONS = 2000
-        mock_settings.CONTROLLER_PRESENTATION_EXPIRE_TIME = 600
-
-        # Act & Assert
-        with pytest.raises(ValueError) as exc_info:
-            validate_cleanup_configuration()
-
-        error_msg = str(exc_info.value)
-        assert (
-            "CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS must be positive"
-            in error_msg
-        )
-        assert "got -1" in error_msg
-
-    @patch("api.services.cleanup.settings")
-    def test_validate_cleanup_configuration_zero_retention_hours(self, mock_settings):
-        """Test validation failure with zero retention hours."""
-        from api.services.cleanup import validate_cleanup_configuration
-
-        # Arrange
-        mock_settings.CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS = 0
-        mock_settings.CONTROLLER_CLEANUP_MAX_PRESENTATION_RECORDS = 1000
-        mock_settings.CONTROLLER_CLEANUP_MAX_CONNECTIONS = 2000
-        mock_settings.CONTROLLER_PRESENTATION_EXPIRE_TIME = 600
-
-        # Act & Assert
-        with pytest.raises(ValueError) as exc_info:
-            validate_cleanup_configuration()
-
-        error_msg = str(exc_info.value)
-        assert (
-            "CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS must be positive"
-            in error_msg
-        )
-        assert "got 0" in error_msg
-
-    @patch("api.services.cleanup.settings")
-    def test_validate_cleanup_configuration_invalid_max_presentation_records_too_low(
-        self, mock_settings
-    ):
-        """Test validation failure with max presentation records too low."""
-        from api.services.cleanup import validate_cleanup_configuration
-
-        # Arrange
-        mock_settings.CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS = 24
-        mock_settings.CONTROLLER_CLEANUP_MAX_PRESENTATION_RECORDS = 0
-        mock_settings.CONTROLLER_CLEANUP_MAX_CONNECTIONS = 2000
-        mock_settings.CONTROLLER_PRESENTATION_EXPIRE_TIME = 600
-
-        # Act & Assert
-        with pytest.raises(ValueError) as exc_info:
-            validate_cleanup_configuration()
-
-        error_msg = str(exc_info.value)
-        assert (
-            "CONTROLLER_CLEANUP_MAX_PRESENTATION_RECORDS must be between 1 and 10000"
-            in error_msg
-        )
-        assert "got 0" in error_msg
-
-    @patch("api.services.cleanup.settings")
-    def test_validate_cleanup_configuration_invalid_max_presentation_records_too_high(
-        self, mock_settings
-    ):
-        """Test validation failure with max presentation records too high."""
-        from api.services.cleanup import validate_cleanup_configuration
-
-        # Arrange
-        mock_settings.CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS = 24
-        mock_settings.CONTROLLER_CLEANUP_MAX_PRESENTATION_RECORDS = 15000
-        mock_settings.CONTROLLER_CLEANUP_MAX_CONNECTIONS = 2000
-        mock_settings.CONTROLLER_PRESENTATION_EXPIRE_TIME = 600
-
-        # Act & Assert
-        with pytest.raises(ValueError) as exc_info:
-            validate_cleanup_configuration()
-
-        error_msg = str(exc_info.value)
-        assert (
-            "CONTROLLER_CLEANUP_MAX_PRESENTATION_RECORDS must be between 1 and 10000"
-            in error_msg
-        )
-        assert "got 15000" in error_msg
-
-    @patch("api.services.cleanup.settings")
-    def test_validate_cleanup_configuration_invalid_max_connections_too_low(
-        self, mock_settings
-    ):
-        """Test validation failure with max connections too low."""
-        from api.services.cleanup import validate_cleanup_configuration
-
-        # Arrange
-        mock_settings.CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS = 24
-        mock_settings.CONTROLLER_CLEANUP_MAX_PRESENTATION_RECORDS = 1000
-        mock_settings.CONTROLLER_CLEANUP_MAX_CONNECTIONS = 0
-        mock_settings.CONTROLLER_PRESENTATION_EXPIRE_TIME = 600
-
-        # Act & Assert
-        with pytest.raises(ValueError) as exc_info:
-            validate_cleanup_configuration()
-
-        error_msg = str(exc_info.value)
-        assert (
-            "CONTROLLER_CLEANUP_MAX_CONNECTIONS must be between 1 and 20000"
-            in error_msg
-        )
-        assert "got 0" in error_msg
-
-    @patch("api.services.cleanup.settings")
-    def test_validate_cleanup_configuration_invalid_max_connections_too_high(
-        self, mock_settings
-    ):
-        """Test validation failure with max connections too high."""
-        from api.services.cleanup import validate_cleanup_configuration
-
-        # Arrange
-        mock_settings.CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS = 24
-        mock_settings.CONTROLLER_CLEANUP_MAX_PRESENTATION_RECORDS = 1000
-        mock_settings.CONTROLLER_CLEANUP_MAX_CONNECTIONS = 25000
-        mock_settings.CONTROLLER_PRESENTATION_EXPIRE_TIME = 600
-
-        # Act & Assert
-        with pytest.raises(ValueError) as exc_info:
-            validate_cleanup_configuration()
-
-        error_msg = str(exc_info.value)
-        assert (
-            "CONTROLLER_CLEANUP_MAX_CONNECTIONS must be between 1 and 20000"
-            in error_msg
-        )
-        assert "got 25000" in error_msg
-
-    @patch("api.services.cleanup.settings")
-    def test_validate_cleanup_configuration_negative_expire_time(self, mock_settings):
-        """Test validation failure with negative expire time."""
-        from api.services.cleanup import validate_cleanup_configuration
-
-        # Arrange
-        mock_settings.CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS = 24
-        mock_settings.CONTROLLER_CLEANUP_MAX_PRESENTATION_RECORDS = 1000
-        mock_settings.CONTROLLER_CLEANUP_MAX_CONNECTIONS = 2000
-        mock_settings.CONTROLLER_PRESENTATION_EXPIRE_TIME = -10
-
-        # Act & Assert
-        with pytest.raises(ValueError) as exc_info:
-            validate_cleanup_configuration()
-
-        error_msg = str(exc_info.value)
-        assert "CONTROLLER_PRESENTATION_EXPIRE_TIME must be positive" in error_msg
-        assert "got -10" in error_msg
-
-    @patch("api.services.cleanup.settings")
-    def test_validate_cleanup_configuration_zero_expire_time(self, mock_settings):
-        """Test validation failure with zero expire time."""
-        from api.services.cleanup import validate_cleanup_configuration
-
-        # Arrange
-        mock_settings.CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS = 24
-        mock_settings.CONTROLLER_CLEANUP_MAX_PRESENTATION_RECORDS = 1000
-        mock_settings.CONTROLLER_CLEANUP_MAX_CONNECTIONS = 2000
-        mock_settings.CONTROLLER_PRESENTATION_EXPIRE_TIME = 0
-
-        # Act & Assert
-        with pytest.raises(ValueError) as exc_info:
-            validate_cleanup_configuration()
-
-        error_msg = str(exc_info.value)
-        assert "CONTROLLER_PRESENTATION_EXPIRE_TIME must be positive" in error_msg
-        assert "got 0" in error_msg
-
-    @patch("api.services.cleanup.settings")
-    def test_validate_cleanup_configuration_multiple_errors(self, mock_settings):
-        """Test validation failure with multiple configuration errors."""
-        from api.services.cleanup import validate_cleanup_configuration
-
-        # Arrange - set multiple invalid values
-        mock_settings.CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS = -5
-        mock_settings.CONTROLLER_CLEANUP_MAX_PRESENTATION_RECORDS = 15000
-        mock_settings.CONTROLLER_CLEANUP_MAX_CONNECTIONS = 0
-        mock_settings.CONTROLLER_PRESENTATION_EXPIRE_TIME = -100
-
-        # Act & Assert
-        with pytest.raises(ValueError) as exc_info:
-            validate_cleanup_configuration()
-
-        error_msg = str(exc_info.value)
-        # All error messages should be present
-        assert (
-            "CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS must be positive"
-            in error_msg
-        )
-        assert (
-            "CONTROLLER_CLEANUP_MAX_PRESENTATION_RECORDS must be between 1 and 10000"
-            in error_msg
-        )
-        assert (
-            "CONTROLLER_CLEANUP_MAX_CONNECTIONS must be between 1 and 20000"
-            in error_msg
-        )
-        assert "CONTROLLER_PRESENTATION_EXPIRE_TIME must be positive" in error_msg
-
-    @patch("api.services.cleanup.settings")
-    def test_validate_cleanup_configuration_boundary_values(self, mock_settings):
-        """Test validation with boundary values that should be valid."""
-        from api.services.cleanup import validate_cleanup_configuration
-
-        # Test minimum valid values
-        mock_settings.CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS = 1
-        mock_settings.CONTROLLER_CLEANUP_MAX_PRESENTATION_RECORDS = 1
-        mock_settings.CONTROLLER_CLEANUP_MAX_CONNECTIONS = 1
-        mock_settings.CONTROLLER_PRESENTATION_EXPIRE_TIME = 1
-
-        # Should not raise exception
-        validate_cleanup_configuration()
-
-        # Test maximum valid values
-        mock_settings.CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS = (
-            999999  # No upper limit defined
-        )
-        mock_settings.CONTROLLER_CLEANUP_MAX_PRESENTATION_RECORDS = 10000
-        mock_settings.CONTROLLER_CLEANUP_MAX_CONNECTIONS = 20000
-        mock_settings.CONTROLLER_PRESENTATION_EXPIRE_TIME = (
-            999999  # No upper limit defined
-        )
-
-        # Should not raise exception
-        validate_cleanup_configuration()
-
-
-class TestCleanupResourceLimits:
-    """Test cleanup function behavior with resource limits."""
-
-    @patch("api.services.cleanup.AcapyClient")
-    @patch("api.services.cleanup.settings")
-    @pytest.mark.asyncio
-    async def test_perform_cleanup_hits_presentation_limit(
-        self, mock_settings, mock_client_class
-    ):
-        """Test cleanup behavior when hitting presentation record limit."""
-        # Arrange
-        mock_settings.CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS = 24
-        mock_settings.CONTROLLER_CLEANUP_MAX_PRESENTATION_RECORDS = (
-            2  # Low limit to trigger
-        )
-        mock_settings.CONTROLLER_CLEANUP_MAX_CONNECTIONS = 2000
-        mock_settings.CONTROLLER_PRESENTATION_EXPIRE_TIME = 10
-
-        mock_client = Mock()
-        mock_client_class.return_value = mock_client
-
-        # Create 5 old records, but limit should stop at 2
-        old_time = datetime.now(UTC) - timedelta(hours=25)
-        mock_records = []
-        for i in range(5):
-            mock_records.append(
-                {
-                    "pres_ex_id": f"old-record-{i}",
-                    "created_at": old_time.isoformat().replace("+00:00", "Z"),
-                    "state": "done",
-                }
-            )
-
-        mock_client.get_all_presentation_records = AsyncMock(return_value=mock_records)
-        mock_client.get_connections_batched = MagicMock(return_value=_batch_gen([]))
-        mock_client.delete_presentation_record_and_connection = AsyncMock(
-            return_value=(True, False, [])
-        )
-
-        # Act
-        result = await perform_cleanup(MagicMock())
-
-        # Assert
-        assert result["total_presentation_records"] == 5
-        assert result["cleaned_presentation_records"] == 2  # Hit the limit
-        assert result["hit_presentation_limit"] is True
-        assert result["hit_connection_limit"] is False
-        assert result["failed_cleanups"] == 0
-
-        # Verify only 2 deletions were called
-        assert mock_client.delete_presentation_record_and_connection.call_count == 2
-
-    @patch("api.services.cleanup.AcapyClient")
-    @patch("api.services.cleanup.settings")
-    @pytest.mark.asyncio
-    async def test_perform_cleanup_hits_connection_limit(
-        self, mock_settings, mock_client_class
-    ):
-        """Test cleanup behavior when hitting connection limit."""
-        # Arrange
-        mock_settings.CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS = 24
-        mock_settings.CONTROLLER_CLEANUP_MAX_PRESENTATION_RECORDS = 1000
-        mock_settings.CONTROLLER_CLEANUP_MAX_CONNECTIONS = 2  # Low limit to trigger
-        mock_settings.CONTROLLER_PRESENTATION_EXPIRE_TIME = 10
-
-        mock_client = Mock()
-        mock_client_class.return_value = mock_client
-
-        # Create 5 expired connections, but limit should stop at 2
-        expired_time = datetime.now(UTC) - timedelta(seconds=30)
-        mock_connections = []
-        for i in range(5):
-            mock_connections.append(
-                {
-                    "connection_id": f"expired-conn-{i}",
-                    "created_at": expired_time.isoformat().replace("+00:00", "Z"),
-                    "invitation_key": f"key{i}",
-                    "state": "invitation",
-                }
-            )
-
-        mock_client.get_all_presentation_records = AsyncMock(return_value=[])
-        mock_client.get_connections_batched = MagicMock(
-            return_value=_batch_gen([mock_connections])
-        )
-        mock_client.delete_connection = AsyncMock(return_value=True)
-
-        # Act
-        result = await perform_cleanup(MagicMock())
-
-        # Assert
-        assert result["total_connections"] == 5
-        assert result["cleaned_connections"] == 2  # Hit the limit
-        assert result["hit_presentation_limit"] is False
-        assert result["hit_connection_limit"] is True
-        assert result["failed_cleanups"] == 0
-
-        # Verify only 2 deletions were called
-        assert mock_client.delete_connection.call_count == 2
-
-    @patch("api.services.cleanup.AcapyClient")
-    @patch("api.services.cleanup.settings")
-    @pytest.mark.asyncio
-    async def test_perform_cleanup_dry_run_mode(self, mock_settings, mock_client_class):
-        """Test dry_run=True reports what would be deleted without calling delete APIs."""
-        # Arrange
-        mock_settings.CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS = 24
-        mock_settings.CONTROLLER_CLEANUP_MAX_PRESENTATION_RECORDS = 1000
-        mock_settings.CONTROLLER_CLEANUP_MAX_CONNECTIONS = 2000
-        mock_settings.CONTROLLER_PRESENTATION_EXPIRE_TIME = 10
-
-        mock_client = Mock()
-        mock_client_class.return_value = mock_client
-
-        old_time = datetime.now(UTC) - timedelta(hours=25)
-        expired_connection_time = datetime.now(UTC) - timedelta(seconds=30)
-
-        mock_records = [
-            {
-                "pres_ex_id": "old-record-1",
-                "created_at": old_time.isoformat().replace("+00:00", "Z"),
-                "state": "done",
-            }
-        ]
-
-        mock_connections = [
-            {
-                "connection_id": "expired-conn-1",
-                "created_at": expired_connection_time.isoformat().replace(
-                    "+00:00", "Z"
-                ),
-                "invitation_key": "key1",
-                "state": "invitation",
-            }
-        ]
-
-        mock_client.get_all_presentation_records = AsyncMock(return_value=mock_records)
-        mock_client.get_connections_batched = MagicMock(
-            return_value=_batch_gen([mock_connections])
-        )
-        mock_client.delete_presentation_record_and_connection = AsyncMock(
-            return_value=(True, False, [])
-        )
-        mock_client.delete_connection = AsyncMock(return_value=True)
-
-        # Act
-        result = await perform_cleanup(MagicMock(), dry_run=True)
-
-        # Assert - counts reflect what would be cleaned, but no actual deletions made
-        assert result["total_presentation_records"] == 1
-        assert result["cleaned_presentation_records"] == 1
-        assert result["total_connections"] == 1
-        assert result["cleaned_connections"] == 1
-        assert result["failed_cleanups"] == 0
-
-        # Verify no actual deletions were made
-        mock_client.delete_presentation_record_and_connection.assert_not_called()
-        mock_client.delete_connection.assert_not_called()
-
-    @patch("api.services.cleanup.AcapyClient")
-    @patch("api.services.cleanup.settings")
-    @pytest.mark.asyncio
-    async def test_perform_cleanup_with_custom_limits(
-        self, mock_settings, mock_client_class
-    ):
-        """Test that caller-provided limits override settings defaults."""
-        # Arrange - settings have high defaults; caller passes lower limits
-        mock_settings.CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS = 24
-        mock_settings.CONTROLLER_CLEANUP_MAX_PRESENTATION_RECORDS = 1000
-        mock_settings.CONTROLLER_CLEANUP_MAX_CONNECTIONS = 2000
-        mock_settings.CONTROLLER_PRESENTATION_EXPIRE_TIME = 10
-
-        mock_client = Mock()
-        mock_client_class.return_value = mock_client
-
-        # Create 5 old records and 5 expired connections
-        old_time = datetime.now(UTC) - timedelta(hours=25)
-        expired_time = datetime.now(UTC) - timedelta(seconds=30)
-
-        mock_records = []
-        for i in range(5):
-            mock_records.append(
-                {
-                    "pres_ex_id": f"old-record-{i}",
-                    "created_at": old_time.isoformat().replace("+00:00", "Z"),
-                    "state": "done",
-                }
-            )
-
-        mock_connections = []
-        for i in range(5):
-            mock_connections.append(
-                {
-                    "connection_id": f"expired-conn-{i}",
-                    "created_at": expired_time.isoformat().replace("+00:00", "Z"),
-                    "invitation_key": f"key{i}",
-                    "state": "invitation",
-                }
-            )
-
-        mock_client.get_all_presentation_records = AsyncMock(return_value=mock_records)
-        mock_client.get_connections_batched = MagicMock(
-            return_value=_batch_gen([mock_connections])
-        )
-        mock_client.delete_presentation_record_and_connection = AsyncMock(
-            return_value=(True, False, [])
-        )
-        mock_client.delete_connection = AsyncMock(return_value=True)
-
-        # Act - caller overrides to lower limits
-        result = await perform_cleanup(
-            MagicMock(), max_presentation_records=3, max_connections=2
-        )
-
-        # Assert - custom limits are respected: only 3 records and 2 connections processed
-        assert result["total_presentation_records"] == 5
-        assert result["cleaned_presentation_records"] == 3
-        assert result["total_connections"] == 5
-        assert result["cleaned_connections"] == 2
-        assert result["hit_presentation_limit"] is True
-        assert result["hit_connection_limit"] is True
-
-        assert mock_client.delete_presentation_record_and_connection.call_count == 3
-        assert mock_client.delete_connection.call_count == 2
-
-
-class TestCleanupServiceErrorScenarios:
-    """Test cleanup service error handling and edge cases."""
-
-    @patch("api.services.cleanup.AcapyClient")
-    @patch("api.services.cleanup.settings")
-    @pytest.mark.asyncio
-    async def test_perform_cleanup_connection_deletion_failures(
-        self, mock_settings, mock_client_class
-    ):
-        """Test handling of connection deletion failures."""
-        # Arrange
-        mock_settings.CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS = 24
-        mock_settings.CONTROLLER_CLEANUP_MAX_PRESENTATION_RECORDS = 1000
-        mock_settings.CONTROLLER_CLEANUP_MAX_CONNECTIONS = 2000
-        mock_settings.CONTROLLER_PRESENTATION_EXPIRE_TIME = 10
-
-        mock_client = Mock()
-        mock_client_class.return_value = mock_client
-
-        # Setup expired connections
-        expired_time = datetime.now(UTC) - timedelta(seconds=30)
-        mock_connections = [
-            {
-                "connection_id": "expired-conn-1",
-                "created_at": expired_time.isoformat().replace("+00:00", "Z"),
-                "invitation_key": "key1",
-                "state": "invitation",
-            }
-        ]
-
-        mock_client.get_all_presentation_records = AsyncMock(return_value=[])
-        mock_client.get_connections_batched = MagicMock(
-            return_value=_batch_gen([mock_connections])
-        )
-
-        # Mock connection deletion failure
-        mock_client.delete_connection = AsyncMock(
-            side_effect=Exception("Connection deletion failed")
-        )
-
-        # Act
-        result = await perform_cleanup(MagicMock())
-
-        # Assert
-        assert result["total_connections"] == 1
-        assert result["cleaned_connections"] == 0  # Failed to clean
-        assert result["failed_cleanups"] == 1
-        assert len(result["errors"]) == 1
-        assert "Connection deletion failed" in result["errors"][0]
-
-    @patch("api.services.cleanup.AcapyClient")
-    @patch("api.services.cleanup.settings")
-    @pytest.mark.asyncio
-    async def test_perform_cleanup_mixed_success_and_failures(
-        self, mock_settings, mock_client_class
-    ):
-        """Test cleanup with some successes and some failures."""
-        # Arrange
-        mock_settings.CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS = 24
-        mock_settings.CONTROLLER_CLEANUP_MAX_PRESENTATION_RECORDS = 1000
-        mock_settings.CONTROLLER_CLEANUP_MAX_CONNECTIONS = 2000
-        mock_settings.CONTROLLER_PRESENTATION_EXPIRE_TIME = 10
-
-        mock_client = Mock()
-        mock_client_class.return_value = mock_client
-
-        # Setup old presentation records
-        old_time = datetime.now(UTC) - timedelta(hours=25)
-        mock_records = [
-            {
-                "pres_ex_id": "record-1",
-                "created_at": old_time.isoformat().replace("+00:00", "Z"),
-                "state": "done",
-            },
-            {
-                "pres_ex_id": "record-2",
-                "created_at": old_time.isoformat().replace("+00:00", "Z"),
-                "state": "done",
-            },
-        ]
-
-        # Setup expired connections
-        expired_time = datetime.now(UTC) - timedelta(seconds=30)
-        mock_connections = [
-            {
-                "connection_id": "conn-1",
-                "created_at": expired_time.isoformat().replace("+00:00", "Z"),
-                "invitation_key": "key1",
-                "state": "invitation",
-            },
-            {
-                "connection_id": "conn-2",
-                "created_at": expired_time.isoformat().replace("+00:00", "Z"),
-                "invitation_key": "key2",
-                "state": "invitation",
-            },
-        ]
-
-        mock_client.get_all_presentation_records = AsyncMock(return_value=mock_records)
-        mock_client.get_connections_batched = MagicMock(
-            return_value=_batch_gen([mock_connections])
-        )
-
-        # Mock mixed success/failure for presentations
-        def presentation_side_effect(pres_ex_id, connection_id):
-            if pres_ex_id == "record-1":
-                return (True, False, [])  # Success
-            else:
-                raise Exception(f"Failed to delete {pres_ex_id}")
-
-        mock_client.delete_presentation_record_and_connection = AsyncMock(
-            side_effect=presentation_side_effect
-        )
-
-        # Mock mixed success/failure for connections
-        def connection_side_effect(connection_id):
-            if connection_id == "conn-1":
-                return True  # Success
-            else:
-                raise Exception(f"Failed to delete {connection_id}")
-
-        mock_client.delete_connection = AsyncMock(side_effect=connection_side_effect)
-
-        # Act
-        result = await perform_cleanup(MagicMock())
-
-        # Assert
-        assert result["total_presentation_records"] == 2
-        assert result["cleaned_presentation_records"] == 1  # One success
-        assert result["total_connections"] == 2
-        assert result["cleaned_connections"] == 1  # One success
-        assert result["failed_cleanups"] == 2  # Two failures total
-        assert len(result["errors"]) == 2
-        assert "Failed to delete record-2" in result["errors"][0]
-        assert "Failed to delete conn-2" in result["errors"][1]
-
-    @patch("api.services.cleanup.AcapyClient")
-    @patch("api.services.cleanup.settings")
-    @pytest.mark.asyncio
-    async def test_perform_cleanup_empty_results_edge_cases(
-        self, mock_settings, mock_client_class
-    ):
-        """Test cleanup behavior with various empty result scenarios."""
-        # Arrange
-        mock_settings.CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS = 24
-        mock_settings.CONTROLLER_CLEANUP_MAX_PRESENTATION_RECORDS = 1000
-        mock_settings.CONTROLLER_CLEANUP_MAX_CONNECTIONS = 2000
-        mock_settings.CONTROLLER_PRESENTATION_EXPIRE_TIME = 10
-
-        mock_client = Mock()
-        mock_client_class.return_value = mock_client
-
-        # Test with empty lists returned
-        mock_client.get_all_presentation_records = AsyncMock(return_value=[])
-        mock_client.get_connections_batched = MagicMock(return_value=_batch_gen([]))
-
-        # Act
-        result = await perform_cleanup(MagicMock())
-
-        # Assert
-        assert result["total_presentation_records"] == 0
-        assert result["cleaned_presentation_records"] == 0
-        assert result["total_connections"] == 0
-        assert result["cleaned_connections"] == 0
-        assert result["failed_cleanups"] == 0
-        assert len(result["errors"]) == 0
-        assert result["hit_presentation_limit"] is False
-        assert result["hit_connection_limit"] is False
-
-    @patch("api.services.cleanup.AcapyClient")
-    @patch("api.services.cleanup.settings")
-    @pytest.mark.asyncio
-    async def test_perform_cleanup_partial_deletion_results(
-        self, mock_settings, mock_client_class
-    ):
-        """Test cleanup when ACA-Py returns partial deletion results."""
-        # Arrange
-        mock_settings.CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS = 24
-        mock_settings.CONTROLLER_CLEANUP_MAX_PRESENTATION_RECORDS = 1000
-        mock_settings.CONTROLLER_CLEANUP_MAX_CONNECTIONS = 2000
-        mock_settings.CONTROLLER_PRESENTATION_EXPIRE_TIME = 10
-
-        mock_client = Mock()
-        mock_client_class.return_value = mock_client
-
-        old_time = datetime.now(UTC) - timedelta(hours=25)
-        mock_records = [
-            {
-                "pres_ex_id": "old-record-1",
-                "created_at": old_time.isoformat().replace("+00:00", "Z"),
-                "state": "done",
-            }
-        ]
-
-        mock_client.get_all_presentation_records = AsyncMock(return_value=mock_records)
-        mock_client.get_connections_batched = MagicMock(return_value=_batch_gen([]))
-
-        # Mock partial deletion success (presentation deleted, but with errors)
-        mock_client.delete_presentation_record_and_connection = AsyncMock(
-            return_value=(
-                True,  # presentation_deleted: True
-                False,  # connection_deleted: False
-                [
-                    "Warning: Connection was already deleted",
-                    "Minor cleanup issue",
-                ],  # errors
-            )
-        )
-
-        # Act
-        result = await perform_cleanup(MagicMock())
-
-        # Assert
-        assert result["total_presentation_records"] == 1
-        assert result["cleaned_presentation_records"] == 1  # Presentation was deleted
-        assert (
-            result["failed_cleanups"] == 0
-        )  # No failures since presentation was deleted
-        assert (
-            len(result["errors"]) == 2
-        )  # Partial success errors are included in errors list
-
-    @patch("api.services.cleanup.AcapyClient")
-    @patch("api.services.cleanup.settings")
-    @pytest.mark.asyncio
-    async def test_perform_cleanup_malformed_timestamps_various_formats(
-        self, mock_settings, mock_client_class
-    ):
-        """Test cleanup with various malformed timestamp formats."""
-        # Arrange
-        mock_settings.CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS = 24
-        mock_settings.CONTROLLER_CLEANUP_MAX_PRESENTATION_RECORDS = 1000
-        mock_settings.CONTROLLER_CLEANUP_MAX_CONNECTIONS = 2000
-        mock_settings.CONTROLLER_PRESENTATION_EXPIRE_TIME = 10
-
-        mock_client = Mock()
-        mock_client_class.return_value = mock_client
-
-        # Various malformed timestamp scenarios
-        mock_records = [
-            {
-                "pres_ex_id": "record-invalid-1",
-                "created_at": "not-a-timestamp",
-                "state": "done",
-            },
-            {
-                "pres_ex_id": "record-invalid-2",
-                "created_at": "",
-                "state": "done",
-            },
-            {
-                "pres_ex_id": "record-no-timestamp",
-                "state": "done",
-                # missing created_at field
-            },
-            {
-                "pres_ex_id": "record-null-timestamp",
-                "created_at": None,
-                "state": "done",
-            },
-        ]
-
-        mock_connections = [
-            {
-                "connection_id": "conn-invalid-1",
-                "created_at": "malformed-date",
-                "invitation_key": "key1",
-                "state": "invitation",
-            },
-            {
-                "connection_id": "conn-invalid-2",
-                "created_at": "2024-13-45T99:99:99Z",  # Invalid date values
-                "invitation_key": "key2",
-                "state": "invitation",
-            },
-        ]
-
-        mock_client.get_all_presentation_records = AsyncMock(return_value=mock_records)
-        mock_client.get_connections_batched = MagicMock(
-            return_value=_batch_gen([mock_connections])
-        )
-
-        # Act
-        result = await perform_cleanup(MagicMock())
-
-        # Assert
-        assert result["total_presentation_records"] == 4
-        assert result["cleaned_presentation_records"] == 0  # All timestamps invalid
-        assert result["total_connections"] == 2
-        assert result["cleaned_connections"] == 0  # All timestamps invalid
-        assert (
-            result["failed_cleanups"] == 3
-        )  # Missing timestamps count as failed cleanups (3 presentation records with missing/null/empty created_at)
-        assert (
-            len(result["errors"]) == 3
-        )  # Missing timestamp errors are included in errors list
-
-    @patch("api.services.cleanup.AcapyClient")
-    @patch("api.services.cleanup.settings")
-    @pytest.mark.asyncio
-    async def test_perform_cleanup_acapy_client_instantiation_failure(
-        self, mock_settings, mock_client_class
-    ):
-        """Test cleanup when ACA-Py client instantiation fails."""
-        # Arrange
-        mock_settings.CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS = 24
-        mock_settings.CONTROLLER_CLEANUP_MAX_PRESENTATION_RECORDS = 1000
-        mock_settings.CONTROLLER_CLEANUP_MAX_CONNECTIONS = 2000
-        mock_settings.CONTROLLER_PRESENTATION_EXPIRE_TIME = 10
-
-        # Mock client instantiation failure
-        mock_client_class.side_effect = Exception("Failed to connect to ACA-Py agent")
-
-        # Act & Assert - Client instantiation failure should raise exception
-        with pytest.raises(Exception) as exc_info:
-            await perform_cleanup(MagicMock())
-
-        assert "Failed to connect to ACA-Py agent" in str(exc_info.value)
-
-    @patch("api.services.cleanup.AcapyClient")
-    @patch("api.services.cleanup.settings")
-    @pytest.mark.asyncio
-    async def test_perform_cleanup_concurrent_modification_scenarios(
-        self, mock_settings, mock_client_class
-    ):
-        """Test cleanup when records are modified during cleanup."""
-        # Arrange
-        mock_settings.CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS = 24
-        mock_settings.CONTROLLER_CLEANUP_MAX_PRESENTATION_RECORDS = 1000
-        mock_settings.CONTROLLER_CLEANUP_MAX_CONNECTIONS = 2000
-        mock_settings.CONTROLLER_PRESENTATION_EXPIRE_TIME = 10
-
-        mock_client = Mock()
-        mock_client_class.return_value = mock_client
-
-        old_time = datetime.now(UTC) - timedelta(hours=25)
-        mock_records = [
-            {
-                "pres_ex_id": "concurrent-record",
-                "created_at": old_time.isoformat().replace("+00:00", "Z"),
-                "state": "done",
-            }
-        ]
-
-        mock_client.get_all_presentation_records = AsyncMock(return_value=mock_records)
-        mock_client.get_connections_batched = MagicMock(return_value=_batch_gen([]))
-
-        # Mock concurrent modification error (record not found during deletion)
-        mock_client.delete_presentation_record_and_connection = AsyncMock(
-            side_effect=Exception(
-                "Presentation record not found - may have been deleted by another process"
-            )
-        )
-
-        # Act
-        result = await perform_cleanup(MagicMock())
-
-        # Assert
-        assert result["total_presentation_records"] == 1
-        assert result["cleaned_presentation_records"] == 0
-        assert result["failed_cleanups"] == 1
-        assert len(result["errors"]) == 1
-        assert (
-            "not found" in result["errors"][0]
-            or "another process" in result["errors"][0]
-        )
-
-    @patch("api.services.cleanup.AcapyClient")
-    @patch("api.services.cleanup.settings")
-    @pytest.mark.asyncio
-    async def test_perform_cleanup_large_error_list_handling(
-        self, mock_settings, mock_client_class
-    ):
-        """Test cleanup behavior when many errors occur."""
-        # Arrange
-        mock_settings.CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS = 24
-        mock_settings.CONTROLLER_CLEANUP_MAX_PRESENTATION_RECORDS = 1000
-        mock_settings.CONTROLLER_CLEANUP_MAX_CONNECTIONS = 2000
-        mock_settings.CONTROLLER_PRESENTATION_EXPIRE_TIME = 10
-
-        mock_client = Mock()
-        mock_client_class.return_value = mock_client
-
-        # Create multiple records that will all fail
-        old_time = datetime.now(UTC) - timedelta(hours=25)
-        mock_records = []
-        for i in range(10):
-            mock_records.append(
-                {
-                    "pres_ex_id": f"record-{i}",
-                    "created_at": old_time.isoformat().replace("+00:00", "Z"),
-                    "state": "done",
-                }
-            )
-
-        mock_client.get_all_presentation_records = AsyncMock(return_value=mock_records)
-        mock_client.get_connections_batched = MagicMock(return_value=_batch_gen([]))
-
-        # Mock all deletions to fail
-        def deletion_side_effect(pres_ex_id, connection_id):
-            raise Exception(f"Deletion failed for {pres_ex_id}")
-
-        mock_client.delete_presentation_record_and_connection = AsyncMock(
-            side_effect=deletion_side_effect
-        )
-
-        # Act
-        result = await perform_cleanup(MagicMock())
-
-        # Assert
-        assert result["total_presentation_records"] == 10
-        assert result["cleaned_presentation_records"] == 0
-        assert result["failed_cleanups"] == 10  # All failed
-        assert len(result["errors"]) == 10  # All errors captured
-        # Verify each error contains the relevant record ID
-        for i, error in enumerate(result["errors"]):
-            assert f"record-{i}" in error
-
-
-class TestCleanupBackgroundIntegration:
-    """Integration tests for background cleanup operations."""
-
-    @patch("api.services.cleanup.AcapyClient")
-    @patch("api.services.cleanup.settings")
-    @pytest.mark.asyncio
-    async def test_cleanup_integration_full_workflow(
-        self, mock_settings, mock_client_class
-    ):
-        """Test complete cleanup workflow with realistic data patterns."""
-        # Arrange
-        mock_settings.CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS = 24
-        mock_settings.CONTROLLER_CLEANUP_MAX_PRESENTATION_RECORDS = 1000
-        mock_settings.CONTROLLER_CLEANUP_MAX_CONNECTIONS = 2000
-        mock_settings.CONTROLLER_PRESENTATION_EXPIRE_TIME = 600
-
-        mock_client = Mock()
-        mock_client_class.return_value = mock_client
-
-        # Create realistic test data with mixed old/recent records
-        old_time = datetime.now(UTC) - timedelta(hours=25)
-        recent_time = datetime.now(UTC) - timedelta(hours=1)
-        expired_connection_time = datetime.now(UTC) - timedelta(seconds=700)
-        recent_connection_time = datetime.now(UTC) - timedelta(seconds=300)
-
-        mock_records = [
-            {
-                "pres_ex_id": "old-record-1",
-                "created_at": old_time.isoformat().replace("+00:00", "Z"),
-                "state": "done",
-            },
-            {
-                "pres_ex_id": "old-record-2",
-                "created_at": old_time.isoformat().replace("+00:00", "Z"),
-                "state": "done",
-            },
-            {
-                "pres_ex_id": "recent-record",
-                "created_at": recent_time.isoformat().replace("+00:00", "Z"),
-                "state": "done",
-            },
-        ]
-
-        mock_connections = [
-            {
-                "connection_id": "expired-conn-1",
-                "created_at": expired_connection_time.isoformat().replace(
-                    "+00:00", "Z"
-                ),
-                "invitation_key": "key1",
-                "state": "invitation",
-            },
-            {
-                "connection_id": "expired-conn-2",
-                "created_at": expired_connection_time.isoformat().replace(
-                    "+00:00", "Z"
-                ),
-                "invitation_key": "key2",
-                "state": "invitation",
-            },
-            {
-                "connection_id": "recent-conn",
-                "created_at": recent_connection_time.isoformat().replace("+00:00", "Z"),
-                "invitation_key": "key3",
-                "state": "invitation",
-            },
-        ]
-
-        mock_client.get_all_presentation_records = AsyncMock(return_value=mock_records)
-        mock_client.get_connections_batched = MagicMock(
-            return_value=_batch_gen([mock_connections])
-        )
-        mock_client.delete_presentation_record_and_connection = AsyncMock(
-            return_value=(True, False, [])
-        )
-        mock_client.delete_connection = AsyncMock(return_value=True)
-
-        # Act - Test the core cleanup service
-        result = await perform_cleanup(MagicMock())
-
-        # Assert - Verify expected cleanup behavior
-        assert result["total_presentation_records"] == 3
-        assert result["cleaned_presentation_records"] == 2  # Only old records
-        assert result["total_connections"] == 3
-        assert result["cleaned_connections"] == 2  # Only expired connections
-        assert result["failed_cleanups"] == 0
-        assert len(result["errors"]) == 0
-        assert result["hit_presentation_limit"] is False
-        assert result["hit_connection_limit"] is False
-
-        # Verify correct ACA-Py calls were made
-        assert mock_client.delete_presentation_record_and_connection.call_count == 2
-        assert mock_client.delete_connection.call_count == 2
-
-        expected_presentation_calls = [
-            unittest.mock.call("old-record-1", None),
-            unittest.mock.call("old-record-2", None),
-        ]
-        mock_client.delete_presentation_record_and_connection.assert_has_calls(
-            expected_presentation_calls, any_order=True
-        )
-
-        expected_connection_calls = [
-            unittest.mock.call("expired-conn-1"),
-            unittest.mock.call("expired-conn-2"),
-        ]
-        mock_client.delete_connection.assert_has_calls(
-            expected_connection_calls, any_order=True
-        )
-
-    @patch("api.services.cleanup.AcapyClient")
-    @patch("api.services.cleanup.settings")
-    @pytest.mark.asyncio
-    async def test_cleanup_integration_with_resource_limits(
-        self, mock_settings, mock_client_class
-    ):
-        """Test cleanup integration when hitting resource limits."""
-
-        # Arrange with low limits to trigger
-        mock_settings.CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS = 24
-        mock_settings.CONTROLLER_CLEANUP_MAX_PRESENTATION_RECORDS = 1  # Low limit
-        mock_settings.CONTROLLER_CLEANUP_MAX_CONNECTIONS = 1  # Low limit
-        mock_settings.CONTROLLER_PRESENTATION_EXPIRE_TIME = 600
-
-        mock_client = Mock()
-        mock_client_class.return_value = mock_client
-
-        # Create multiple old records and expired connections
-        old_time = datetime.now(UTC) - timedelta(hours=25)
-        expired_time = datetime.now(UTC) - timedelta(seconds=700)
-
-        mock_records = []
-        for i in range(3):
-            mock_records.append(
-                {
-                    "pres_ex_id": f"old-record-{i}",
-                    "created_at": old_time.isoformat().replace("+00:00", "Z"),
-                    "state": "done",
-                }
-            )
-
-        mock_connections = []
-        for i in range(3):
-            mock_connections.append(
-                {
-                    "connection_id": f"expired-conn-{i}",
-                    "created_at": expired_time.isoformat().replace("+00:00", "Z"),
-                    "invitation_key": f"key{i}",
-                    "state": "invitation",
-                }
-            )
-
-        mock_client.get_all_presentation_records = AsyncMock(return_value=mock_records)
-        mock_client.get_connections_batched = MagicMock(
-            return_value=_batch_gen([mock_connections])
-        )
-        mock_client.delete_presentation_record_and_connection = AsyncMock(
-            return_value=(True, False, [])
-        )
-        mock_client.delete_connection = AsyncMock(return_value=True)
-
-        # Act
-        result = await perform_cleanup(MagicMock())
-
-        # Assert - Limits should be respected
-        assert result["total_presentation_records"] == 3
-        assert result["cleaned_presentation_records"] == 1  # Hit limit
-        assert result["total_connections"] == 3
-        assert result["cleaned_connections"] == 1  # Hit limit
-        assert result["hit_presentation_limit"] is True
-        assert result["hit_connection_limit"] is True
-        assert result["failed_cleanups"] == 0
-
-        # Verify limited number of calls
-        assert mock_client.delete_presentation_record_and_connection.call_count == 1
-        assert mock_client.delete_connection.call_count == 1
-
-    @patch("api.services.cleanup.AcapyClient")
-    @patch("api.services.cleanup.settings")
-    @pytest.mark.asyncio
-    async def test_cleanup_integration_error_recovery(
-        self, mock_settings, mock_client_class
-    ):
-        """Test cleanup integration with error recovery behavior."""
-
-        # Arrange
-        mock_settings.CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS = 24
-        mock_settings.CONTROLLER_CLEANUP_MAX_PRESENTATION_RECORDS = 1000
-        mock_settings.CONTROLLER_CLEANUP_MAX_CONNECTIONS = 2000
-        mock_settings.CONTROLLER_PRESENTATION_EXPIRE_TIME = 600
-
-        mock_client = Mock()
-        mock_client_class.return_value = mock_client
-
-        old_time = datetime.now(UTC) - timedelta(hours=25)
-        expired_time = datetime.now(UTC) - timedelta(seconds=700)
-
-        # Mix of successful and failing records
-        mock_records = [
-            {
-                "pres_ex_id": "success-record",
-                "created_at": old_time.isoformat().replace("+00:00", "Z"),
-                "state": "done",
-            },
-            {
-                "pres_ex_id": "fail-record",
-                "created_at": old_time.isoformat().replace("+00:00", "Z"),
-                "state": "done",
-            },
-        ]
-
-        mock_connections = [
-            {
-                "connection_id": "success-conn",
-                "created_at": expired_time.isoformat().replace("+00:00", "Z"),
-                "invitation_key": "key1",
-                "state": "invitation",
-            },
-            {
-                "connection_id": "fail-conn",
-                "created_at": expired_time.isoformat().replace("+00:00", "Z"),
-                "invitation_key": "key2",
-                "state": "invitation",
-            },
-        ]
-
-        mock_client.get_all_presentation_records = AsyncMock(return_value=mock_records)
-        mock_client.get_connections_batched = MagicMock(
-            return_value=_batch_gen([mock_connections])
-        )
-
-        # Mock mixed success/failure
-        def presentation_side_effect(pres_ex_id, connection_id):
-            if pres_ex_id == "success-record":
-                return (True, False, [])
-            else:
-                raise Exception(f"Failed to delete {pres_ex_id}")
-
-        def connection_side_effect(connection_id):
-            if connection_id == "success-conn":
-                return True
-            else:
-                raise Exception(f"Failed to delete {connection_id}")
-
-        mock_client.delete_presentation_record_and_connection = AsyncMock(
-            side_effect=presentation_side_effect
-        )
-        mock_client.delete_connection = AsyncMock(side_effect=connection_side_effect)
-
-        # Act
-        result = await perform_cleanup(MagicMock())
-
-        # Assert - Should continue processing despite errors
-        assert result["total_presentation_records"] == 2
-        assert result["cleaned_presentation_records"] == 1  # One success
-        assert result["total_connections"] == 2
-        assert result["cleaned_connections"] == 1  # One success
-        assert result["failed_cleanups"] == 2  # Two failures
-        assert len(result["errors"]) == 2
-
-        # Verify all deletion attempts were made
-        assert mock_client.delete_presentation_record_and_connection.call_count == 2
-        assert mock_client.delete_connection.call_count == 2
-
-    @patch("api.services.cleanup.AcapyClient")
-    @patch("api.services.cleanup.settings")
-    @pytest.mark.asyncio
-    async def test_cleanup_integration_with_configuration_validation(
-        self, mock_settings, mock_client_class
-    ):
-        """Test cleanup integration with configuration validation."""
-        from api.services.cleanup import validate_cleanup_configuration
-
-        # Arrange with valid configuration
-        mock_settings.CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS = 48
-        mock_settings.CONTROLLER_CLEANUP_MAX_PRESENTATION_RECORDS = 500
-        mock_settings.CONTROLLER_CLEANUP_MAX_CONNECTIONS = 1000
-        mock_settings.CONTROLLER_PRESENTATION_EXPIRE_TIME = 300
-
-        # Validate configuration works
-        validate_cleanup_configuration()  # Should not raise
-
-        mock_client = Mock()
-        mock_client_class.return_value = mock_client
-        mock_client.get_all_presentation_records = AsyncMock(return_value=[])
-        mock_client.get_connections_batched = MagicMock(return_value=_batch_gen([]))
-
-        # Act
-        result = await perform_cleanup(MagicMock())
-
-        # Assert - Should complete successfully with valid config
-        assert result["total_presentation_records"] == 0
-        assert result["cleaned_presentation_records"] == 0
-        assert result["total_connections"] == 0
-        assert result["cleaned_connections"] == 0
-        assert result["failed_cleanups"] == 0
-        assert len(result["errors"]) == 0
-
-    @patch("api.services.cleanup.AcapyClient")
-    @patch("api.services.cleanup.settings")
-    @pytest.mark.asyncio
-    async def test_cleanup_integration_empty_data_scenario(
-        self, mock_settings, mock_client_class
-    ):
-        """Test cleanup integration with empty data scenario."""
-        # Arrange
-        mock_settings.CONTROLLER_PRESENTATION_RECORD_RETENTION_HOURS = 24
-        mock_settings.CONTROLLER_CLEANUP_MAX_PRESENTATION_RECORDS = 1000
-        mock_settings.CONTROLLER_CLEANUP_MAX_CONNECTIONS = 2000
-        mock_settings.CONTROLLER_PRESENTATION_EXPIRE_TIME = 600
-
-        mock_client = Mock()
-        mock_client_class.return_value = mock_client
-
-        # No data scenario
-        mock_client.get_all_presentation_records = AsyncMock(return_value=[])
-        mock_client.get_connections_batched = MagicMock(return_value=_batch_gen([]))
-
-        # Act
-        result = await perform_cleanup(MagicMock())
-
-        # Assert - Should complete successfully with no data
-        assert result["total_presentation_records"] == 0
-        assert result["cleaned_presentation_records"] == 0
-        assert result["total_connections"] == 0
-        assert result["cleaned_connections"] == 0
-        assert result["failed_cleanups"] == 0
-        assert len(result["errors"]) == 0
-        assert result["hit_presentation_limit"] is False
-        assert result["hit_connection_limit"] is False
-
-        # Verify methods were called
-        mock_client.get_all_presentation_records.assert_called_once()
-        mock_client.get_connections_batched.assert_called_once()
+        assert ticks
+        assert max(ticks) < 0.1

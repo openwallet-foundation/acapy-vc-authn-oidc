@@ -75,72 +75,55 @@ class TestAcapyClientCleanup:
 
     @respx.mock
     @pytest.mark.asyncio
-    async def test_get_all_presentation_records_success(self, acapy_client):
+    async def test_get_presentation_records_page_success(self, acapy_client):
         mock_records = [
-            {
-                "pres_ex_id": "record-1",
-                "created_at": "2024-01-01T12:00:00Z",
-                "state": "done",
-            },
-            {
-                "pres_ex_id": "record-2",
-                "created_at": "2024-01-02T12:00:00Z",
-                "state": "done",
-            },
+            {"pres_ex_id": "record-1", "created_at": "2024-01-01T12:00:00Z"},
+            {"pres_ex_id": "record-2", "created_at": "2024-01-02T12:00:00Z"},
         ]
-        respx.get(f"{BASE_URL}/present-proof-2.0/records").mock(
+        route = respx.get(f"{BASE_URL}/present-proof-2.0/records").mock(
             return_value=httpx.Response(200, json={"results": mock_records})
         )
 
-        result = await acapy_client.get_all_presentation_records()
+        result = await acapy_client.get_presentation_records_page(limit=50, offset=10)
 
-        assert len(result) == 2
-        assert result[0]["pres_ex_id"] == "record-1"
-        assert result[1]["pres_ex_id"] == "record-2"
-
-    @respx.mock
-    @pytest.mark.asyncio
-    async def test_get_all_presentation_records_empty_results(self, acapy_client):
-        respx.get(f"{BASE_URL}/present-proof-2.0/records").mock(
-            return_value=httpx.Response(200, json={"results": []})
-        )
-
-        result = await acapy_client.get_all_presentation_records()
-
-        assert result == []
+        assert [r["pres_ex_id"] for r in result] == ["record-1", "record-2"]
+        params = route.calls[0].request.url.params
+        assert params["limit"] == "50"
+        assert params["offset"] == "10"
+        assert params["role"] == "verifier"
 
     @respx.mock
     @pytest.mark.asyncio
-    async def test_get_all_presentation_records_missing_results_key(self, acapy_client):
+    async def test_get_presentation_records_page_missing_results_key(
+        self, acapy_client
+    ):
         respx.get(f"{BASE_URL}/present-proof-2.0/records").mock(
             return_value=httpx.Response(200, json={"data": []})
         )
 
-        result = await acapy_client.get_all_presentation_records()
-
-        assert result == []
+        assert await acapy_client.get_presentation_records_page(limit=10) == []
 
     @respx.mock
     @pytest.mark.asyncio
-    async def test_get_all_presentation_records_http_error(self, acapy_client):
+    async def test_get_presentation_records_page_http_error_raises(self, acapy_client):
         respx.get(f"{BASE_URL}/present-proof-2.0/records").mock(
             return_value=httpx.Response(500, content=b"Internal server error")
         )
 
-        result = await acapy_client.get_all_presentation_records()
-
-        assert result == []
+        with pytest.raises(httpx.HTTPStatusError):
+            await acapy_client.get_presentation_records_page(limit=10)
 
     @respx.mock
     @pytest.mark.asyncio
-    async def test_get_all_presentation_records_network_exception(self, acapy_client):
+    async def test_get_presentation_records_page_network_error_raises(
+        self, acapy_client
+    ):
         respx.get(f"{BASE_URL}/present-proof-2.0/records").mock(
             side_effect=httpx.ConnectError("Network error")
         )
 
-        result = await acapy_client.get_all_presentation_records()
-
-        assert result == []
+        with pytest.raises(httpx.ConnectError):
+            await acapy_client.get_presentation_records_page(limit=10)
 
     @respx.mock
     @pytest.mark.asyncio
@@ -284,159 +267,89 @@ class TestDeleteConnection:
         assert result is False
 
 
-class TestGetConnectionsBatched:
-    """Tests for the get_connections_batched async generator."""
+class TestPagedListing:
+    """Tests for the paged connection and OOB record listing methods."""
 
     @respx.mock
     @pytest.mark.asyncio
-    async def test_empty_results_yields_nothing(self, acapy_client):
-        """When ACA-Py returns no connections the generator yields nothing."""
-        respx.get(f"{BASE_URL}/connections").mock(
-            return_value=httpx.Response(200, json={"results": []})
-        )
-
-        batches = [batch async for batch in acapy_client.get_connections_batched()]
-
-        assert batches == []
-
-    @respx.mock
-    @pytest.mark.asyncio
-    async def test_single_partial_batch_yields_once(self, acapy_client):
-        """A single page smaller than batch_size yields once and stops without fetching another page."""
-        connections = [{"connection_id": f"conn-{i}"} for i in range(3)]
+    async def test_get_connections_page_sends_no_state_filter(self, acapy_client):
+        connections = [{"connection_id": "conn-0"}]
         route = respx.get(f"{BASE_URL}/connections").mock(
             return_value=httpx.Response(200, json={"results": connections})
         )
 
-        batches = [
-            batch async for batch in acapy_client.get_connections_batched(batch_size=10)
-        ]
+        result = await acapy_client.get_connections_page(limit=100, offset=200)
 
-        assert len(batches) == 1
-        assert batches[0] == connections
-        assert route.call_count == 1  # No extra page fetch
-
-    @respx.mock
-    @pytest.mark.asyncio
-    async def test_multiple_pages_fetches_until_partial_page(self, acapy_client):
-        """When the first page is exactly batch_size, a second page is fetched.
-        Pagination stops when the second page is partial (< batch_size).
-        """
-        page1 = [{"connection_id": f"conn-{i}"} for i in range(3)]
-        page2 = [{"connection_id": f"conn-{i}"} for i in range(3, 5)]
-
-        call_count = 0
-
-        def paginated_response(request):
-            nonlocal call_count
-            call_count += 1
-            offset = int(request.url.params.get("offset", 0))
-            if offset == 0:
-                return httpx.Response(200, json={"results": page1})
-            return httpx.Response(200, json={"results": page2})
-
-        respx.get(f"{BASE_URL}/connections").mock(side_effect=paginated_response)
-
-        batches = [
-            batch async for batch in acapy_client.get_connections_batched(batch_size=3)
-        ]
-
-        assert len(batches) == 2
-        assert batches[0] == page1
-        assert batches[1] == page2
-        assert call_count == 2
+        assert result == connections
+        params = route.calls[0].request.url.params
+        assert params["limit"] == "100"
+        assert params["offset"] == "200"
+        assert "state" not in params
 
     @respx.mock
     @pytest.mark.asyncio
-    async def test_full_last_page_triggers_extra_fetch_then_stops(self, acapy_client):
-        """When the last page is exactly batch_size the generator fetches one more page.
-        An empty response on that extra fetch terminates the loop correctly.
-        """
-        page1 = [{"connection_id": f"conn-{i}"} for i in range(2)]
-        call_count = 0
-
-        def paginated_response(request):
-            nonlocal call_count
-            call_count += 1
-            offset = int(request.url.params.get("offset", 0))
-            if offset == 0:
-                return httpx.Response(200, json={"results": page1})
-            return httpx.Response(200, json={"results": []})  # empty follow-up
-
-        respx.get(f"{BASE_URL}/connections").mock(side_effect=paginated_response)
-
-        batches = [
-            batch async for batch in acapy_client.get_connections_batched(batch_size=2)
-        ]
-
-        assert len(batches) == 1
-        assert batches[0] == page1
-        assert call_count == 2
-
-    @respx.mock
-    @pytest.mark.asyncio
-    async def test_network_error_stops_iteration_gracefully(self, acapy_client):
-        """A ConnectError on the first page causes the generator to yield nothing
-        (since _get_connections_page returns [] on exception → loop breaks).
-        """
-        respx.get(f"{BASE_URL}/connections").mock(
-            side_effect=httpx.ConnectError("ACA-Py unreachable")
-        )
-
-        batches = [batch async for batch in acapy_client.get_connections_batched()]
-
-        assert batches == []
-
-    @respx.mock
-    @pytest.mark.asyncio
-    async def test_http_error_on_page_stops_iteration(self, acapy_client):
-        """A non-200 response on any page causes _get_connections_page to return []
-        which breaks the loop.
-        """
+    async def test_get_connections_page_http_error_raises(self, acapy_client):
         respx.get(f"{BASE_URL}/connections").mock(
             return_value=httpx.Response(500, content=b"Internal Server Error")
         )
 
-        batches = [batch async for batch in acapy_client.get_connections_batched()]
-
-        assert batches == []
+        with pytest.raises(httpx.HTTPStatusError):
+            await acapy_client.get_connections_page(limit=100)
 
     @respx.mock
     @pytest.mark.asyncio
-    async def test_correct_pagination_params_sent(self, acapy_client):
-        """Verifies that limit, offset, and state query params are sent correctly."""
-        page1 = [{"connection_id": "conn-0"}, {"connection_id": "conn-1"}]
-        page2 = [{"connection_id": "conn-2"}]
-
-        call_num = 0
-
-        def paginated_response(request):
-            nonlocal call_num
-            call_num += 1
-            offset = int(request.url.params.get("offset", 0))
-            if offset == 0:
-                return httpx.Response(200, json={"results": page1})
-            return httpx.Response(200, json={"results": page2})
-
-        route = respx.get(f"{BASE_URL}/connections").mock(
-            side_effect=paginated_response
+    async def test_get_oob_records_page_filters_sender_role(self, acapy_client):
+        records = [{"invi_msg_id": "invi-1", "state": "await-response"}]
+        route = respx.get(f"{BASE_URL}/out-of-band/records").mock(
+            return_value=httpx.Response(200, json={"results": records})
         )
 
-        batches = [
-            batch
-            async for batch in acapy_client.get_connections_batched(
-                state="invitation", batch_size=2
-            )
-        ]
+        result = await acapy_client.get_oob_records_page(limit=100)
 
-        assert len(batches) == 2
-        first_req = route.calls[0].request
-        assert first_req.url.params["limit"] == "2"
-        assert first_req.url.params["offset"] == "0"
-        assert first_req.url.params["state"] == "invitation"
+        assert result == records
+        params = route.calls[0].request.url.params
+        assert params["role"] == "sender"
+        assert params["offset"] == "0"
 
-        second_req = route.calls[1].request
-        assert second_req.url.params["offset"] == "2"
+
+class TestDeleteOobInvitation:
+    """Tests for delete_oob_invitation."""
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_success(self, acapy_client):
+        respx.delete(f"{BASE_URL}/out-of-band/invitations/invi-1").mock(
+            return_value=httpx.Response(200, json={})
+        )
+
+        assert await acapy_client.delete_oob_invitation("invi-1") is True
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_already_gone_counts_as_success(self, acapy_client):
+        respx.delete(f"{BASE_URL}/out-of-band/invitations/invi-1").mock(
+            return_value=httpx.Response(404)
+        )
+
+        assert await acapy_client.delete_oob_invitation("invi-1") is True
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_server_error_returns_false(self, acapy_client):
+        respx.delete(f"{BASE_URL}/out-of-band/invitations/invi-1").mock(
+            return_value=httpx.Response(500)
+        )
+
+        assert await acapy_client.delete_oob_invitation("invi-1") is False
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_network_error_returns_false(self, acapy_client):
+        respx.delete(f"{BASE_URL}/out-of-band/invitations/invi-1").mock(
+            side_effect=httpx.ConnectError("ACA-Py unreachable")
+        )
+
+        assert await acapy_client.delete_oob_invitation("invi-1") is False
 
 
 class TestTimeoutBehaviour:
