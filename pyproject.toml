@@ -20,7 +20,7 @@ python = ">=3.13,<4.0"
 fastapi = "^0.142.2"
 jinja2 = "^3.1.6"
 oic = "^1.7.0"
-pymongo = "^4.17.0"
+pymongo = "^4.18.3"
 pyop = { version = "^3.4.2", extras = ["redis"] }
 python-multipart = "^0.0.32" # required by fastapi to serve/upload files
 qrcode = { version = "^8.2", extras = ["pil"]}
