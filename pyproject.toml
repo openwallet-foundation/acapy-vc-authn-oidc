@@ -28,7 +28,7 @@ structlog = "^26.1.0"
 uvicorn = { version = "^0.54.0", extras = ["standard"] }
 redis = "^8.1.0"
 canonicaljson = "^2.0.0" # used to provide unique consistent user identifiers"
-pydantic-settings = "^2.15.0"
+pydantic-settings = "^2.16.0"
 pyjwt = "^2.13.0"
 httpx = "^0.28.1"
 
