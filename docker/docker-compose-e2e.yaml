@@ -1,4 +1,8 @@
 services:
+  # mongo 8.x refuses to start on the runner's 6.19+ kernel (SERVER-121912)
+  controller-db:
+    image: mongo:7.0
+
   # Override verifier aca-py to use internal docker endpoint (no ngrok needed for E2E)
   aca-py:
     environment:
