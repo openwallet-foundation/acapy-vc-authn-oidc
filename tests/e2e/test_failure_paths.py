@@ -81,7 +81,8 @@ async def test_callback_after_expiry_is_rejected(
         f"Unexpected status from /callback on expired session: {r.status_code}"
     )
 
-    code = parse_qs(urlparse(r.headers.get("location", "")).query).get("code", [None])[0]
+    query = urlparse(r.headers.get("location", "")).query
+    code = parse_qs(query).get("code", [None])[0]
     if not code:
         return  # No code in redirect — cannot issue a token
 
