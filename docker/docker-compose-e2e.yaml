@@ -1,4 +1,10 @@
 services:
+  # mongo 8.3 exits on the Ubuntu 7.0 runner kernel because its kernel check
+  # does not recognise Ubuntu patch levels (SERVER-136848). 8.2 has no such check.
+  # Drop this once mongo 8.3.16+ is published (SERVER-131779).
+  controller-db:
+    image: mongo:8.2
+
   # Override verifier aca-py to use internal docker endpoint (no ngrok needed for E2E)
   aca-py:
     environment:
