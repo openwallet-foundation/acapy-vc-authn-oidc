@@ -6,7 +6,7 @@ from pymongo import ReturnDocument
 from pymongo.database import Database
 
 from ..core.models import PyObjectId
-from .models import AuthSession, AuthSessionCreate, AuthSessionPatch
+from .models import AuthSession, AuthSessionCreate, AuthSessionPatch, AuthSessionState
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
 
@@ -88,6 +88,24 @@ class AuthSessionCRUD:
             )
 
         return AuthSession(**auth_sess)
+
+    async def claim_auth_code(self, code: str) -> bool:
+        """Atomically mark a verified session's authorization code as redeemed.
+
+        A single find_one_and_update lets exactly one concurrent caller win, so a
+        code can be exchanged at most once across all pods. Returns False if the
+        code is unknown, the proof is not VERIFIED, or it was already redeemed.
+        """
+        col = self._db.get_collection(COLLECTION_NAMES.AUTH_SESSION)
+        claimed = col.find_one_and_update(
+            {
+                "pyop_auth_code": code,
+                "proof_status": AuthSessionState.VERIFIED,
+                "code_redeemed": {"$ne": True},
+            },
+            {"$set": {"code_redeemed": True}},
+        )
+        return claimed is not None
 
     async def update_pyop_auth_code(
         self, id: str | PyObjectId, pyop_auth_code: str

@@ -357,6 +357,18 @@ async def post_token(request: Request, db: Database = Depends(get_db)):
             form_dict["code"]
         )
 
+        # RFC 6749 4.1.2: a code is single-use. The code is repacked below before
+        # PyOP sees it, so PyOP's own "used" flag cannot enforce this.
+        if not await AuthSessionCRUD(db).claim_auth_code(form_dict["code"]):
+            raise HTTPException(
+                status_code=http_status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "error": "invalid_grant",
+                    "error_description": "Authorization code is invalid, "
+                    "unverified or already used",
+                },
+            )
+
         ver_config = await VerificationConfigCRUD(db).get(auth_session.ver_config_id)
         claims = Token.get_claims(auth_session, ver_config)
 
