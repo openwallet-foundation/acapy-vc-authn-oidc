@@ -3,7 +3,7 @@ import io
 import time
 import uuid
 from datetime import UTC, datetime
-from typing import cast
+from typing import Any, cast
 from urllib.parse import urlencode, urlparse
 
 import jwt
@@ -345,37 +345,92 @@ def store_subject_identifier(user_id: str, subject_type: str, identifier: str) -
     return is_new_user
 
 
+def _invalid_grant() -> HTTPException:
+    return HTTPException(
+        status_code=http_status.HTTP_400_BAD_REQUEST,
+        detail={
+            "error": "invalid_grant",
+            "error_description": "Authorization code is invalid, unverified "
+            "or already used",
+        },
+    )
+
+
+def _split_subject(claims: dict[str, Any]) -> tuple[str | None, dict[str, Any]]:
+    """Separate the presentation's `sub` from the other claims.
+
+    PyOP reads `sub` from authz_info; leaving it in the claims as well makes
+    IdToken() receive it twice and raise a TypeError.
+    """
+    rest = {k: v for k, v in claims.items() if k != "sub"}
+    return claims.get("sub") or None, rest
+
+
+def _with_claims(
+    authz_info: dict[str, Any], claims: dict[str, Any], sub: str | None
+) -> dict[str, Any]:
+    """Copy of a code's authz_info carrying the claims and, if given, a new sub.
+
+    StatelessWrapper reads the claims from inside the code, so they must be
+    packed into it whether or not there is a sub, otherwise the ID token gets
+    empty claims. Redis storage ignores this field.
+    """
+    return {**authz_info, "user_info": claims, **({"sub": sub} if sub else {})}
+
+
+def _store_claims(user_id: str, claims: dict[str, Any], session_id: str) -> None:
+    """Make claims available to PyOP's userinfo lookup when it builds tokens.
+
+    Without this, get_claims_for returns an empty dict and the ID token has
+    no VC claims. user_id must be the id PyOP will look up.
+    """
+    try:
+        provider.provider.userinfo.set_claims_for_user(user_id, claims)
+    except Exception as e:
+        logger.error(
+            "Failed to store claims in VCUserinfo",
+            operation="store_claims",
+            auth_session_id=session_id,
+            user_id=user_id,
+            error=str(e),
+            error_type=type(e).__name__,
+        )
+        raise HTTPException(
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to store claims: {str(e)}",
+        )
+
+
+def _log_id_token(token_response: dict[str, Any], session_id: str) -> None:
+    """Debug-log the ID token's sub and claim names (signature not verified)."""
+    if "id_token" not in token_response:
+        return
+    decoded = jwt.decode(
+        token_response["id_token"], options={"verify_signature": False}
+    )
+    logger.debug(
+        "ID token generated",
+        operation="id_token_generated",
+        auth_session_id=session_id,
+        sub_in_token=decoded.get("sub"),
+        all_claims=list(decoded.keys()),
+    )
+
+
 @log_debug
 @router.post(VerifiedCredentialTokenUri, response_class=JSONResponse)
 async def post_token(request: Request, db: Database = Depends(get_db)):
     """Called by oidc platform to retrieve token contents"""
     token_start_time = time.time()
     async with request.form() as form:
-        logger.info(f"post_token: form was {form}")
         form_dict = cast(dict[str, str], form._dict)
-        auth_session = await AuthSessionCRUD(db).get_by_pyop_auth_code(
-            form_dict["code"]
-        )
+        code = form_dict["code"]
+        crud = AuthSessionCRUD(db)
+        auth_session = await crud.get_by_pyop_auth_code(code)
+        session_id = str(auth_session.id)
 
-        # RFC 6749 4.1.2: a code is single-use. The code is repacked below before
-        # PyOP sees it, so PyOP's own "used" flag cannot enforce this.
-        if not await AuthSessionCRUD(db).claim_auth_code(form_dict["code"]):
-            raise HTTPException(
-                status_code=http_status.HTTP_400_BAD_REQUEST,
-                detail={
-                    "error": "invalid_grant",
-                    "error_description": "Authorization code is invalid, "
-                    "unverified or already used",
-                },
-            )
-
-        ver_config = await VerificationConfigCRUD(db).get(auth_session.ver_config_id)
-        claims = Token.get_claims(auth_session, ver_config)
-
-        # Get the user_id early - needed for both subject identifier and
-        # claims storage
-        user_id = auth_session.pyop_user_id
-        if user_id is None:
+        # Checked before claiming so a broken session does not burn the code
+        if auth_session.pyop_user_id is None:
             raise HTTPException(
                 status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=(
@@ -383,155 +438,54 @@ async def post_token(request: Request, db: Database = Depends(get_db)):
                 ),
             )
 
-        # CRITICAL: For StatelessWrapper (in-memory storage), claims MUST be
-        # stored INSIDE the authorization code in authz_info["user_info"] before
-        # packing, otherwise PyOP will retrieve empty claims when generating the
-        # ID token. This must happen regardless of whether claims contain a "sub"
-        # field. For RedisWrapper, this field is not used (claims are in Redis).
-        authz_info = provider.provider.authz_state.authorization_codes[
-            form_dict["code"]
-        ]
-        authz_info["user_info"] = claims
+        # RFC 6749 4.1.2: a code is single-use. The code is repacked below before
+        # PyOP sees it, so PyOP's own "used" flag cannot enforce this.
+        if not await crud.claim_auth_code(code):
+            raise _invalid_grant()
 
-        # Replace auto-generated sub with one coming from proof, if available
-        # The Redis storage uses a shared data store, so a new item can be
-        # added and the reference in the form needs to be updated with the
-        # new key value
-        if claims.get("sub"):
-            # Update the subject with the one from the presentation
-            presentation_sub = claims.pop("sub")
+        ver_config = await VerificationConfigCRUD(db).get(auth_session.ver_config_id)
+        sub, claims = _split_subject(Token.get_claims(auth_session, ver_config))
+        user_id = sub or auth_session.pyop_user_id
 
-            logger.info(
-                "About to update authorization info with presentation subject",
-                operation="update_authz_sub",
-                auth_session_id=str(auth_session.id),
-                original_authz_sub=authz_info.get("sub"),
-                presentation_sub=presentation_sub,
-            )
+        if sub:
+            # Replace the auto-generated sub with the presentation's subject.
+            # PyOP uses it as the user_id for all later lookups (incl. userinfo)
+            # and resolves it via the subject identifier mapping, which is
+            # persisted in Redis when available.
+            await crud.update_pyop_user_id(session_id, sub)
+            store_subject_identifier(user_id, "public", sub)
 
-            authz_info["sub"] = presentation_sub
+        _store_claims(user_id, claims, session_id)
 
-            # CRITICAL: Update AuthSession.pyop_user_id to match the
-            # presentation subject. This ensures consistency throughout
-            # the system - PyOP will use this subject as the user_id for
-            # all subsequent operations including userinfo lookups.
-            await AuthSessionCRUD(db).update_pyop_user_id(
-                str(auth_session.id), presentation_sub
-            )
-            # Update our local reference to the new user_id
-            user_id = presentation_sub
-
-            # Create subject identifier mapping: subject -> user_id
-            # This is needed because PyOP will look up the user_id for this
-            # subject. Store the public subject identifier with Redis-aware
-            # persistence
-            store_subject_identifier(user_id, "public", presentation_sub)
-
-            # Need to update user_info again after removing "sub" from claims
-            authz_info["user_info"] = claims
-
-            logger.info(
-                "Replaced authorization code with presentation subject",
-                operation="update_auth_code_subject",
-                auth_session_id=str(auth_session.id),
-                original_user_id=auth_session.pyop_user_id,
-                new_user_id=presentation_sub,
-                updated_auth_session=True,
-                updated_user_info_in_code=True,
-            )
-
-        # Pack the authorization code with updated authz_info
-        new_code = provider.provider.authz_state.authorization_codes.pack(authz_info)
-        form_dict["code"] = new_code
-
-        # NOTE: Do NOT add sub back to claims dict. PyOP will get the
-        # sub from authz_info["sub"] when generating the ID token.
-        # If we include sub in claims as well, PyOP will receive it
-        # twice and raise: "TypeError: IdToken() got multiple values
-        # for keyword argument 'sub'"
+        # Packing creates a new code (a new Redis key, or a new encrypted blob
+        # when stateless), so the form must reference the new one.
+        codes = provider.provider.authz_state.authorization_codes
+        form_dict["code"] = codes.pack(_with_claims(codes[code], claims, sub))
 
         logger.info(
-            "Updated authorization code with claims for StatelessWrapper",
-            operation="update_auth_code_claims",
-            auth_session_id=str(auth_session.id),
+            "Issuing token",
+            operation="handle_token_request",
+            auth_session_id=session_id,
             user_id=user_id,
+            subject_replaced=sub is not None,
             claims_keys=list(claims.keys()),
         )
-
-        # Store claims in VCUserinfo so PyOP can retrieve them when
-        # generating the ID token. This is critical - without this,
-        # get_claims_for will return empty dict.
-        # Now user_id is guaranteed to match what PyOP will use for lookup
-        try:
-            provider.provider.userinfo.set_claims_for_user(user_id, claims)
-            logger.info(
-                "Stored claims in VCUserinfo for ID token generation",
-                operation="store_claims",
-                auth_session_id=str(auth_session.id),
-                user_id=user_id,
-                claims_keys=list(claims.keys()),
-            )
-        except Exception as e:
-            logger.error(
-                "Failed to store claims in VCUserinfo",
-                operation="store_claims",
-                auth_session_id=str(auth_session.id),
-                user_id=user_id,
-                error=str(e),
-                error_type=type(e).__name__,
-            )
-            raise HTTPException(
-                status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to store claims: {str(e)}",
-            )
-
-        # convert form data to what library expects,
-        # Flask.app.request.get_data()
-        data = urlencode(form_dict)
-
-        logger.info(
-            "About to call PyOP handle_token_request",
-            operation="handle_token_request",
-            auth_session_id=str(auth_session.id),
-            user_id=user_id,
-            code_prefix=(
-                form_dict["code"][:16] + "..."
-                if len(form_dict["code"]) > 16
-                else form_dict["code"]
-            ),
-        )
-
+        # PyOP expects the raw body, as Flask's request.get_data() would give
         token_response = provider.provider.handle_token_request(
-            data, request.headers, claims
-        )
-        logger.debug(f"Token response: {token_response.to_dict()}")
-
-        # Log the actual sub in the ID token for debugging
-        if "id_token" in token_response.to_dict():
-            # Decode without verification to inspect the token
-            decoded = jwt.decode(
-                token_response.to_dict()["id_token"],
-                options={"verify_signature": False},
-            )
-            logger.debug(
-                "ID token generated",
-                operation="id_token_generated",
-                auth_session_id=str(auth_session.id),
-                sub_in_token=decoded.get("sub"),
-                all_claims=list(decoded.keys()),
-            )
+            urlencode(form_dict), request.headers, claims
+        ).to_dict()
+        _log_id_token(token_response, session_id)
 
         # SIEM Audit: Log successful token issuance (count only, no claim values)
-        token_duration_ms = int((time.time() - token_start_time) * 1000)
         audit_token_issued(
-            session_id=str(auth_session.id),
+            session_id=session_id,
             client_id=auth_session.request_parameters.get("client_id", "unknown"),
             ver_config_id=auth_session.ver_config_id,
             claims_count=len(claims),
-            duration_ms=token_duration_ms,
+            duration_ms=int((time.time() - token_start_time) * 1000),
         )
 
-        return token_response.to_dict()
+        return token_response
 
 
 @log_debug

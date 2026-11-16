@@ -351,34 +351,38 @@ class TestPostTokenClaimsInclusion:
         # Set pyop_user_id to None
         mock_auth_session.pyop_user_id = None
 
-        with patch.object(
-            AuthSessionCRUD,
-            "get_by_pyop_auth_code",
-            return_value=mock_auth_session,
+        with (
+            patch.object(
+                AuthSessionCRUD,
+                "get_by_pyop_auth_code",
+                return_value=mock_auth_session,
+            ),
+            patch.object(
+                AuthSessionCRUD, "claim_auth_code", new_callable=AsyncMock
+            ) as mock_claim,
+            patch.object(VerificationConfigCRUD, "get", return_value=mock_ver_config),
         ):
-            with patch.object(
-                VerificationConfigCRUD, "get", return_value=mock_ver_config
-            ):
-                mock_request = MagicMock()
-                mock_form = MagicMock()
-                mock_form._dict = {
-                    "code": "test-auth-code",
-                    "grant_type": "authorization_code",
-                }
-                mock_request.form = MagicMock(
-                    return_value=MagicMock(
-                        __aenter__=AsyncMock(return_value=mock_form),
-                        __aexit__=AsyncMock(return_value=None),
-                    )
+            mock_request = MagicMock()
+            mock_form = MagicMock()
+            mock_form._dict = {
+                "code": "test-auth-code",
+                "grant_type": "authorization_code",
+            }
+            mock_request.form = MagicMock(
+                return_value=MagicMock(
+                    __aenter__=AsyncMock(return_value=mock_form),
+                    __aexit__=AsyncMock(return_value=None),
                 )
-                mock_request.headers = {}
+            )
+            mock_request.headers = {}
 
-                # Should raise HTTPException
-                with pytest.raises(HTTPException) as exc_info:
-                    await post_token(mock_request, mock_db)
+            with pytest.raises(HTTPException) as exc_info:
+                await post_token(mock_request, mock_db)
 
-                assert exc_info.value.status_code == 500
-                assert "pyop_user_id" in exc_info.value.detail
+            assert exc_info.value.status_code == 500
+            assert "pyop_user_id" in exc_info.value.detail
+            # A broken session must not burn the code
+            mock_claim.assert_not_awaited()
 
 
 class TestPostTokenConsistentIdentifier:

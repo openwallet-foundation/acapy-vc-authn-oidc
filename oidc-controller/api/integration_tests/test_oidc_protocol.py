@@ -8,10 +8,16 @@ Covers the gaps not exercised by the flow-focused tests:
 """
 
 import json
+from fnmatch import fnmatch
 
 import jwt
 import pytest
 from jwt.algorithms import RSAAlgorithm
+from pyop.authz_state import AuthorizationState
+
+from api.core.models import VCUserinfo
+from api.core.oidc import provider as oidc_provider
+from api.core.redis_utils import SingleRedisWrapperWithPack
 
 from .conftest import (
     FAKE_PRES_EX_ID,
@@ -183,3 +189,73 @@ class TestUserInfo:
         claims = resp.json()
         assert "pres_req_conf_id" in claims
         assert "vc_presented_attributes" in claims
+
+
+# ---------------------------------------------------------------------------
+# Redis (multi-pod) storage
+# ---------------------------------------------------------------------------
+
+
+class _FakeRedis(dict):
+    """The subset of the redis client API used by BaseRedisWrapperWithPack."""
+
+    def set(self, key, value, ex=None):
+        self[key] = value
+
+    def delete(self, key):
+        self.pop(key, None)
+
+    def exists(self, key):
+        return int(key in self)
+
+    def scan_iter(self, match):
+        return [key for key in list(self) if fnmatch(key, match)]
+
+
+@pytest.fixture
+def redis_storage(integration_client, monkeypatch):
+    """Swap PyOP's stateless storage for Redis-backed storage, as in multi-pod."""
+    fake = _FakeRedis()
+
+    def store(collection):
+        wrapper = SingleRedisWrapperWithPack(collection=collection, ttl=600)
+        wrapper._db = fake
+        return wrapper
+
+    pyop = oidc_provider.provider
+    authz_state = AuthorizationState(
+        oidc_provider.subject_id_factory,
+        authorization_code_db=store("codes"),
+        access_token_db=store("tokens"),
+        refresh_token_db=store("refresh"),
+        subject_identifier_db=store("subjects"),
+    )
+    monkeypatch.setattr(pyop, "authz_state", authz_state)
+    monkeypatch.setattr(pyop, "stateless", False)  # Provider caches this at init
+    monkeypatch.setattr(
+        pyop, "userinfo", VCUserinfo({}, claims_storage=store("claims"))
+    )
+    return fake
+
+
+class TestRedisStorage:
+    def test_token_and_userinfo_carry_vc_claims(
+        self, integration_client, redis_storage, monkeypatch, oob_mode
+    ):
+        """In Redis mode the ID token and /userinfo come from Redis-held state."""
+        client, _ = integration_client
+        monkeypatch.setattr(
+            "api.core.config.settings.CONTROLLER_ENABLE_USERINFO_ENDPOINT", True
+        )
+
+        tokens = _full_token_flow(client)
+        id_token = jwt.decode(tokens["id_token"], options={"verify_signature": False})
+        assert id_token["sub"] == f"Alice@{TEST_VER_CONFIG_ID}"
+        assert "vc_presented_attributes" in id_token
+        assert f"claims:Alice@{TEST_VER_CONFIG_ID}" in redis_storage
+
+        resp = client.get(
+            "/userinfo", headers={"Authorization": f"Bearer {tokens['access_token']}"}
+        )
+        assert resp.status_code == 200
+        assert "vc_presented_attributes" in resp.json()
