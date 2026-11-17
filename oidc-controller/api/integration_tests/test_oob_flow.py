@@ -135,6 +135,53 @@ class TestWebhookInjection:
         mock_audit.assert_called_once()
         assert mock_audit.call_args.kwargs["ver_config_id"] == TEST_VER_CONFIG_ID
 
+    @pytest.mark.parametrize("headers", [{}, {"x-api-key": "wrong"}])
+    def test_webhook_rejected_without_valid_api_key(
+        self, integration_client, oob_mode, headers
+    ):
+        """A forged verified webhook without the controller API key is rejected."""
+        from api.authSessions.models import AuthSessionState
+        from api.db.collections import COLLECTION_NAMES
+
+        client, db = integration_client
+
+        with acapy_oob_mock():
+            client.get("/authorize", params=authorize_params())
+
+        webhook = make_proof_webhook(FAKE_PRES_EX_ID, verified=True)
+        with patch("api.core.auth.API_KEY", "controller-key"):
+            resp = client.post(
+                "/webhooks/topic/present_proof_v2_0/", json=webhook, headers=headers
+            )
+        assert resp.status_code == 403
+
+        col = db.get_collection(COLLECTION_NAMES.AUTH_SESSION)
+        session = col.find_one({"pres_exch_id": FAKE_PRES_EX_ID})
+        assert session["proof_status"] == AuthSessionState.NOT_STARTED
+
+    def test_webhook_accepted_with_valid_api_key(self, integration_client, oob_mode):
+        """ACA-Py sends the key from the #suffix of its webhook URL as x-api-key."""
+        from api.authSessions.models import AuthSessionState
+        from api.db.collections import COLLECTION_NAMES
+
+        client, db = integration_client
+
+        with acapy_oob_mock():
+            client.get("/authorize", params=authorize_params())
+
+        webhook = make_proof_webhook(FAKE_PRES_EX_ID, verified=True)
+        with patch("api.core.auth.API_KEY", "controller-key"):
+            resp = client.post(
+                "/webhooks/topic/present_proof_v2_0/",
+                json=webhook,
+                headers={"x-api-key": "controller-key"},
+            )
+        assert resp.status_code == 200
+
+        col = db.get_collection(COLLECTION_NAMES.AUTH_SESSION)
+        session = col.find_one({"pres_exch_id": FAKE_PRES_EX_ID})
+        assert session["proof_status"] == AuthSessionState.VERIFIED
+
     def test_present_proof_failed_webhook_updates_db(
         self, integration_client, oob_mode
     ):
