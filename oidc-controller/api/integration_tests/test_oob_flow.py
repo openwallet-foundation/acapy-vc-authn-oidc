@@ -374,6 +374,27 @@ class TestCallback:
         auth_code = parse_auth_code_from_url(location)
         assert auth_code  # non-empty
 
+    @pytest.mark.parametrize("webhook", [None, False])
+    def test_callback_rejects_unverified_session(
+        self, integration_client, oob_mode, webhook
+    ):
+        """/callback does not hand out the auth code until the proof is verified."""
+        client, _ = integration_client
+
+        with acapy_oob_mock():
+            auth_resp = client.get("/authorize", params=authorize_params())
+        pid = parse_pid_from_html(auth_resp.text)
+
+        if webhook is not None:
+            client.post(
+                "/webhooks/topic/present_proof_v2_0/",
+                json=make_proof_webhook(FAKE_PRES_EX_ID, verified=webhook),
+            )
+
+        cb_resp = client.get("/callback", params={"pid": pid}, follow_redirects=False)
+        assert cb_resp.status_code == 400
+        assert "location" not in cb_resp.headers
+
 
 # ---------------------------------------------------------------------------
 # Token endpoint

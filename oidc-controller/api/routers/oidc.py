@@ -277,6 +277,13 @@ async def get_authorize_callback(pid: str, db: Database = Depends(get_db)):
     """Called by Authorize page when verification is complete"""
     auth_session = await AuthSessionCRUD(db).get(pid)
 
+    # pid is not a secret, so only hand out the auth code once the proof is done
+    if auth_session.proof_status != AuthSessionState.VERIFIED:
+        raise HTTPException(
+            status_code=http_status.HTTP_400_BAD_REQUEST,
+            detail="Presentation has not been verified",
+        )
+
     url = auth_session.response_url
 
     # CWE-601: Validate redirect URL against the registered redirect_uris for

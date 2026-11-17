@@ -230,6 +230,17 @@ class TestSessionExpiry:
 # ---------------------------------------------------------------------------
 
 
+def _unverified_auth_code(db, pid):
+    from bson import ObjectId
+
+    from api.db.collections import COLLECTION_NAMES
+
+    session = db.get_collection(COLLECTION_NAMES.AUTH_SESSION).find_one(
+        {"_id": ObjectId(pid)}
+    )
+    return parse_auth_code_from_url(session["response_url"])
+
+
 class TestTokenErrors:
     def test_token_with_invalid_auth_code_returns_error(self, integration_client):
         """POST /token with a bogus auth code returns a non-200 error response."""
@@ -260,16 +271,15 @@ class TestTokenErrors:
         session is not verified we still proceed to pyop which validates the
         code itself.  The key assertion: we get back a proper error, not a 200.
         """
-        client, _ = integration_client
+        client, db = integration_client
 
         # Start authorization but do NOT inject a webhook
         with acapy_oob_mock():
             auth_resp = client.get("/authorize", params=authorize_params())
         pid = parse_pid_from_html(auth_resp.text)
 
-        # Get the redirect (which has the auth code) without verifying
-        cb_resp = client.get("/callback", params={"pid": pid}, follow_redirects=False)
-        auth_code = cb_resp.headers["location"].split("code=")[1].split("&")[0]
+        # /callback refuses unverified sessions, so read the code from the DB
+        auth_code = _unverified_auth_code(db, pid)
 
         # The token endpoint must fail: StatelessWrapper encodes auth codes and
         # handle_token_request validates the redirect_uri against the original request
@@ -292,13 +302,12 @@ class TestTokenErrors:
         self, integration_client, oob_mode
     ):
         """A code whose proof was never verified must not be redeemable."""
-        client, _ = integration_client
+        client, db = integration_client
 
         with acapy_oob_mock():
             auth_resp = client.get("/authorize", params=authorize_params())
         pid = parse_pid_from_html(auth_resp.text)
-        cb_resp = client.get("/callback", params={"pid": pid}, follow_redirects=False)
-        auth_code = parse_auth_code_from_url(cb_resp.headers["location"])
+        auth_code = _unverified_auth_code(db, pid)
 
         resp = client.post(
             "/token",
