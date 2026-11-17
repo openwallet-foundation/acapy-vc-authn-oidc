@@ -19,6 +19,7 @@ from pyop.exceptions import (
     BearerTokenError,
     InvalidAccessToken,
     InvalidAuthenticationRequest,
+    OAuthError,
 )
 
 from ..authSessions.crud import AuthSessionCreate, AuthSessionCRUD
@@ -118,6 +119,17 @@ async def get_authorize(request: Request, db: Database = Depends(get_db)):
         raise HTTPException(
             status_code=http_status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid auth request: {e}",
+        )
+
+    # PyOP checks a code_verifier only when a challenge was sent, so without
+    # this an RP could opt out of PKCE by omitting it.
+    if settings.CONTROLLER_REQUIRE_PKCE and not (
+        model.get("code_challenge") and model.get("code_challenge_method") == "S256"
+    ):
+        raise HTTPException(
+            status_code=http_status.HTTP_400_BAD_REQUEST,
+            detail="Invalid auth request: PKCE with code_challenge_method=S256 "
+            "is required",
         )
 
     # Create proof for this request
@@ -471,9 +483,18 @@ async def post_token(request: Request, db: Database = Depends(get_db)):
             claims_keys=list(claims.keys()),
         )
         # PyOP expects the raw body, as Flask's request.get_data() would give
-        token_response = provider.provider.handle_token_request(
-            urlencode(form_dict), request.headers, claims
-        ).to_dict()
+        try:
+            token_response = provider.provider.handle_token_request(
+                urlencode(form_dict), request.headers, claims
+            ).to_dict()
+        except OAuthError as e:
+            # e.g. a wrong PKCE code_verifier, redirect_uri or client secret
+            raise HTTPException(
+                status_code=http_status.HTTP_401_UNAUTHORIZED
+                if e.oauth_error == "invalid_client"
+                else http_status.HTTP_400_BAD_REQUEST,
+                detail={"error": e.oauth_error, "error_description": str(e)},
+            )
         _log_id_token(token_response, session_id)
 
         # SIEM Audit: Log successful token issuance (count only, no claim values)

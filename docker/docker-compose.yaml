@@ -59,6 +59,7 @@ services:
       # OIDC UserInfo Configuration
       - CONTROLLER_ENABLE_USERINFO_ENDPOINT=${CONTROLLER_ENABLE_USERINFO_ENDPOINT:-false}
       - OIDC_ACCESS_TOKEN_TTL=${OIDC_ACCESS_TOKEN_TTL:-3600}
+      - CONTROLLER_REQUIRE_PKCE=${CONTROLLER_REQUIRE_PKCE:-false}
 
       # Legacy variables (passed for backward compatibility)
       - MT_ACAPY_WALLET_ID=${MT_ACAPY_WALLET_ID}

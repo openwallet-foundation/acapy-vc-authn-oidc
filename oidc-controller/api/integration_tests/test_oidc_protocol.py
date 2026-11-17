@@ -5,8 +5,11 @@ Covers the gaps not exercised by the flow-focused tests:
   - JWKS endpoint (/.well-known/openid-configuration/jwks)
   - id_token signature verification against the JWKS public key
   - /userinfo endpoint (disabled by default, enabled by setting)
+  - PKCE (passed through to PyOP, optionally required)
 """
 
+import base64
+import hashlib
 import json
 from fnmatch import fnmatch
 
@@ -41,14 +44,16 @@ pytestmark = pytest.mark.integration
 # ---------------------------------------------------------------------------
 
 
-def _full_token_flow(client) -> dict:
+def _token_response(client, auth_extra=None, token_extra=None):
     """Run the full OOB authorize → webhook → callback → token pipeline.
 
-    Returns the parsed token response dict (access_token, id_token, …).
-    Callers must apply the ``oob_mode`` fixture to ensure OOB mode is set.
+    Returns the raw /token response. Callers must apply the ``oob_mode``
+    fixture to ensure OOB mode is set.
     """
     with acapy_oob_mock(pres_ex_id=FAKE_PRES_EX_ID):
-        auth_resp = client.get("/authorize", params=authorize_params())
+        auth_resp = client.get(
+            "/authorize", params={**authorize_params(), **(auth_extra or {})}
+        )
     pid = parse_pid_from_html(auth_resp.text)
 
     client.post(
@@ -59,18 +64,24 @@ def _full_token_flow(client) -> dict:
     cb_resp = client.get("/callback", params={"pid": pid}, follow_redirects=False)
     auth_code = parse_auth_code_from_url(cb_resp.headers["location"])
 
-    token_resp = client.post(
+    return client.post(
         "/token",
         data={
             "grant_type": "authorization_code",
             "code": auth_code,
             "redirect_uri": TEST_REDIRECT_URI,
+            **(token_extra or {}),
         },
         headers={
             "Authorization": basic_auth_header(TEST_CLIENT_ID, TEST_CLIENT_SECRET),
             "Content-Type": "application/x-www-form-urlencoded",
         },
     )
+
+
+def _full_token_flow(client) -> dict:
+    """Run the full token pipeline and return the parsed token response."""
+    token_resp = _token_response(client)
     assert token_resp.status_code == 200
     return token_resp.json()
 
@@ -259,3 +270,50 @@ class TestRedisStorage:
         )
         assert resp.status_code == 200
         assert "vc_presented_attributes" in resp.json()
+
+
+# ---------------------------------------------------------------------------
+# PKCE
+# ---------------------------------------------------------------------------
+
+VERIFIER = "a" * 43
+CHALLENGE = (
+    base64.urlsafe_b64encode(hashlib.sha256(VERIFIER.encode()).digest())
+    .rstrip(b"=")
+    .decode()
+)
+S256 = {"code_challenge": CHALLENGE, "code_challenge_method": "S256"}
+
+
+class TestPKCE:
+    @pytest.mark.parametrize("required", [False, True])
+    @pytest.mark.parametrize("verifier, ok", [(VERIFIER, True), ("b" * 43, False)])
+    def test_code_verifier_is_checked(
+        self, integration_client, oob_mode, monkeypatch, required, verifier, ok
+    ):
+        monkeypatch.setattr(
+            "api.core.config.settings.CONTROLLER_REQUIRE_PKCE", required
+        )
+        client, _ = integration_client
+        resp = _token_response(client, S256, {"code_verifier": verifier})
+        assert resp.status_code == (200 if ok else 400)
+        assert ("access_token" in resp.text) is ok
+
+    @pytest.mark.parametrize(
+        "extra",
+        [{}, {"code_challenge": CHALLENGE}, {**S256, "code_challenge_method": "plain"}],
+    )
+    def test_required_pkce_rejects_missing_or_weak_challenge(
+        self, integration_client, oob_mode, monkeypatch, extra
+    ):
+        monkeypatch.setattr("api.core.config.settings.CONTROLLER_REQUIRE_PKCE", True)
+        client, _ = integration_client
+        with acapy_oob_mock(pres_ex_id=FAKE_PRES_EX_ID):
+            resp = client.get("/authorize", params={**authorize_params(), **extra})
+        assert resp.status_code == 400
+        assert "PKCE" in resp.text
+
+    def test_discovery_advertises_s256(self, integration_client):
+        client, _ = integration_client
+        doc = client.get("/.well-known/openid-configuration").json()
+        assert doc["code_challenge_methods_supported"] == ["S256"]
