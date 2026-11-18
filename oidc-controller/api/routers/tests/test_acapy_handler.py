@@ -514,6 +514,7 @@ class TestConnectionBasedVerificationWebhooks:
         mock_auth_session_no_pres_id.pres_exch_id = None
         mock_auth_session_no_pres_id.connection_id = "test-connection-id"
         mock_auth_session_no_pres_id.multi_use = False
+        mock_auth_session_no_pres_id.proof_status = AuthSessionState.PENDING
         mock_auth_session_no_pres_id.expired_timestamp = datetime.now(UTC) + timedelta(
             seconds=3600
         )

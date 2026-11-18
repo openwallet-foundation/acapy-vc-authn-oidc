@@ -1,5 +1,7 @@
+from datetime import UTC, datetime
+
 import structlog
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from jinja2 import BaseLoader, Environment
 from pymongo.database import Database
@@ -7,7 +9,7 @@ from pymongo.database import Database
 from ..authSessions.crud import AuthSessionCRUD
 from ..authSessions.models import AuthSession, AuthSessionState
 from ..core.config import settings
-from ..core.siem_audit import audit_qr_scanned
+from ..core.siem_audit import audit_qr_scanned, audit_session_expired
 from ..db.session import get_db
 from ..routers.oidc import gen_deep_link
 from ..routers.sse import notify
@@ -16,6 +18,13 @@ logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
 
 # Module-level Jinja2 environment — thread-safe, avoids per-request allocation.
 _jinja_env = Environment(loader=BaseLoader(), autoescape=True)
+
+FINISHED_STATES = {
+    AuthSessionState.EXPIRED,
+    AuthSessionState.VERIFIED,
+    AuthSessionState.FAILED,
+    AuthSessionState.ABANDONED,
+}
 
 router = APIRouter()
 
@@ -47,6 +56,31 @@ async def send_connectionless_proof_req(
         client_ip=client_ip,
         user_agent=user_agent,
     )
+
+    if auth_session.proof_status == AuthSessionState.NOT_STARTED:
+        expired_time = auth_session.expired_timestamp
+        now = datetime.now(UTC) if expired_time.tzinfo is not None else datetime.now()
+        if expired_time < now:
+            auth_session.proof_status = AuthSessionState.EXPIRED
+            await AuthSessionCRUD(db).patch(auth_session.id, auth_session)
+            audit_session_expired(
+                session_id=str(auth_session.id),
+                ver_config_id=auth_session.ver_config_id,
+                phase="qr_scan",
+                timeout_seconds=settings.CONTROLLER_PRESENTATION_EXPIRE_TIME,
+            )
+            await notify(str(auth_session.id), "expired")
+
+    if auth_session.proof_status in FINISHED_STATES:
+        logger.info(
+            "Rejecting proof request for finished session",
+            pid=str(auth_session.id),
+            proof_status=auth_session.proof_status,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail="Proof request is no longer available",
+        )
 
     # First prepare the response depending on the redirect url
     if ".html" in settings.CONTROLLER_CAMERA_REDIRECT_URL:

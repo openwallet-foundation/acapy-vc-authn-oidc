@@ -327,6 +327,20 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                 )
                 return {"status": "unknown presentation exchange"}
 
+            # The browser stops listening once a session expires, so a late
+            # presentation must not move it to VERIFIED or FAILED.
+            if auth_session.proof_status == AuthSessionState.EXPIRED:
+                logger.info(
+                    "Ignoring presentation webhook for expired session",
+                    pres_ex_id=pres_ex_id,
+                    state=webhook_body["state"],
+                )
+                if webhook_body["state"] in ("done", "abandoned"):
+                    await _cleanup__connection(
+                        client, auth_session, pres_ex_id, "expired session"
+                    )
+                return {"status": "session expired"}
+
             if webhook_body["state"] == "presentation-received":
                 logger.info("presentation-received")
 
