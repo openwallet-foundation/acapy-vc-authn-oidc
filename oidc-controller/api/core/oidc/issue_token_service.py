@@ -10,7 +10,6 @@ from pydantic import BaseModel
 from ...authSessions.models import AuthSession
 from ...core.models import RevealedAttribute
 from ...verificationConfigs.models import ReqAttr, VerificationConfig
-from ..config import settings
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
 
@@ -31,7 +30,10 @@ class Token(BaseModel, frozen=True):
 
     @classmethod
     def get_claims(
-        cls, auth_session: AuthSession, ver_config: VerificationConfig
+        cls,
+        auth_session: AuthSession,
+        ver_config: VerificationConfig,
+        proof_format: str,
     ) -> dict[str, str]:
         """Converts vc presentation values to oidc claims"""
         oidc_claims: list[Claim] = [
@@ -56,7 +58,6 @@ class Token(BaseModel, frozen=True):
         pres_exch = auth_session.presentation_exchange or {}
         pres_request = pres_exch.get("pres_request", {})
         pres = pres_exch.get("pres", {})
-        proof_format = settings.ACAPY_PROOF_FORMAT
 
         if proof_format not in pres_request or proof_format not in pres:
             if "indy" in pres_request and "indy" in pres:

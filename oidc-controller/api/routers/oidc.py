@@ -154,7 +154,9 @@ async def get_authorize(request: Request, db: Database = Depends(get_db)):
     # Generate proof request configuration
     try:
         # Local time, so date variables such as $today_int use the server's date.
-        proof_request = ver_config.generate_proof_request(datetime.now().astimezone())
+        proof_request = ver_config.generate_proof_request(
+            datetime.now().astimezone(), settings.SET_NON_REVOKED
+        )
     except VariableSubstitutionError as e:
         return JSONResponse(
             status_code=http_status.HTTP_400_BAD_REQUEST,
@@ -470,7 +472,9 @@ async def post_token(request: Request, db: Database = Depends(get_db)):
             raise _invalid_grant()
 
         ver_config = await VerificationConfigCRUD(db).get(auth_session.ver_config_id)
-        sub, claims = _split_subject(Token.get_claims(auth_session, ver_config))
+        sub, claims = _split_subject(
+            Token.get_claims(auth_session, ver_config, settings.ACAPY_PROOF_FORMAT)
+        )
         user_id = sub or auth_session.pyop_user_id
 
         if sub:

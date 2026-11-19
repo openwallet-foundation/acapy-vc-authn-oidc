@@ -2,7 +2,6 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from ..core.config import settings
 from .examples import ex_ver_config
 from .helpers import replace_proof_variables
 
@@ -51,7 +50,7 @@ class VerificationConfigBase(BaseModel, frozen=True):
     include_v1_attributes: bool | None = Field(default=False)
     metadata: dict[str, MetaData] | None = Field(default=None)
 
-    def generate_proof_request(self, now: datetime):
+    def generate_proof_request(self, now: datetime, set_non_revoked: bool):
         result = {
             "name": "proof_requested",
             "version": "0.0.1",
@@ -65,7 +64,7 @@ class VerificationConfigBase(BaseModel, frozen=True):
             result["requested_attributes"][label] = req_attr.model_dump(
                 exclude_none=True
             )
-            if settings.SET_NON_REVOKED:
+            if set_non_revoked:
                 result["requested_attributes"][label]["non_revoked"] = {
                     "from": int(now.timestamp()),
                     "to": int(now.timestamp()),
@@ -75,7 +74,7 @@ class VerificationConfigBase(BaseModel, frozen=True):
             result["requested_predicates"][label] = req_pred.model_dump(
                 exclude_none=True
             )
-            if settings.SET_NON_REVOKED:
+            if set_non_revoked:
                 result["requested_predicates"][label]["non_revoked"] = {
                     "from": int(now.timestamp()),
                     "to": int(now.timestamp()),

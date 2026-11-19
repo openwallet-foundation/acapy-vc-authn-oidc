@@ -156,7 +156,7 @@ async def test_generate_proof_request():
 
     # Generate the proof request
     proof_request = verification_config.generate_proof_request(
-        datetime.now().astimezone()
+        datetime.now().astimezone(), set_non_revoked=True
     )
 
     # Assertions to verify the generated proof request

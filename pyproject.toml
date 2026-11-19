@@ -175,6 +175,26 @@ forbidden_modules = [
     "api.verificationConfigs.crud",
 ]
 
+# Pure functions take settings as arguments rather than reading the global.
+# The two model modules are exempt because they use settings for field defaults.
+[[tool.importlinter.contracts]]
+name = "Pure functions do not read settings"
+type = "forbidden"
+source_modules = [
+    "api.core.acapy.models",
+    "api.core.acapy.out_of_band",
+    "api.core.acapy.present_proof_attachment",
+    "api.core.acapy.present_proof_presentation",
+    "api.core.acapy.service_decorator",
+    "api.core.models",
+    "api.core.oidc.issue_token_service",
+    "api.verificationConfigs.helpers",
+    "api.verificationConfigs.models",
+    "api.verificationConfigs.variableSubstitutions",
+]
+forbidden_modules = ["api.core.config"]
+allow_indirect_imports = true
+
 [build-system]
 requires = ["poetry-core>=2.0"]
 build-backend = "poetry.core.masonry.api"
