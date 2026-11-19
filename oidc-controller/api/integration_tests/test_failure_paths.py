@@ -261,43 +261,6 @@ class TestTokenErrors:
         # 404 (auth_session not found) or 400/401 from pyop
         assert resp.status_code >= 400
 
-    def test_token_before_verification_returns_error(
-        self, integration_client, oob_mode
-    ):
-        """Attempting /token with a valid but unverified auth code returns an error.
-
-        The auth_session exists but proof_status is NOT_STARTED.  The token
-        endpoint looks up by pyop_auth_code first; if the code is valid but the
-        session is not verified we still proceed to pyop which validates the
-        code itself.  The key assertion: we get back a proper error, not a 200.
-        """
-        client, db = integration_client
-
-        # Start authorization but do NOT inject a webhook
-        with acapy_oob_mock():
-            auth_resp = client.get("/authorize", params=authorize_params())
-        pid = parse_pid_from_html(auth_resp.text)
-
-        # /callback refuses unverified sessions, so read the code from the DB
-        auth_code = _unverified_auth_code(db, pid)
-
-        # The token endpoint must fail: StatelessWrapper encodes auth codes and
-        # handle_token_request validates the redirect_uri against the original request
-        resp = client.post(
-            "/token",
-            data={
-                "grant_type": "authorization_code",
-                "code": auth_code,
-                # Deliberately wrong redirect_uri to force pyop rejection
-                "redirect_uri": "http://wrong-redirect.example.com/",
-            },
-            headers={
-                "Authorization": basic_auth_header(TEST_CLIENT_ID, TEST_CLIENT_SECRET),
-                "Content-Type": "application/x-www-form-urlencoded",
-            },
-        )
-        assert resp.status_code >= 400
-
     def test_token_for_unverified_session_returns_error(
         self, integration_client, oob_mode
     ):

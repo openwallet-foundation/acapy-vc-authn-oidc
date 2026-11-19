@@ -1,3 +1,5 @@
+import secrets
+
 from fastapi import HTTPException, Security, status
 from fastapi.security import APIKeyHeader
 
@@ -8,7 +10,7 @@ API_KEY = settings.CONTROLLER_API_KEY
 
 
 async def get_api_key(api_key_header: str = Security(api_key_header)):
-    if not API_KEY or api_key_header == API_KEY:
+    if not API_KEY or secrets.compare_digest(api_key_header or "", API_KEY):
         return api_key_header
     else:
         raise HTTPException(
