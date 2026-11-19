@@ -93,6 +93,7 @@ typeCheckingMode = "standard"
 include = ["oidc-controller/api"]
 exclude = ["**/tests", "**/integration_tests", "**/__pycache__"]
 extraPaths = ["oidc-controller"]
+reportMatchNotExhaustive = "error"
 # Modules that pass strict mode. Add a module here once it is clean.
 strict = [
     "oidc-controller/api/clientConfigurations/examples.py",
