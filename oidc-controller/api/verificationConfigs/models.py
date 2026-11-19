@@ -1,4 +1,4 @@
-import time
+from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -51,10 +51,7 @@ class VerificationConfigBase(BaseModel):
     include_v1_attributes: bool | None = Field(default=False)
     metadata: dict[str, MetaData] | None = Field(default=None)
 
-    def get_now(self) -> int:
-        return int(time.time())
-
-    def generate_proof_request(self):
+    def generate_proof_request(self, now: datetime):
         result = {
             "name": "proof_requested",
             "version": "0.0.1",
@@ -70,8 +67,8 @@ class VerificationConfigBase(BaseModel):
             )
             if settings.SET_NON_REVOKED:
                 result["requested_attributes"][label]["non_revoked"] = {
-                    "from": int(time.time()),
-                    "to": int(time.time()),
+                    "from": int(now.timestamp()),
+                    "to": int(now.timestamp()),
                 }
         for i, req_pred in enumerate(self.proof_request.requested_predicates):
             label = req_pred.label or "req_pred_" + str(i)
@@ -80,11 +77,11 @@ class VerificationConfigBase(BaseModel):
             )
             if settings.SET_NON_REVOKED:
                 result["requested_predicates"][label]["non_revoked"] = {
-                    "from": int(time.time()),
-                    "to": int(time.time()),
+                    "from": int(now.timestamp()),
+                    "to": int(now.timestamp()),
                 }
         # Recursively check for subistitution variables and invoke replacement function
-        result = replace_proof_variables(result)
+        result = replace_proof_variables(result, now)
         return result
 
     model_config = ConfigDict(json_schema_extra={"example": ex_ver_config})

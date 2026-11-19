@@ -1,34 +1,29 @@
-import time
-from datetime import datetime, timedelta
+from datetime import UTC, datetime
 
 import pytest
 from api.verificationConfigs.variableSubstitutions import VariableSubstitutionMap
 
+NOW = datetime(2024, 3, 15, 12, 30, tzinfo=UTC)
 
-def test_get_now():
+
+def test_now():
     vsm = VariableSubstitutionMap()
-    assert abs(vsm.get_now() - int(time.time())) < 2  # Allowing a small time difference
+    assert vsm.resolve("$now", NOW) == int(NOW.timestamp())
 
 
-def test_get_today_date():
+def test_today_int():
     vsm = VariableSubstitutionMap()
-    assert vsm.get_today_date() == int(datetime.today().strftime("%Y%m%d"))
+    assert vsm.resolve("$today_int", NOW) == 20240315
 
 
-def test_get_tomorrow_date():
+def test_tomorrow_int():
     vsm = VariableSubstitutionMap()
-    assert vsm.get_tomorrow_date() == int(
-        (datetime.today() + timedelta(days=1)).strftime("%Y%m%d")
-    )
+    assert vsm.resolve("$tomorrow_int", NOW) == 20240316
 
 
-def test_get_threshold_years_date():
+def test_threshold_years():
     vsm = VariableSubstitutionMap()
-    years = 5
-    expected_date = (
-        datetime.today().replace(year=datetime.today().year - years).strftime("%Y%m%d")
-    )
-    assert vsm.get_threshold_years_date(str(years)) == int(expected_date)
+    assert vsm.resolve("$threshold_years_5", NOW) == 20190315
 
 
 def test_user_defined_func():
@@ -41,7 +36,13 @@ def test_user_defined_func():
     days = 10
     years = 22
     assert f"$years since {years} {days}" in vsm
-    assert vsm[f"$years since {years} {days}"]() == years + days
+    assert vsm.resolve(f"$years since {years} {days}", NOW) == years + days
+
+
+def test_user_pattern_replaces_builtin():
+    vsm = VariableSubstitutionMap()
+    vsm.add_variable_substitution(r"\$threshold_years_(\d+)", lambda years: -1)
+    assert vsm.resolve("$threshold_years_5", NOW) == -1
 
 
 def test_contains_static_variable():
@@ -56,19 +57,8 @@ def test_contains_dynamic_variable():
     assert "$threshold_years_5" in vsm
 
 
-def test_getitem_static_variable():
+def test_resolve_key_error():
     vsm = VariableSubstitutionMap()
-    assert callable(vsm["$now"])
-    assert callable(vsm["$today_int"])
-    assert callable(vsm["$tomorrow_int"])
-
-
-def test_getitem_dynamic_variable():
-    vsm = VariableSubstitutionMap()
-    assert callable(vsm["$threshold_years_5"])
-
-
-def test_getitem_key_error():
-    vsm = VariableSubstitutionMap()
+    assert "$non_existent_key" not in vsm
     with pytest.raises(KeyError):
-        vsm["$non_existent_key"]
+        vsm.resolve("$non_existent_key", NOW)

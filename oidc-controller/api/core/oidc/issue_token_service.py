@@ -1,7 +1,6 @@
 import dataclasses
 import hashlib
 import json
-from datetime import datetime
 from typing import Any
 
 import canonicaljson
@@ -25,7 +24,6 @@ class Claim(BaseModel):
 
 
 class Token(BaseModel):
-    creation_time: datetime = datetime.now()
     issuer: str
     audiences: list[str]
     lifetime: int

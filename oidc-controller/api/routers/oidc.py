@@ -153,7 +153,8 @@ async def get_authorize(request: Request, db: Database = Depends(get_db)):
 
     # Generate proof request configuration
     try:
-        proof_request = ver_config.generate_proof_request()
+        # Local time, so date variables such as $today_int use the server's date.
+        proof_request = ver_config.generate_proof_request(datetime.now().astimezone())
     except VariableSubstitutionError as e:
         return JSONResponse(
             status_code=http_status.HTTP_400_BAD_REQUEST,
