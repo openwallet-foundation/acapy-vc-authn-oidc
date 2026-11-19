@@ -5,7 +5,7 @@ from jinja2 import BaseLoader, Environment
 from pymongo.database import Database
 
 from ..authSessions.crud import AuthSessionCRUD
-from ..authSessions.models import AuthSession, AuthSessionState
+from ..authSessions.models import AuthSession, AuthSessionPatch, AuthSessionState
 from ..core.config import settings
 from ..core.siem_audit import audit_qr_scanned
 from ..db.session import get_db
@@ -23,7 +23,9 @@ router = APIRouter()
 async def toggle_pending(db, auth_session: AuthSession):
     # We need to set this to pending now
     auth_session.proof_status = AuthSessionState.PENDING
-    await AuthSessionCRUD(db).patch(auth_session.id, auth_session)
+    await AuthSessionCRUD(db).patch(
+        auth_session.id, AuthSessionPatch(**auth_session.model_dump())
+    )
     await notify(str(auth_session.id), "pending")
 
 
@@ -66,13 +68,11 @@ async def send_connectionless_proof_req(
 
         response = HTMLResponse(template.render({"wallet_deep_link": wallet_deep_link}))
 
-    if "text/html" in req.headers.get("accept"):
+    if "text/html" in req.headers.get("accept", ""):
         logger.info("Redirecting to instructions page")
         return response
 
-    auth_session: AuthSession = await AuthSessionCRUD(db).get_by_pres_exch_id(
-        pres_exch_id
-    )
+    auth_session = await AuthSessionCRUD(db).get_by_pres_exch_id(pres_exch_id)
 
     # If the qrcode has been scanned, toggle the pending flag
     if auth_session.proof_status is AuthSessionState.NOT_STARTED:
@@ -90,5 +90,5 @@ async def send_connectionless_proof_req(
 
     msg = auth_session.presentation_request_msg
 
-    logger.debug(msg)
+    logger.debug("Presentation request message", msg=msg)
     return JSONResponse(msg)

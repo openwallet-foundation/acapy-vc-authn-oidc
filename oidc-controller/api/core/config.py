@@ -7,10 +7,11 @@ import sys
 from enum import Enum
 from functools import lru_cache
 from pathlib import Path
+from typing import Any
 
 import structlog
-from pydantic import ConfigDict, field_validator
-from pydantic_settings import BaseSettings
+from pydantic import field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 # Removed in later versions of python
@@ -45,7 +46,7 @@ use_json_logs: bool = strtobool(
 time_stamp_format: str = os.environ.get("LOG_TIMESTAMP_FORMAT", "iso")
 
 with open((Path(__file__).parent.parent / "logconf.json").resolve()) as user_file:
-    file_contents: dict = json.loads(user_file.read())
+    file_contents: dict[str, Any] = json.loads(user_file.read())
     logging.config.dictConfig(file_contents["logger"])
 
 
@@ -160,18 +161,18 @@ class GlobalConfig(BaseSettings):
     CONTROLLER_URL: str | None = os.environ.get("CONTROLLER_URL")
     CONTROLLER_WEB_HOOK_URL: str | None = os.environ.get("CONTROLLER_WEB_HOOK_URL")
     # Where to send users when trying to scan with their mobile camera (not a wallet)
-    CONTROLLER_CAMERA_REDIRECT_URL: str | None = os.environ.get(
-        "CONTROLLER_CAMERA_REDIRECT_URL"
+    CONTROLLER_CAMERA_REDIRECT_URL: str = os.environ.get(
+        "CONTROLLER_CAMERA_REDIRECT_URL", "wallet_howto"
     )
     # The number of seconds to wait for a presentation to be verified, Default: 10
-    CONTROLLER_PRESENTATION_EXPIRE_TIME: int = os.environ.get(
-        "CONTROLLER_PRESENTATION_EXPIRE_TIME", 10
+    CONTROLLER_PRESENTATION_EXPIRE_TIME: int = int(
+        os.environ.get("CONTROLLER_PRESENTATION_EXPIRE_TIME", 10)
     )
 
     # How long auth_sessions with matching the states in
     # CONTROLLER_SESSION_TIMEOUT_CONFIG_FILE are stored for in seconds
-    CONTROLLER_PRESENTATION_CLEANUP_TIME: int = os.environ.get(
-        "CONTROLLER_PRESENTATION_CLEANUP_TIME", 86400
+    CONTROLLER_PRESENTATION_CLEANUP_TIME: int = int(
+        os.environ.get("CONTROLLER_PRESENTATION_CLEANUP_TIME", 86400)
     )
 
     # Presentation record cleanup configuration
@@ -250,7 +251,7 @@ class GlobalConfig(BaseSettings):
     DEFAULT_PAGE_SIZE: int | str = os.environ.get("DEFAULT_PAGE_SIZE", 10)
 
     # openssl rand -hex 32
-    SIGNING_KEY_SIZE: int = os.environ.get("SIGNING_KEY_SIZE", 2048)
+    SIGNING_KEY_SIZE: int = int(os.environ.get("SIGNING_KEY_SIZE", 2048))
     # SIGNING_KEY_FILEPATH expects complete path including filename and extension.
     SIGNING_KEY_FILEPATH: str | None = os.environ.get("SIGNING_KEY_FILEPATH")
     SIGNING_KEY_ALGORITHM: str = os.environ.get("SIGNING_KEY_ALGORITHM", "RS256")
@@ -314,7 +315,7 @@ class GlobalConfig(BaseSettings):
         "REDIS_SENTINEL_MASTER_NAME", "mymaster"
     )
 
-    model_config = ConfigDict(case_sensitive=True)
+    model_config = SettingsConfigDict(case_sensitive=True)
 
 
 class LocalConfig(GlobalConfig):

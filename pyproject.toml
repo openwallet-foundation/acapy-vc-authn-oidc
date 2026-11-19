@@ -40,6 +40,7 @@ pytest-cov = "^7.1.0"
 pytest = "^9.2.0"
 respx = "^0.23.1"
 httpx2 = "^2.16.2"
+basedpyright = "^1.40.2"
 
 [tool.pytest.ini_options]
 testpaths = ["oidc-controller"]
@@ -67,13 +68,35 @@ target-version = "py313"
 extend-exclude = ["docker/"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "W"]
+select = ["E", "F", "I", "W", "B", "C4", "SIM", "UP", "PLW0603"]
 ignore = ["E501"]
 
 [tool.ruff.format]
 
-[tool.pyright]
+[tool.basedpyright]
 pythonVersion = "3.13"
+typeCheckingMode = "standard"
+include = ["oidc-controller/api"]
+exclude = ["**/tests", "**/integration_tests", "**/__pycache__"]
+extraPaths = ["oidc-controller"]
+# Modules that pass strict mode. Add a module here once it is clean.
+strict = [
+    "oidc-controller/api/clientConfigurations/examples.py",
+    "oidc-controller/api/clientConfigurations/models.py",
+    "oidc-controller/api/core/acapy/config.py",
+    "oidc-controller/api/core/acapy/models.py",
+    "oidc-controller/api/core/acapy/out_of_band.py",
+    "oidc-controller/api/core/acapy/present_proof_attachment.py",
+    "oidc-controller/api/core/acapy/present_proof_presentation.py",
+    "oidc-controller/api/core/acapy/service_decorator.py",
+    "oidc-controller/api/core/auth.py",
+    "oidc-controller/api/core/config.py",
+    "oidc-controller/api/core/http_exception_util.py",
+    "oidc-controller/api/db/collections.py",
+    "oidc-controller/api/routers/cleanup.py",
+    "oidc-controller/api/verificationConfigs/examples.py",
+    "oidc-controller/api/verificationConfigs/variableSubstitutions.py",
+]
 
 [build-system]
 requires = ["poetry-core>=2.0"]

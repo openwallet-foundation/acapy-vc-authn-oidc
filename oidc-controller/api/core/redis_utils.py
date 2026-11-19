@@ -110,6 +110,8 @@ def _get_cluster_client():
 def _get_single_redis_client():
     """Get a single Redis client connection."""
     redis_url = build_redis_url()
+    if redis_url is None:
+        raise ValueError(f"No Redis URL for REDIS_MODE={settings.REDIS_MODE}")
     return redis.from_url(redis_url)
 
 
@@ -370,12 +372,14 @@ def _handle_redis_failure(operation: str, error: Exception) -> str:
     return error_type
 
 
-def can_we_reach_redis(redis_url: str) -> bool:
+def can_we_reach_redis(redis_url: str | None) -> bool:
     """Test if we can reach a single Redis instance.
 
     Returns:
         bool: True if Redis is available, False otherwise
     """
+    if redis_url is None:
+        return False
     try:
         redis_client = redis.from_url(redis_url)
         redis_client.ping()

@@ -1,5 +1,6 @@
 import base64
 import json
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -13,7 +14,7 @@ class PresentationRequestMessage(BaseModel):
         "https://didcomm.org/present-proof/2.0/request-presentation",
         alias="@type",
     )
-    formats: list[dict]
+    formats: list[dict[str, Any]]
     request: list[PresentProofv20Attachment] = Field(
         alias="request_presentations~attach"
     )

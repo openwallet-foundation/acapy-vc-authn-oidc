@@ -114,12 +114,12 @@ variable_substitution_map = VariableSubstitutionMap()
 
 
 def apply_user_variables():
+    if settings.CONTROLLER_VARIABLE_SUBSTITUTION_OVERRIDE is None:
+        logger.warning("No user defined variable substitutions file provided")
+        return None
     try:
         with open(settings.CONTROLLER_VARIABLE_SUBSTITUTION_OVERRIDE) as user_file:
             code = user_file.read()
-    except TypeError:
-        logger.warning("No user defined variable substitutions file provided")
-        return None
     except FileNotFoundError:
         logger.warning("User defined variable substitutions file could not be found")
         return None

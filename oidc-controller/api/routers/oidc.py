@@ -3,7 +3,7 @@ import io
 import time
 import uuid
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import Any, Protocol, cast
 from urllib.parse import urlencode, urlparse
 
 import jwt
@@ -13,7 +13,6 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi import status as http_status
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from jinja2 import BaseLoader, Environment
-from oic.oic.message import AuthorizationRequest
 from pymongo.database import Database
 from pyop.exceptions import (
     BearerTokenError,
@@ -21,6 +20,7 @@ from pyop.exceptions import (
     InvalidAuthenticationRequest,
     OAuthError,
 )
+from pyop.message import AuthorizationRequest
 
 from ..authSessions.crud import AuthSessionCreate, AuthSessionCRUD
 from ..authSessions.models import AuthSession, AuthSessionPatch, AuthSessionState
@@ -89,8 +89,19 @@ async def poll_pres_exch_complete(pid: str, db: Database = Depends(get_db)):
     return {"proof_status": auth_session.proof_status}
 
 
+class _PackingStorage(Protocol):
+    def __getitem__(self, key: str) -> dict: ...
+    def pack(self, value: dict) -> str: ...
+
+
+def _controller_url() -> str:
+    if not settings.CONTROLLER_URL:
+        raise RuntimeError("CONTROLLER_URL is not set")
+    return settings.CONTROLLER_URL
+
+
 def gen_deep_link(auth_session: AuthSession) -> str:
-    controller_host = settings.CONTROLLER_URL
+    controller_host = _controller_url()
     url_to_message = (
         controller_host + "/url/pres_exch/" + str(auth_session.pres_exch_id)
     )
@@ -139,6 +150,11 @@ async def get_authorize(request: Request, db: Database = Depends(get_db)):
     # retrieve presentation_request config.
     client = AcapyClient(request.app.state.http_client)
     ver_config_id = model.get("pres_req_conf_id")
+    if not isinstance(ver_config_id, str):
+        raise HTTPException(
+            status_code=http_status.HTTP_400_BAD_REQUEST,
+            detail="Missing pres_req_conf_id",
+        )
     ver_config = await VerificationConfigCRUD(db).get(ver_config_id)
 
     # Generate proof request configuration
@@ -166,7 +182,6 @@ async def get_authorize(request: Request, db: Database = Depends(get_db)):
         msg_contents = oob_invite_response.invitation
 
         # We'll create the presentation request after connection is established
-        pres_exch_dict = None
         # Use invitation message ID as temporary unique identifier
         if not oob_invite_response.invi_msg_id:
             raise HTTPException(
@@ -193,7 +208,6 @@ async def get_authorize(request: Request, db: Database = Depends(get_db)):
         request_parameters=model.to_dict(),
         ver_config_id=ver_config_id,
         pres_exch_id=pres_ex_id,
-        presentation_exchange=pres_exch_dict,
         presentation_request_msg=msg_contents.model_dump(
             by_alias=True, exclude_none=True
         ),
@@ -214,7 +228,7 @@ async def get_authorize(request: Request, db: Database = Depends(get_db)):
     user_agent = request.headers.get("user-agent")
     audit_auth_session_initiated(
         session_id=str(auth_session.id),
-        client_id=model.get("client_id", "unknown"),
+        client_id=model.get("client_id") or "unknown",
         ver_config=ver_config,
         client_ip=client_ip,
         user_agent=user_agent,
@@ -228,13 +242,13 @@ async def get_authorize(request: Request, db: Database = Depends(get_db)):
     )
 
     # QR CONTENTS
-    controller_host = settings.CONTROLLER_URL
+    controller_host = _controller_url()
     url_to_message = (
         controller_host + "/url/pres_exch/" + str(auth_session.pres_exch_id)
     )
     # CREATE the image
     buff = io.BytesIO()
-    qrcode.make(url_to_message).save(buff, format="PNG")
+    qrcode.make(url_to_message).save(buff, kind="PNG")
     image_contents = base64.b64encode(buff.getvalue()).decode("utf-8")
     callback_url = f"""{controller_host}{AuthorizeCallbackUri}?pid={auth_session.id}"""
 
@@ -478,7 +492,7 @@ async def post_token(request: Request, db: Database = Depends(get_db)):
 
         # Packing creates a new code (a new Redis key, or a new encrypted blob
         # when stateless), so the form must reference the new one.
-        codes = provider.provider.authz_state.authorization_codes
+        codes = cast(_PackingStorage, provider.provider.authz_state.authorization_codes)
         form_dict["code"] = codes.pack(_with_claims(codes[code], claims, sub))
 
         logger.info(

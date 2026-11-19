@@ -35,7 +35,7 @@ from pymongo.database import Database
 from starlette.responses import StreamingResponse
 
 from ..authSessions.crud import AuthSessionCRUD
-from ..authSessions.models import AuthSessionPatch, AuthSessionState
+from ..authSessions.models import AuthSession, AuthSessionPatch, AuthSessionState
 from ..core.config import settings
 from ..core.redis_utils import parse_host_port_pairs
 from ..db.session import get_db
@@ -164,7 +164,7 @@ def _format_event(data: dict, event: str = "status", id: str | None = None) -> s
 
 async def _get_initial_state(
     pid: str, db: Database
-) -> tuple[str | None, bool, datetime | None, object]:
+) -> tuple[AuthSessionState | None, bool, datetime | None, AuthSession | None]:
     """Fetch current proof_status from DB for the initial SSE event on connect.
 
     Returns (status, is_terminal, expired_timestamp, auth_session). Returns
@@ -198,7 +198,9 @@ def _seconds_until_expiry(expired_timestamp: datetime | None) -> float:
     return min(30.0, max(1.0, remaining))
 
 
-async def _expire_if_needed(pid: str, db: Database, auth_session=None) -> bool:
+async def _expire_if_needed(
+    pid: str, db: Database, auth_session: AuthSession | None = None
+) -> bool:
     """Transition a NOT_STARTED session to EXPIRED if its deadline has passed.
 
     Called on connect (passing the auth_session from _get_initial_state to avoid
@@ -356,7 +358,7 @@ async def _poll_redis_pubsub(pubsub) -> dict | None:
 
 
 async def _multi_pod_stream(
-    pid: str, request: Request, db: Database
+    pid: str, request: Request, db: Database, redis_client: async_redis.Redis
 ) -> AsyncGenerator[str, None]:
     """Generate SSE events for multi-pod mode using Redis pub/sub.
 
@@ -364,7 +366,7 @@ async def _multi_pod_stream(
     fires between the DB check and the subscription setup. Any notification
     published in that window is queued and delivered when get_message() polls.
     """
-    pubsub = _redis_client.pubsub()
+    pubsub = redis_client.pubsub()
     await pubsub.subscribe(f"sse:{pid}")
 
     async def wait_fn(timeout: float) -> dict | None:
@@ -412,7 +414,7 @@ async def sse_status(
     mode = settings.REDIS_MODE
 
     if mode != "none" and _redis_client is not None:
-        stream = _multi_pod_stream(pid, request, db)
+        stream = _multi_pod_stream(pid, request, db, _redis_client)
     else:
         if mode != "none":
             logger.warning(

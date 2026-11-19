@@ -4,7 +4,7 @@ import asyncio
 import time
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
-from typing import TypedDict
+from typing import Literal, TypedDict
 
 import httpx
 import structlog
@@ -38,6 +38,20 @@ class CleanupStats(TypedDict):
     hit_connection_limit: bool
     hit_time_budget: bool
     has_more: bool
+
+
+LimitFlag = Literal["hit_presentation_limit", "hit_connection_limit"]
+
+
+class _SweepPhase(TypedDict):
+    phase: str
+    fetch_page: Callable[[int, int], Awaitable[list[dict]]]
+    id_key: str
+    is_stale: Callable[[dict], bool]
+    delete: Callable[[str], Awaitable[bool]]
+    max_deletes: int
+    total_key: str
+    cleaned_key: str
 
 
 def validate_cleanup_configuration():
@@ -345,44 +359,49 @@ async def perform_cleanup(
             return _created_before(record, expiry_cutoff, "connection_id")
         return _created_before(record, retention_cutoff, "connection_id")
 
-    phases = [
-        dict(
-            phase="presentation_records",
-            fetch_page=client.get_presentation_records_page,
-            id_key="pres_ex_id",
-            is_stale=lambda r: _created_before(r, retention_cutoff, "pres_ex_id"),
-            delete=client.delete_presentation_record,
-            max_deletes=effective_max_records,
-            total_key="total_presentation_records",
-            cleaned_key="cleaned_presentation_records",
-            limit_flag="hit_presentation_limit",
+    phases: list[tuple[LimitFlag, _SweepPhase]] = [
+        (
+            "hit_presentation_limit",
+            _SweepPhase(
+                phase="presentation_records",
+                fetch_page=client.get_presentation_records_page,
+                id_key="pres_ex_id",
+                is_stale=lambda r: _created_before(r, retention_cutoff, "pres_ex_id"),
+                delete=client.delete_presentation_record,
+                max_deletes=effective_max_records,
+                total_key="total_presentation_records",
+                cleaned_key="cleaned_presentation_records",
+            ),
         ),
-        dict(
-            phase="oob_records",
-            fetch_page=client.get_oob_records_page,
-            id_key="invi_msg_id",
-            is_stale=oob_is_stale,
-            delete=client.delete_oob_invitation,
-            max_deletes=effective_max_connections,
-            total_key="total_oob_records",
-            cleaned_key="cleaned_oob_records",
-            limit_flag="hit_connection_limit",
+        (
+            "hit_connection_limit",
+            _SweepPhase(
+                phase="oob_records",
+                fetch_page=client.get_oob_records_page,
+                id_key="invi_msg_id",
+                is_stale=oob_is_stale,
+                delete=client.delete_oob_invitation,
+                max_deletes=effective_max_connections,
+                total_key="total_oob_records",
+                cleaned_key="cleaned_oob_records",
+            ),
         ),
-        dict(
-            phase="connections",
-            fetch_page=client.get_connections_page,
-            id_key="connection_id",
-            is_stale=connection_is_stale,
-            delete=client.delete_connection,
-            max_deletes=effective_max_connections,
-            total_key="total_connections",
-            cleaned_key="cleaned_connections",
-            limit_flag="hit_connection_limit",
+        (
+            "hit_connection_limit",
+            _SweepPhase(
+                phase="connections",
+                fetch_page=client.get_connections_page,
+                id_key="connection_id",
+                is_stale=connection_is_stale,
+                delete=client.delete_connection,
+                max_deletes=effective_max_connections,
+                total_key="total_connections",
+                cleaned_key="cleaned_connections",
+            ),
         ),
     ]
 
-    for phase_config in phases:
-        limit_flag = phase_config.pop("limit_flag")
+    for limit_flag, phase_config in phases:
         try:
             stopped_early = await _sweep(
                 **phase_config,

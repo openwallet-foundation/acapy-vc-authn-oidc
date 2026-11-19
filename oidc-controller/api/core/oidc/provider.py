@@ -84,6 +84,8 @@ else:
 logger.info(f"pem file located at {SIGNING_KEY_FILEPATH}.")
 
 issuer_url = settings.CONTROLLER_URL
+if not issuer_url:
+    raise RuntimeError("CONTROLLER_URL must be set")
 if urlparse(issuer_url).scheme != "https":
     logger.warning(
         "CONTROLLER_URL is not HTTPS. changing openid-config for development"
@@ -173,7 +175,7 @@ class DynamicClientDatabase(dict):
         client = self._get_client_from_db(key)
         return client if client is not None else default
 
-    def keys(self):
+    def keys(self):  # pyright: ignore[reportIncompatibleMethodOverride]
         """Return all client IDs from database."""
         from api.db.session import COLLECTION_NAMES
 
@@ -181,12 +183,12 @@ class DynamicClientDatabase(dict):
         col = db.get_collection(COLLECTION_NAMES.CLIENT_CONFIGURATIONS)
         return [doc["client_id"] for doc in col.find({}, {"client_id": 1})]
 
-    def values(self):
+    def values(self):  # pyright: ignore[reportIncompatibleMethodOverride]
         """Return all clients from database."""
         for client_id in self.keys():
             yield self[client_id]
 
-    def items(self):
+    def items(self):  # pyright: ignore[reportIncompatibleMethodOverride]
         """Return all (client_id, client) pairs from database."""
         for client_id in self.keys():
             yield client_id, self[client_id]

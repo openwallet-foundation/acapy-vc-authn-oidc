@@ -1,5 +1,5 @@
 from datetime import UTC, datetime
-from typing import TypedDict
+from typing import Required, TypedDict
 
 import structlog
 from bson import ObjectId
@@ -63,7 +63,7 @@ class GenericErrorMessage(BaseModel):
 # and and BaseModel
 class RevealedAttribute(TypedDict, total=False):
     sub_proof_index: int
-    values: dict
+    values: Required[dict]
 
 
 class VCUserinfo(Userinfo):

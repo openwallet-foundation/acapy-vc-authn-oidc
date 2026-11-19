@@ -1,3 +1,5 @@
+from typing import Any
+
 from pydantic import BaseModel
 
 from . import OutOfBandMessage
@@ -16,7 +18,7 @@ class WalletDidPublicResponse(BaseModel):
 class CreatePresentationResponse(BaseModel):
     thread_id: str
     pres_ex_id: str
-    pres_request: dict
+    pres_request: dict[str, Any]
 
 
 class OobCreateInvitationResponse(BaseModel):

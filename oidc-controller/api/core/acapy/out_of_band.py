@@ -1,3 +1,5 @@
+from typing import Any
+
 from pydantic import BaseModel, ConfigDict, Field
 
 from .service_decorator import OOBServiceDecorator
@@ -6,7 +8,7 @@ from .service_decorator import OOBServiceDecorator
 class OutOfBandPresentProofAttachment(BaseModel):
     id: str = Field(alias="@id")
     mime_type: str = Field(default="application/json", alias="mime-type")
-    data: dict
+    data: dict[str, Any]
 
     model_config = ConfigDict(populate_by_name=True)
 

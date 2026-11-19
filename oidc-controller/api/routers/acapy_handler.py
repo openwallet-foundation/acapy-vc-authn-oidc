@@ -1,10 +1,10 @@
 import json
 import time
 from datetime import UTC, datetime
+from typing import Any
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic.plugin import Any
 from pymongo.database import Database
 
 from ..authSessions.crud import AuthSessionCRUD
@@ -167,9 +167,12 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                         f"Connection {webhook_body.get('connection_id')} is in request state, waiting for active/completed"
                     )
 
-                if webhook_body.get("state") in ["active", "completed"]:
+                if webhook_body.get("state") in [
+                    "active",
+                    "completed",
+                ] and isinstance(webhook_body.get("connection_id"), str):
                     # Connection established, now send presentation request
-                    connection_id = webhook_body.get("connection_id")
+                    connection_id = webhook_body["connection_id"]
                     invitation_msg_id = webhook_body.get("invitation_msg_id")
 
                     logger.debug(f"Full webhook body: {webhook_body}")
@@ -184,12 +187,14 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
 
                     # Find the auth session by invitation message ID (stored as connection_id initially)
                     logger.info(f"Looking for auth session with search_id: {search_id}")
-                    auth_session = await AuthSessionCRUD(db).get_by_connection_id(
-                        search_id
+                    auth_session = (
+                        await AuthSessionCRUD(db).get_by_connection_id(search_id)
+                        if search_id
+                        else None
                     )
 
                     # If not found by invitation message ID, try by connection_id directly
-                    if not auth_session and connection_id:
+                    if not auth_session:
                         logger.info(
                             f"Trying to find auth session by connection_id: {connection_id}"
                         )
@@ -313,9 +318,9 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
 
             # Existing verifier-role code continues below...
             try:
-                auth_session: AuthSession = await AuthSessionCRUD(
-                    db
-                ).get_by_pres_exch_id(webhook_body["pres_ex_id"])
+                auth_session = await AuthSessionCRUD(db).get_by_pres_exch_id(
+                    webhook_body["pres_ex_id"]
+                )
             except HTTPException as e:
                 if e.status_code != 404:
                     raise

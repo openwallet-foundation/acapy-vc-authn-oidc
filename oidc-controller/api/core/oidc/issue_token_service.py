@@ -55,8 +55,9 @@ class Token(BaseModel):
 
         # Make fallback logic more robust by checking both pres_request and pres.
         # This handles in-flight sessions during configuration changes and guards against malformed data.
-        pres_request = auth_session.presentation_exchange.get("pres_request", {})
-        pres = auth_session.presentation_exchange.get("pres", {})
+        pres_exch = auth_session.presentation_exchange or {}
+        pres_request = pres_exch.get("pres_request", {})
+        pres = pres_exch.get("pres", {})
         proof_format = settings.ACAPY_PROOF_FORMAT
 
         if proof_format not in pres_request or proof_format not in pres:
@@ -76,27 +77,25 @@ class Token(BaseModel):
 
         logger.info(
             "Extracted requested attributes from presentation request",
-            requested_attributes=auth_session.presentation_exchange["pres_request"][
-                proof_format
-            ]["requested_attributes"],
+            requested_attributes=pres_exch["pres_request"][proof_format][
+                "requested_attributes"
+            ],
             proof_format=proof_format,
         )
 
         referent: str
         requested_attr: ReqAttr
         try:
-            for referent, requested_attrdict in auth_session.presentation_exchange[
-                "pres_request"
-            ][proof_format]["requested_attributes"].items():
+            for referent, requested_attrdict in pres_exch["pres_request"][proof_format][
+                "requested_attributes"
+            ].items():
                 requested_attr = ReqAttr(**requested_attrdict)
                 logger.debug(
                     f"Processing referent: {referent}, requested_attr: {requested_attr}"
                 )
-                revealed_attrs: dict[str, RevealedAttribute] = (
-                    auth_session.presentation_exchange["pres"][proof_format][
-                        "requested_proof"
-                    ]["revealed_attr_groups"]
-                )
+                revealed_attrs: dict[str, RevealedAttribute] = pres_exch["pres"][
+                    proof_format
+                ]["requested_proof"]["revealed_attr_groups"]
                 logger.debug(f"revealed_attrs: {revealed_attrs}")
                 # loop through each value and put it in token as a claim
                 for attr_name in requested_attr.names:

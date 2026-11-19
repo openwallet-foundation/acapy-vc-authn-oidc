@@ -39,7 +39,7 @@ class ClientConfigurationRead(ClientConfigurationBase):
     pass
 
 
-class ClientConfigurationPatch(ClientConfigurationBase):
+class ClientConfigurationPatch(BaseModel):
     client_id: str | None = None
     client_name: str | None = None
     response_types: list[str] | None = None
@@ -47,4 +47,4 @@ class ClientConfigurationPatch(ClientConfigurationBase):
     token_endpoint_auth_method: TOKENENDPOINTAUTHMETHODS | None = None
     client_secret: str | None = None
 
-    pass
+    model_config = ClientConfigurationBase.model_config

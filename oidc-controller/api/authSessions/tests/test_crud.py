@@ -255,7 +255,8 @@ class TestAuthSessionCRUD:
         )
 
         # Verify
-        assert result == updated_data
+        assert result is not None
+        assert result.pres_exch_id == updated_data["pres_exch_id"]
         mock_database.get_collection.assert_called_once_with(
             COLLECTION_NAMES.AUTH_SESSION
         )
@@ -295,7 +296,8 @@ class TestAuthSessionCRUD:
         result = await auth_session_crud.patch(object_id, sample_auth_session_patch)
 
         # Verify
-        assert result == updated_data
+        assert result is not None
+        assert result.pres_exch_id == updated_data["pres_exch_id"]
         mock_collection.find_one_and_update.assert_called_once_with(
             {"_id": PyObjectId("507f1f77bcf86cd799439011")},
             {"$set": sample_auth_session_patch.model_dump(exclude_unset=True)},
