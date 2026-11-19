@@ -5,7 +5,7 @@ import httpx
 import pytest
 import respx
 
-from api.core.webhook_utils import _register_via_tenant_api, register_tenant_webhook
+from api.adapters.webhook_utils import _register_via_tenant_api, register_tenant_webhook
 from api.main import _startup, app
 
 
@@ -36,7 +36,9 @@ def mock_settings():
 @pytest.fixture
 def mock_sleep():
     """Mock asyncio.sleep to prevent slow tests."""
-    with patch("api.core.webhook_utils.asyncio.sleep", new_callable=AsyncMock) as mock:
+    with patch(
+        "api.adapters.webhook_utils.asyncio.sleep", new_callable=AsyncMock
+    ) as mock:
         yield mock
 
 
@@ -463,7 +465,7 @@ async def test_webhook_registration_masks_api_key_in_logs(http_client):
         return_value=httpx.Response(200)
     )
 
-    with patch("api.core.webhook_utils.logger") as mock_logger:
+    with patch("api.adapters.webhook_utils.logger") as mock_logger:
         secret_key = "super-secret-key"
         base_url = "http://controller/webhooks"
 

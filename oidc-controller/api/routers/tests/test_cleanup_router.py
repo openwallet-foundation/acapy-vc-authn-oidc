@@ -151,7 +151,7 @@ class TestCleanupRouter(BaseCleanupRouterTest):
 
     @pytest.mark.asyncio
     @patch("api.routers.cleanup.perform_cleanup")
-    @patch("api.core.auth.get_api_key")
+    @patch("api.adapters.auth.get_api_key")
     async def test_cleanup_endpoint_basic_success(
         self,
         mock_get_api_key,
@@ -197,7 +197,7 @@ class TestCleanupRouter(BaseCleanupRouterTest):
 
     @pytest.mark.asyncio
     @patch("api.routers.cleanup.perform_cleanup")
-    @patch("api.core.auth.get_api_key")
+    @patch("api.adapters.auth.get_api_key")
     async def test_cleanup_endpoint_with_parameters(
         self,
         mock_get_api_key,
@@ -229,7 +229,7 @@ class TestCleanupRouter(BaseCleanupRouterTest):
         assert response_data["status"] == "completed"
 
     @patch("api.routers.cleanup.perform_cleanup")
-    @patch("api.core.auth.get_api_key")
+    @patch("api.adapters.auth.get_api_key")
     @pytest.mark.asyncio
     async def test_cleanup_endpoint_with_errors(
         self,
@@ -258,7 +258,7 @@ class TestCleanupRouter(BaseCleanupRouterTest):
         assert stats["error_count"] == 2
 
     @patch("api.routers.cleanup.perform_cleanup")
-    @patch("api.core.auth.get_api_key")
+    @patch("api.adapters.auth.get_api_key")
     @pytest.mark.asyncio
     async def test_cleanup_endpoint_with_resource_limits(
         self,
@@ -341,7 +341,7 @@ class TestCleanupRouter(BaseCleanupRouterTest):
         assert not cleanup_router_module._cleanup_lock.locked()
 
     @patch("api.routers.cleanup.perform_cleanup")
-    @patch("api.core.auth.get_api_key")
+    @patch("api.adapters.auth.get_api_key")
     @pytest.mark.asyncio
     async def test_cleanup_endpoint_service_failure(
         self, mock_get_api_key, mock_perform_cleanup, mock_request
@@ -373,7 +373,7 @@ class TestCleanupRouter(BaseCleanupRouterTest):
         assert "timestamp" in response_data
 
     @patch("api.routers.cleanup.perform_cleanup")
-    @patch("api.core.auth.get_api_key")
+    @patch("api.adapters.auth.get_api_key")
     @pytest.mark.asyncio
     async def test_cleanup_endpoint_dry_run_mode(
         self,
@@ -403,7 +403,7 @@ class TestCleanupRouter(BaseCleanupRouterTest):
         assert response.status_code == 200
 
     @patch("api.routers.cleanup.perform_cleanup")
-    @patch("api.core.auth.get_api_key")
+    @patch("api.adapters.auth.get_api_key")
     @pytest.mark.asyncio
     async def test_cleanup_endpoint_custom_limits(
         self,
@@ -433,7 +433,7 @@ class TestCleanupRouter(BaseCleanupRouterTest):
         assert response.status_code == 200
 
     @patch("api.routers.cleanup.perform_cleanup")
-    @patch("api.core.auth.get_api_key")
+    @patch("api.adapters.auth.get_api_key")
     @pytest.mark.asyncio
     async def test_cleanup_endpoint_all_parameters(
         self,
@@ -474,7 +474,7 @@ class TestCleanupRouterIntegration:
         app.state.http_client = MagicMock()
         return TestClient(app)
 
-    @patch("api.core.auth.API_KEY", "test-api-key")
+    @patch("api.adapters.auth.API_KEY", "test-api-key")
     @patch("api.routers.cleanup.perform_cleanup")
     def test_cleanup_endpoint_http_success(self, mock_perform_cleanup, client):
         """Test cleanup endpoint via HTTP with valid authentication."""
@@ -497,7 +497,7 @@ class TestCleanupRouterIntegration:
         assert data["has_errors"] is False
         assert data["statistics"]["total_presentation_records"] == 50
 
-    @patch("api.core.auth.API_KEY", "test-api-key")
+    @patch("api.adapters.auth.API_KEY", "test-api-key")
     def test_cleanup_endpoint_http_authentication_failure(self, client):
         """Test cleanup endpoint HTTP authentication failure."""
         # Make request with invalid API key
@@ -506,7 +506,7 @@ class TestCleanupRouterIntegration:
         # Verify authentication failure
         assert response.status_code == 403
 
-    @patch("api.core.auth.API_KEY", "test-api-key")
+    @patch("api.adapters.auth.API_KEY", "test-api-key")
     def test_cleanup_endpoint_http_missing_auth(self, client):
         """Test cleanup endpoint without authentication header."""
         # Make request without API key
@@ -515,7 +515,7 @@ class TestCleanupRouterIntegration:
         # Verify authentication failure
         assert response.status_code == 403
 
-    @patch("api.core.auth.API_KEY", "test-api-key")
+    @patch("api.adapters.auth.API_KEY", "test-api-key")
     @patch("api.routers.cleanup.perform_cleanup")
     def test_cleanup_endpoint_http_with_query_params(
         self, mock_perform_cleanup, client
@@ -546,7 +546,7 @@ class TestCleanupRouterIntegration:
 
         assert response.status_code == 200
 
-    @patch("api.core.auth.API_KEY", "test-api-key")
+    @patch("api.adapters.auth.API_KEY", "test-api-key")
     @patch("api.routers.cleanup.perform_cleanup")
     @pytest.mark.parametrize(
         "query", ["max_records=0", "max_records=10001", "max_connections=0"]
@@ -570,7 +570,7 @@ class TestCleanupRouterIntegration:
         assert data["status"] == "healthy"
         assert data["service"] == "cleanup"
 
-    @patch("api.core.auth.API_KEY", "test-api-key")
+    @patch("api.adapters.auth.API_KEY", "test-api-key")
     @patch("api.routers.cleanup.perform_cleanup")
     def test_cleanup_endpoint_http_server_error(self, mock_perform_cleanup, client):
         """Test cleanup endpoint HTTP when service raises exception."""

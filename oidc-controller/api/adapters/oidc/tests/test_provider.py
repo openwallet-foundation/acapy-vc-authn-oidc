@@ -3,10 +3,10 @@ import secrets
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
+from api.adapters.oidc import provider as provider_module
+from api.adapters.oidc.provider import DynamicClientDatabase
+from api.adapters.redis_utils import SingleRedisWrapperWithPack
 from api.core.config import settings as real_settings
-from api.core.oidc import provider as provider_module
-from api.core.oidc.provider import DynamicClientDatabase
-from api.core.redis_utils import SingleRedisWrapperWithPack
 
 
 class TestSingleRedisWrapperWithPack:
@@ -409,7 +409,7 @@ class TestStorageBackendSelection:
 
     def test_module_has_storage_instances(self):
         """Test that provider module has storage instances initialized."""
-        import api.core.oidc.provider as provider_module
+        import api.adapters.oidc.provider as provider_module
 
         # Verify storage instances exist
         assert hasattr(provider_module, "authorization_code_storage")
@@ -437,8 +437,8 @@ class TestHelperFunctions:
 
     def test_build_redis_url_without_password(self):
         """Test Redis URL building without password."""
+        from api.adapters.redis_utils import build_redis_url
         from api.core.config import settings
-        from api.core.redis_utils import build_redis_url
 
         # Save original values
         original_mode = settings.REDIS_MODE
@@ -464,8 +464,8 @@ class TestHelperFunctions:
 
     def test_build_redis_url_with_password(self):
         """Test Redis URL building with password."""
+        from api.adapters.redis_utils import build_redis_url
         from api.core.config import settings
-        from api.core.redis_utils import build_redis_url
 
         # Save original values
         original_mode = settings.REDIS_MODE
@@ -489,28 +489,36 @@ class TestHelperFunctions:
             settings.REDIS_PASSWORD = original_password
             settings.REDIS_DB = original_db
 
+    def test_test_signing_key_is_outside_the_source_tree(self):
+        """The key path is derived from the module's location, so moving the
+        module must not move the key."""
+        import os
+
+        expected = os.path.join("test-signing-keys", "test_signing_key.pem")
+        assert provider_module.SIGNING_KEY_FILEPATH.endswith(expected)
+
     def test_get_signing_key_dir_path(self):
         """Test signing key directory path generation."""
         import os
 
-        from api.core.oidc.provider import get_signing_key_dir_path
+        from api.adapters.oidc.provider import get_signing_key_dir_path
 
-        result = get_signing_key_dir_path("/api/core/oidc", "/test", "key.pem")
+        result = get_signing_key_dir_path("/api/adapters/oidc", "/test", "key.pem")
         assert result.endswith(os.path.join("/test", "key.pem"))
 
-    @patch("api.core.oidc.provider.os.path.isfile")
+    @patch("api.adapters.oidc.provider.os.path.isfile")
     def test_pem_file_exists_true(self, mock_isfile):
         """Test pem file existence check when file exists."""
-        from api.core.oidc.provider import pem_file_exists
+        from api.adapters.oidc.provider import pem_file_exists
 
         mock_isfile.return_value = True
         assert pem_file_exists("/path/to/key.pem") is True
         mock_isfile.assert_called_once_with("/path/to/key.pem")
 
-    @patch("api.core.oidc.provider.os.path.isfile")
+    @patch("api.adapters.oidc.provider.os.path.isfile")
     def test_pem_file_exists_false(self, mock_isfile):
         """Test pem file existence check when file does not exist."""
-        from api.core.oidc.provider import pem_file_exists
+        from api.adapters.oidc.provider import pem_file_exists
 
         mock_isfile.return_value = False
         assert pem_file_exists("/path/to/key.pem") is False
@@ -519,7 +527,7 @@ class TestHelperFunctions:
     @patch("builtins.open", create=True)
     def test_save_pem_file(self, mock_open):
         """Test saving PEM file."""
-        from api.core.oidc.provider import save_pem_file
+        from api.adapters.oidc.provider import save_pem_file
 
         mock_file = MagicMock()
         mock_open.return_value.__enter__.return_value = mock_file

@@ -16,14 +16,13 @@ from fastapi.staticfiles import StaticFiles
 from starlette.requests import Request
 from starlette.responses import Response
 
-from api.core.acapy.config import MultiTenantAcapy, TractionTenantAcapy
+from api.adapters.acapy.config import MultiTenantAcapy, TractionTenantAcapy
+from api.adapters.oidc.provider import init_provider
+from api.adapters.webhook_utils import register_tenant_webhook
 from api.core.config import RedisMode, settings, validate_redis_config
-from api.core.oidc.provider import init_provider
-from api.core.webhook_utils import register_tenant_webhook
 
-from .clientConfigurations.router import router as client_config_router
-from .core.auth import get_api_key
-from .core.redis_utils import (
+from .adapters.auth import get_api_key
+from .adapters.redis_utils import (
     _handle_redis_failure,
     build_redis_url,
     can_we_reach_cluster,
@@ -31,6 +30,7 @@ from .core.redis_utils import (
     can_we_reach_sentinel,
     parse_host_port_pairs,
 )
+from .clientConfigurations.router import router as client_config_router
 from .db.session import get_db, init_db
 from .routers import (
     acapy_handler,

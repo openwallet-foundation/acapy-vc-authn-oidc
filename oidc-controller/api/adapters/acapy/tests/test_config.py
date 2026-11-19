@@ -5,7 +5,7 @@ from unittest import mock
 import httpx
 import pytest
 import respx
-from api.core.acapy.config import (
+from api.adapters.acapy.config import (
     MultiTenantAcapy,
     SingleTenantAcapy,
     TractionTenantAcapy,

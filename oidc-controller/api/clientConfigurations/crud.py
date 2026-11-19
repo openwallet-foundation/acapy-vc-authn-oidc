@@ -3,7 +3,7 @@ from fastapi.encoders import jsonable_encoder
 from pymongo import ReturnDocument
 from pymongo.database import Database
 
-from ..core.http_exception_util import (
+from ..adapters.http_exception_util import (
     check_and_raise_not_found_http_exception,
     raise_appropriate_http_exception,
 )

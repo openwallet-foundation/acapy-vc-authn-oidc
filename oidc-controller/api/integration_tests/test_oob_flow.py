@@ -149,7 +149,7 @@ class TestWebhookInjection:
             client.get("/authorize", params=authorize_params())
 
         webhook = make_proof_webhook(FAKE_PRES_EX_ID, verified=True)
-        with patch("api.core.auth.API_KEY", "controller-key"):
+        with patch("api.adapters.auth.API_KEY", "controller-key"):
             resp = client.post(
                 "/webhooks/topic/present_proof_v2_0/", json=webhook, headers=headers
             )
@@ -170,7 +170,7 @@ class TestWebhookInjection:
             client.get("/authorize", params=authorize_params())
 
         webhook = make_proof_webhook(FAKE_PRES_EX_ID, verified=True)
-        with patch("api.core.auth.API_KEY", "controller-key"):
+        with patch("api.adapters.auth.API_KEY", "controller-key"):
             resp = client.post(
                 "/webhooks/topic/present_proof_v2_0/",
                 json=webhook,

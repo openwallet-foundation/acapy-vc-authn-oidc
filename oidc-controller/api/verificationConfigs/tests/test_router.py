@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import mongomock
 import pytest
-from api.core.auth import get_api_key
+from api.adapters.auth import get_api_key
 from api.db.session import get_db
 from api.verificationConfigs.models import VerificationConfig, VerificationProofRequest
 from api.verificationConfigs.router import router

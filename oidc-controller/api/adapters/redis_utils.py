@@ -2,7 +2,7 @@
 
 Used by:
 - api/routers/sse.py (SSE Redis pub/sub)
-- api/core/oidc/provider.py (PyOP token storage)
+- api/adapters/oidc/provider.py (PyOP token storage)
 - api/main.py (startup health checks)
 """
 

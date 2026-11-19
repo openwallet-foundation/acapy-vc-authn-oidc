@@ -22,19 +22,19 @@ from pyop.exceptions import (
 )
 from pyop.message import AuthorizationRequest
 
-from ..authSessions.crud import AuthSessionCreate, AuthSessionCRUD
-from ..authSessions.models import AuthSession, AuthSessionPatch, AuthSessionState
-from ..clientConfigurations.crud import ClientConfigurationCRUD
-from ..core.acapy.client import AcapyClient
-from ..core.config import settings
-from ..core.logger_util import log_debug
-from ..core.oidc import provider
-from ..core.oidc.issue_token_service import Token
-from ..core.siem_audit import (
+from ..adapters.acapy.client import AcapyClient
+from ..adapters.logger_util import log_debug
+from ..adapters.oidc import provider
+from ..adapters.siem_audit import (
     audit_auth_session_initiated,
     audit_proof_request_created,
     audit_token_issued,
 )
+from ..authSessions.crud import AuthSessionCreate, AuthSessionCRUD
+from ..authSessions.models import AuthSession, AuthSessionPatch, AuthSessionState
+from ..clientConfigurations.crud import ClientConfigurationCRUD
+from ..core.config import settings
+from ..core.oidc.issue_token_service import Token
 from ..db.session import get_db
 from ..routers.sse import notify
 from ..verificationConfigs.crud import VerificationConfigCRUD

@@ -1,13 +1,13 @@
 from unittest.mock import MagicMock, patch
 
-from api.core.logger_util import log_debug
+from api.adapters.logger_util import log_debug
 
 
 class TestLogDebugDecorator:
     """Test log_debug decorator functionality."""
 
-    @patch("api.core.logger_util.structlog.getLogger")
-    @patch("api.core.logger_util.time.time")
+    @patch("api.adapters.logger_util.structlog.getLogger")
+    @patch("api.adapters.logger_util.time.time")
     def test_log_debug_decorator_logs_function_call(self, mock_time, mock_get_logger):
         """Test that log_debug decorator logs function entry, exit, and timing."""
         # Setup mock logger
@@ -42,7 +42,7 @@ class TestLogDebugDecorator:
         assert "0.500 seconds" in calls[2]
         assert "..with ret_val" in calls[3]
 
-    @patch("api.core.logger_util.structlog.getLogger")
+    @patch("api.adapters.logger_util.structlog.getLogger")
     def test_log_debug_decorator_preserves_function_behavior(self, mock_get_logger):
         """Test that decorator preserves original function behavior."""
         mock_logger = MagicMock()
@@ -55,7 +55,7 @@ class TestLogDebugDecorator:
         result = multiply(4, 7)
         assert result == 28
 
-    @patch("api.core.logger_util.structlog.getLogger")
+    @patch("api.adapters.logger_util.structlog.getLogger")
     def test_log_debug_decorator_with_keyword_args(self, mock_get_logger):
         """Test decorator works with keyword arguments."""
         mock_logger = MagicMock()
@@ -71,7 +71,7 @@ class TestLogDebugDecorator:
         # Verify logger was called
         mock_get_logger.assert_called_once_with("greet")
 
-    @patch("api.core.logger_util.structlog.getLogger")
+    @patch("api.adapters.logger_util.structlog.getLogger")
     def test_log_debug_decorator_with_no_args(self, mock_get_logger):
         """Test decorator works with functions that take no arguments."""
         mock_logger = MagicMock()

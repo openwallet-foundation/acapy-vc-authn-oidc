@@ -18,9 +18,9 @@ import pytest
 from jwt.algorithms import RSAAlgorithm
 from pyop.authz_state import AuthorizationState
 
+from api.adapters.oidc import provider as oidc_provider
+from api.adapters.redis_utils import SingleRedisWrapperWithPack
 from api.core.models import VCUserinfo
-from api.core.oidc import provider as oidc_provider
-from api.core.redis_utils import SingleRedisWrapperWithPack
 
 from .conftest import (
     FAKE_PRES_EX_ID,

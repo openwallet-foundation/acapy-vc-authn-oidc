@@ -9,7 +9,7 @@ from typing import Literal, TypedDict
 import httpx
 import structlog
 
-from ..core.acapy.client import AcapyClient
+from ..adapters.acapy.client import AcapyClient
 from ..core.config import settings
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
