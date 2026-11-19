@@ -15,7 +15,7 @@ import structlog
 from redis.cluster import ClusterNode, RedisCluster
 from redis.sentinel import Sentinel
 
-from api.core.config import settings
+from api.core.config import RedisMode, settings
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
 
@@ -62,14 +62,14 @@ def build_redis_url() -> str:
     """
     mode = settings.REDIS_MODE
 
-    if mode == "single":
+    if mode == RedisMode.SINGLE:
         # REDIS_HOST is already host:port after validation
         host_port = settings.REDIS_HOST
         if settings.REDIS_PASSWORD:
             return f"redis://:{settings.REDIS_PASSWORD}@{host_port}/{settings.REDIS_DB}"
         return f"redis://{host_port}/{settings.REDIS_DB}"
 
-    elif mode == "sentinel":
+    elif mode == RedisMode.SENTINEL:
         nodes = settings.REDIS_HOST
         master = settings.REDIS_SENTINEL_MASTER_NAME
         # redis-py Sentinel URL format requires /db/service_name (not /service_name/db)
@@ -441,17 +441,12 @@ def can_we_reach_cluster(startup_nodes: list[tuple[str, int]]) -> bool:
         return False
 
 
-def extract_storage_class(redis_mode: str) -> type[BaseRedisWrapperWithPack]:
+def extract_storage_class(redis_mode: RedisMode) -> type[BaseRedisWrapperWithPack]:
     """Return the storage wrapper class for the given Redis mode."""
     match redis_mode:
-        case "sentinel":
+        case RedisMode.SENTINEL:
             return SentinelRedisWrapperWithPack
-        case "cluster":
+        case RedisMode.CLUSTER:
             return ClusterRedisWrapperWithPack
-        case "single":
-            return SingleRedisWrapperWithPack
-        case _:
-            logger.warning(
-                f"Unrecognised REDIS_MODE '{redis_mode}', falling back to single Redis storage"
-            )
+        case RedisMode.SINGLE | RedisMode.NONE:
             return SingleRedisWrapperWithPack

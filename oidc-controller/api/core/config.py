@@ -4,7 +4,7 @@ import logging.config
 import os
 import re
 import sys
-from enum import Enum
+from enum import Enum, StrEnum
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -132,6 +132,13 @@ logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
 class EnvironmentEnum(str, Enum):
     PRODUCTION = "production"
     LOCAL = "local"
+
+
+class RedisMode(StrEnum):
+    NONE = "none"
+    SINGLE = "single"
+    SENTINEL = "sentinel"
+    CLUSTER = "cluster"
 
 
 class GlobalConfig(BaseSettings, frozen=True):  # pyright: ignore[reportGeneralTypeIssues]
@@ -305,15 +312,15 @@ class GlobalConfig(BaseSettings, frozen=True):  # pyright: ignore[reportGeneralT
     # - cluster: Redis Cluster (REDIS_HOST = "host1:port1,host2:port2")
     # REDIS_HOST is always comma-separated host:port pairs.
     # For single mode, only one entry is allowed.
-    REDIS_MODE: str = "none"
+    REDIS_MODE: RedisMode = RedisMode.NONE
     REDIS_HOST: str = os.environ.get("REDIS_HOST", "redis:6379")
     REDIS_PASSWORD: str | None = os.environ.get("REDIS_PASSWORD")
     REDIS_DB: int = int(os.environ.get("REDIS_DB", 0))
 
-    @field_validator("REDIS_MODE")
+    @field_validator("REDIS_MODE", mode="before")
     @classmethod
-    def normalize_redis_mode(cls, v: str) -> str:
-        return v.strip().lower()
+    def normalize_redis_mode(cls, v: object) -> object:
+        return v.strip().lower() if isinstance(v, str) else v
 
     @field_validator("REDIS_PASSWORD")
     @classmethod
@@ -395,13 +402,8 @@ def validate_redis_config():
     """
     mode = settings.REDIS_MODE
 
-    if mode == "none":
+    if mode == RedisMode.NONE:
         return
-
-    if mode not in ("single", "sentinel", "cluster"):
-        raise ValueError(
-            f"Invalid REDIS_MODE: '{mode}'. Must be one of: none, single, sentinel, cluster"
-        )
 
     host_port_pattern = re.compile(r"^[\w.\-]+:\d+$")
     nodes = [n.strip() for n in settings.REDIS_HOST.split(",") if n.strip()]
@@ -417,7 +419,7 @@ def validate_redis_config():
                 f"Expected format: 'host:port' (e.g., 'redis:6379' or 'sentinel1:26379,sentinel2:26379')"
             )
 
-    if mode == "single" and len(nodes) > 1:
+    if mode == RedisMode.SINGLE and len(nodes) > 1:
         raise ValueError(
             f"REDIS_MODE=single but REDIS_HOST contains multiple hosts: '{settings.REDIS_HOST}'. "
             f"For single mode, use one host:port (e.g., REDIS_HOST=redis:6379). "

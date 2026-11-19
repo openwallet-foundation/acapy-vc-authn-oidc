@@ -240,15 +240,11 @@ class TestValidateRedisConfig:
             validate_redis_config()
         assert "Invalid node:" in str(exc.value)
 
-    @patch("api.core.config.settings")
-    def test_validate_redis_config_invalid_mode(self, mock_settings):
-        """Test validation fails for invalid Redis mode."""
-        mock_settings.REDIS_MODE = "invalid_mode"
-
-        with pytest.raises(ValueError) as exc:
-            validate_redis_config()
-        assert "Invalid REDIS_MODE: 'invalid_mode'" in str(exc.value)
-        assert "Must be one of: none, single, sentinel, cluster" in str(exc.value)
+    def test_invalid_redis_mode_fails_when_settings_load(self):
+        """An unknown REDIS_MODE is rejected when settings are built."""
+        with patch.dict(os.environ, {"REDIS_MODE": "invalid_mode"}):
+            with pytest.raises(ValidationError, match="REDIS_MODE"):
+                FactoryConfig(EnvironmentEnum.LOCAL.value)()
 
     @patch("api.core.config.settings")
     def test_validate_redis_config_sentinel_with_ip_addresses(self, mock_settings):

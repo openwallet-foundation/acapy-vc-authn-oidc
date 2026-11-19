@@ -36,7 +36,7 @@ from starlette.responses import StreamingResponse
 
 from ..authSessions.crud import AuthSessionCRUD
 from ..authSessions.models import AuthSession, AuthSessionPatch, AuthSessionState
-from ..core.config import settings
+from ..core.config import RedisMode, settings
 from ..core.redis_utils import parse_host_port_pairs
 from ..db.session import get_db
 
@@ -80,7 +80,7 @@ async def build_async_redis_client() -> async_redis.Redis:
     """
     mode = settings.REDIS_MODE
 
-    if mode == "single":
+    if mode == RedisMode.SINGLE:
         hosts = parse_host_port_pairs(settings.REDIS_HOST)
         host, port = hosts[0]
         return async_redis.Redis(
@@ -90,7 +90,7 @@ async def build_async_redis_client() -> async_redis.Redis:
             db=settings.REDIS_DB,
         )
 
-    elif mode == "sentinel":
+    elif mode == RedisMode.SENTINEL:
         from redis.asyncio.sentinel import Sentinel
 
         sentinel_hosts = parse_host_port_pairs(settings.REDIS_HOST)
@@ -103,7 +103,7 @@ async def build_async_redis_client() -> async_redis.Redis:
             password=settings.REDIS_PASSWORD,
         )
 
-    elif mode == "cluster":
+    elif mode == RedisMode.CLUSTER:
         # Connect to the first node; PUBLISH broadcasts to all cluster nodes
         hosts = parse_host_port_pairs(settings.REDIS_HOST)
         host, port = hosts[0]
@@ -123,7 +123,7 @@ async def notify(pid: str, status: str) -> None:
     Single-pod mode: sets an in-process asyncio.Event.
     Multi-pod mode: publishes to Redis channel sse:{pid}.
     """
-    if settings.REDIS_MODE == "none":
+    if settings.REDIS_MODE == RedisMode.NONE:
         # Only cache if a subscriber is currently connected; otherwise the initial
         # DB state emit on connect handles any status changes that fired before
         # the browser connected, so storing here would only leak memory.
@@ -413,10 +413,10 @@ async def sse_status(
     """
     mode = settings.REDIS_MODE
 
-    if mode != "none" and _redis_client is not None:
+    if mode != RedisMode.NONE and _redis_client is not None:
         stream = _multi_pod_stream(pid, request, db, _redis_client)
     else:
-        if mode != "none":
+        if mode != RedisMode.NONE:
             logger.warning(
                 "Redis client not initialized, falling back to single-pod SSE",
                 pid=pid,

@@ -5,7 +5,7 @@ from urllib.parse import urlparse
 import structlog
 import structlog.typing
 from api.clientConfigurations.models import TOKENENDPOINTAUTHMETHODS
-from api.core.config import settings
+from api.core.config import RedisMode, settings
 from api.core.models import VCUserinfo
 from api.core.redis_utils import (
     BaseRedisWrapperWithPack,
@@ -235,7 +235,7 @@ subject_id_factory = HashBasedSubjectIdentifierFactory(settings.SUBJECT_ID_HASH_
 
 
 # Conditionally create storage backends based on REDIS_MODE setting
-if settings.REDIS_MODE != "none":
+if settings.REDIS_MODE != RedisMode.NONE:
     # Redis storage for multi-pod deployments - shared state across all pods
     redis_mode = settings.REDIS_MODE
 
