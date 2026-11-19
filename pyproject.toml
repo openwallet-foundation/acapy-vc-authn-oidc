@@ -69,12 +69,31 @@ target-version = "py313"
 extend-exclude = ["docker/"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "W", "B", "C4", "SIM", "UP", "PLW0603"]
+select = ["E", "F", "I", "W", "B", "C4", "SIM", "UP", "PLW0603", "TID251", "T20", "PTH123"]
 ignore = ["E501"]
 
 [tool.ruff.lint.per-file-ignores]
 # Nested patch() blocks read fine in tests.
 "**/{tests,integration_tests}/*" = ["SIM117"]
+# Effect bans apply only to the pure modules. Keep this list in step with
+# source_modules in the import-linter contract below.
+"!oidc-controller/api/{authSessions/models.py,clientConfigurations/models.py,core/acapy/models.py,core/acapy/out_of_band.py,core/acapy/present_proof_attachment.py,core/acapy/present_proof_presentation.py,core/acapy/service_decorator.py,core/models.py,core/oidc/issue_token_service.py,verificationConfigs/helpers.py,verificationConfigs/models.py,verificationConfigs/variableSubstitutions.py}" = ["TID251", "T20", "PTH123"]
+
+# Pure modules must not read the clock, randomness, the environment or files,
+# or start processes. Take the value as an argument instead.
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"datetime.date.today".msg = "Pass the current date in as an argument."
+"datetime.datetime.now".msg = "Pass the current time in as an argument."
+"datetime.datetime.today".msg = "Pass the current time in as an argument."
+"datetime.datetime.utcnow".msg = "Pass the current time in as an argument."
+"os.environ".msg = "Read settings in the shell and pass the value in."
+"os.getenv".msg = "Read settings in the shell and pass the value in."
+"pathlib".msg = "Do file I/O in the shell."
+"random".msg = "Pass random values in as arguments."
+"secrets".msg = "Pass random values in as arguments."
+"socket".msg = "Do network I/O in the shell."
+"subprocess".msg = "Run processes in the shell."
+"time".msg = "Pass the current time in as an argument."
 
 [tool.ruff.lint.flake8-bugbear]
 # FastAPI dependency markers are meant to be called in argument defaults.

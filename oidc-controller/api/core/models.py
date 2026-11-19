@@ -50,8 +50,8 @@ class UUIDModel(BaseModel):
 
 
 class TimestampModel(BaseModel):
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))  # noqa: TID251 - default for new records
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))  # noqa: TID251 - default for new records
 
 
 class GenericErrorMessage(BaseModel):
