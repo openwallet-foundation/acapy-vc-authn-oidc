@@ -173,7 +173,9 @@ async def test_include_v1_attributes_false_does_not_add_the_named_attributes(
         "revealed_attr_groups"
     ] = multiple_valid_revealed_attr_groups
     auth_session_fixture.presentation_exchange = presentation_fixture["by_format"]
-    ver_config_fixture.include_v1_attributes = False
+    ver_config_fixture = ver_config_fixture.model_copy(
+        update={"include_v1_attributes": False}
+    )
     claims = Token.get_claims(auth_session_fixture, ver_config_fixture)
     vc_presented_attributes_obj = eval(claims["vc_presented_attributes"])
     assert claims is not None
@@ -194,7 +196,9 @@ async def test_include_v1_attributes_true_adds_the_named_attributes(
         "revealed_attr_groups"
     ] = multiple_valid_revealed_attr_groups
     auth_session_fixture.presentation_exchange = presentation_fixture["by_format"]
-    ver_config_fixture.include_v1_attributes = True
+    ver_config_fixture = ver_config_fixture.model_copy(
+        update={"include_v1_attributes": True}
+    )
     claims = Token.get_claims(auth_session_fixture, ver_config_fixture)
     vc_presented_attributes_obj = eval(claims["vc_presented_attributes"])
     assert claims is not None
@@ -215,7 +219,9 @@ async def test_include_v1_attributes_none_does_not_add_the_named_attributes(
         "revealed_attr_groups"
     ] = multiple_valid_revealed_attr_groups
     auth_session_fixture.presentation_exchange = presentation_fixture["by_format"]
-    ver_config_fixture.include_v1_attributes = None
+    ver_config_fixture = ver_config_fixture.model_copy(
+        update={"include_v1_attributes": None}
+    )
     claims = Token.get_claims(auth_session_fixture, ver_config_fixture)
     vc_presented_attributes_obj = eval(claims["vc_presented_attributes"])
     assert claims is not None
@@ -290,7 +296,9 @@ async def test_valid_pres_with_non_matching_subj_id_gen_consistent_id_missing_no
         "revealed_attr_groups"
     ] = basic_valid_revealed_attr_groups
     auth_session_fixture.presentation_exchange = presentation_fixture["by_format"]
-    ver_config_fixture.subject_identifier = "not-email"
+    ver_config_fixture = ver_config_fixture.model_copy(
+        update={"subject_identifier": "not-email"}
+    )
     claims = Token.get_claims(auth_session_fixture, ver_config_fixture)
     assert not ver_config_fixture.generate_consistent_identifier
     assert "sub" not in claims
@@ -307,8 +315,12 @@ async def test_valid_pres_non_matching_subj_id_gen_consistent_id_false_has_no_su
         "revealed_attr_groups"
     ] = basic_valid_revealed_attr_groups
     auth_session_fixture.presentation_exchange = presentation_fixture["by_format"]
-    ver_config_fixture.subject_identifier = "not-email"
-    ver_config_fixture.generate_consistent_identifier = False
+    ver_config_fixture = ver_config_fixture.model_copy(
+        update={
+            "subject_identifier": "not-email",
+            "generate_consistent_identifier": False,
+        }
+    )
     claims = Token.get_claims(auth_session_fixture, ver_config_fixture)
     assert "sub" not in claims
 
@@ -324,22 +336,31 @@ async def test_valid_pres_non_matching_subj_id_gen_consistent_id_true_has_sub(
         "revealed_attr_groups"
     ] = basic_valid_revealed_attr_groups
     auth_session_fixture.presentation_exchange = presentation_fixture["by_format"]
-    ver_config_fixture.subject_identifier = "not-email"
-    ver_config_fixture.generate_consistent_identifier = True
+    ver_config_fixture = ver_config_fixture.model_copy(
+        update={
+            "subject_identifier": "not-email",
+            "generate_consistent_identifier": True,
+        }
+    )
     claims = Token.get_claims(auth_session_fixture, ver_config_fixture)
     assert "sub" in claims
 
     # Ensure that this sub is not using the ver_config.subject_identifier
-    ver_config_fixture.subject_identifier = "email"
-    ver_config_fixture.generate_consistent_identifier = False
+    ver_config_fixture = ver_config_fixture.model_copy(
+        update={"subject_identifier": "email", "generate_consistent_identifier": False}
+    )
     claims_subject_identifier = Token.get_claims(
         auth_session_fixture, ver_config_fixture
     )
     assert claims["sub"] != claims_subject_identifier["sub"]
 
     # Ensure that sub is consistent
-    ver_config_fixture.subject_identifier = "not-email"
-    ver_config_fixture.generate_consistent_identifier = True
+    ver_config_fixture = ver_config_fixture.model_copy(
+        update={
+            "subject_identifier": "not-email",
+            "generate_consistent_identifier": True,
+        }
+    )
     claims_duplicate = Token.get_claims(auth_session_fixture, ver_config_fixture)
     assert claims["sub"] == claims_duplicate["sub"]
 

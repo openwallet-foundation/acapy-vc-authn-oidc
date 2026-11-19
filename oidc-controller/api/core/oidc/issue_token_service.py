@@ -18,12 +18,12 @@ PROOF_CLAIMS_ATTRIBUTE_NAME = "vc_presented_attributes"
 
 
 @dataclasses.dataclass(frozen=True)
-class Claim(BaseModel):
+class Claim(BaseModel, frozen=True):
     type: str
     value: str
 
 
-class Token(BaseModel):
+class Token(BaseModel, frozen=True):
     issuer: str
     audiences: list[str]
     lifetime: int

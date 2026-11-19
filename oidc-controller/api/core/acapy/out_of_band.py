@@ -5,7 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from .service_decorator import OOBServiceDecorator
 
 
-class OutOfBandPresentProofAttachment(BaseModel):
+class OutOfBandPresentProofAttachment(BaseModel, frozen=True):
     id: str = Field(alias="@id")
     mime_type: str = Field(default="application/json", alias="mime-type")
     data: dict[str, Any]
@@ -13,7 +13,7 @@ class OutOfBandPresentProofAttachment(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
-class OutOfBandMessage(BaseModel):
+class OutOfBandMessage(BaseModel, frozen=True):
     # https://github.com/hyperledger/aries-rfcs/blob/main/features/0434-outofband
     id: str = Field(alias="@id")
     type: str = Field(

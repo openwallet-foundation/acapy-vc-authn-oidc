@@ -15,7 +15,7 @@ class TOKENENDPOINTAUTHMETHODS(StrEnum):
         return [c.value for c in cls]
 
 
-class ClientConfigurationBase(BaseModel):
+class ClientConfigurationBase(BaseModel, frozen=True):
     client_id: str = Field(default=settings.OIDC_CLIENT_ID)
     client_name: str = Field(default=settings.OIDC_CLIENT_NAME)
     response_types: list[str] = Field(default=["code", "id_token", "token"])
@@ -31,15 +31,15 @@ class ClientConfigurationBase(BaseModel):
     )
 
 
-class ClientConfiguration(ClientConfigurationBase):
+class ClientConfiguration(ClientConfigurationBase, frozen=True):
     pass
 
 
-class ClientConfigurationRead(ClientConfigurationBase):
+class ClientConfigurationRead(ClientConfigurationBase, frozen=True):
     pass
 
 
-class ClientConfigurationPatch(BaseModel):
+class ClientConfigurationPatch(BaseModel, frozen=True):
     client_id: str | None = None
     client_name: str | None = None
     response_types: list[str] | None = None

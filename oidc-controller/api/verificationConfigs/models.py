@@ -8,7 +8,7 @@ from .helpers import replace_proof_variables
 
 
 # Slightly modified from ACAPY models.
-class AttributeFilter(BaseModel):
+class AttributeFilter(BaseModel, frozen=True):
     schema_id: str | None = None
     cred_def_id: str | None = None
     schema_name: str | None = None
@@ -17,13 +17,13 @@ class AttributeFilter(BaseModel):
     issuer_did: str | None = None
 
 
-class ReqAttr(BaseModel):
+class ReqAttr(BaseModel, frozen=True):
     names: list[str]
     label: str | None = None
     restrictions: list[AttributeFilter]
 
 
-class ReqPred(BaseModel):
+class ReqPred(BaseModel, frozen=True):
     name: str
     label: str | None = None
     restrictions: list[AttributeFilter]
@@ -31,7 +31,7 @@ class ReqPred(BaseModel):
     p_type: str
 
 
-class VerificationProofRequest(BaseModel):
+class VerificationProofRequest(BaseModel, frozen=True):
     name: str | None = None
     version: str = Field(pattern="[0-9](.[0.9])*", examples=["0.0.1"])
     non_revoked: str | None = None
@@ -39,12 +39,12 @@ class VerificationProofRequest(BaseModel):
     requested_predicates: list[ReqPred]
 
 
-class MetaData(BaseModel):
+class MetaData(BaseModel, frozen=True):
     title: str | None = Field(default=None)
     claims: list[str] | None = Field(default=None)
 
 
-class VerificationConfigBase(BaseModel):
+class VerificationConfigBase(BaseModel, frozen=True):
     subject_identifier: str = Field()
     proof_request: VerificationProofRequest = Field()
     generate_consistent_identifier: bool | None = Field(default=False)
@@ -87,15 +87,15 @@ class VerificationConfigBase(BaseModel):
     model_config = ConfigDict(json_schema_extra={"example": ex_ver_config})
 
 
-class VerificationConfig(VerificationConfigBase):
+class VerificationConfig(VerificationConfigBase, frozen=True):
     ver_config_id: str = Field()
 
 
-class VerificationConfigRead(VerificationConfigBase):
+class VerificationConfigRead(VerificationConfigBase, frozen=True):
     ver_config_id: str = Field()
 
 
-class VerificationConfigPatch(BaseModel):
+class VerificationConfigPatch(BaseModel, frozen=True):
     subject_identifier: str | None = Field(None)
     proof_request: VerificationProofRequest | None = Field(None)
     generate_consistent_identifier: bool | None = Field(default=False)

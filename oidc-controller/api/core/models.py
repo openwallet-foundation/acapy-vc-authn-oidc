@@ -28,13 +28,13 @@ class PyObjectId(ObjectId):
         field_schema.update(type="string")
 
 
-class HealthCheck(BaseModel):
+class HealthCheck(BaseModel, frozen=True):
     name: str
     version: str
     description: str
 
 
-class StatusMessage(BaseModel):
+class StatusMessage(BaseModel, frozen=True):
     status: bool
     message: str
 
@@ -49,12 +49,12 @@ class UUIDModel(BaseModel):
         return str(value)
 
 
-class TimestampModel(BaseModel):
+class TimestampModel(BaseModel, frozen=True):
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))  # noqa: TID251 - default for new records
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))  # noqa: TID251 - default for new records
 
 
-class GenericErrorMessage(BaseModel):
+class GenericErrorMessage(BaseModel, frozen=True):
     detail: str
 
 
