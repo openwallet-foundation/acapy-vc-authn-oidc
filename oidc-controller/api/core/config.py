@@ -134,7 +134,7 @@ class EnvironmentEnum(str, Enum):
     LOCAL = "local"
 
 
-class GlobalConfig(BaseSettings):
+class GlobalConfig(BaseSettings, frozen=True):  # pyright: ignore[reportGeneralTypeIssues]
     TITLE: str = os.environ.get(
         "CONTROLLER_APP_TITLE", "acapy-vc-authn-oidc Controller"
     )
@@ -158,7 +158,7 @@ class GlobalConfig(BaseSettings):
 
     MONGODB_URL: str = f"""mongodb://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}?retryWrites=true&w=majority"""  # noqa: E501
 
-    CONTROLLER_URL: str | None = os.environ.get("CONTROLLER_URL")
+    CONTROLLER_URL: str
     CONTROLLER_WEB_HOOK_URL: str | None = os.environ.get("CONTROLLER_WEB_HOOK_URL")
     # Where to send users when trying to scan with their mobile camera (not a wallet)
     CONTROLLER_CAMERA_REDIRECT_URL: str = os.environ.get(
@@ -305,10 +305,20 @@ class GlobalConfig(BaseSettings):
     # - cluster: Redis Cluster (REDIS_HOST = "host1:port1,host2:port2")
     # REDIS_HOST is always comma-separated host:port pairs.
     # For single mode, only one entry is allowed.
-    REDIS_MODE: str = os.environ.get("REDIS_MODE", "none").lower()
+    REDIS_MODE: str = "none"
     REDIS_HOST: str = os.environ.get("REDIS_HOST", "redis:6379")
     REDIS_PASSWORD: str | None = os.environ.get("REDIS_PASSWORD")
     REDIS_DB: int = int(os.environ.get("REDIS_DB", 0))
+
+    @field_validator("REDIS_MODE")
+    @classmethod
+    def normalize_redis_mode(cls, v: str) -> str:
+        return v.strip().lower()
+
+    @field_validator("REDIS_PASSWORD")
+    @classmethod
+    def empty_password_is_none(cls, v: str | None) -> str | None:
+        return v or None
 
     # Sentinel-specific configuration (only used when REDIS_MODE=sentinel)
     REDIS_SENTINEL_MASTER_NAME: str = os.environ.get(
@@ -318,7 +328,7 @@ class GlobalConfig(BaseSettings):
     model_config = SettingsConfigDict(case_sensitive=True)
 
 
-class LocalConfig(GlobalConfig):
+class LocalConfig(GlobalConfig, frozen=True):
     """Local configurations."""
 
     DEBUG: bool = True
@@ -326,7 +336,7 @@ class LocalConfig(GlobalConfig):
     ENVIRONMENT: EnvironmentEnum = EnvironmentEnum.LOCAL
 
 
-class ProdConfig(GlobalConfig):
+class ProdConfig(GlobalConfig, frozen=True):
     """Production configurations."""
 
     DEBUG: bool = False
@@ -338,9 +348,10 @@ class FactoryConfig:
         self.environment = environment
 
     def __call__(self) -> GlobalConfig:
+        # Required fields such as CONTROLLER_URL come from the environment.
         if self.environment == EnvironmentEnum.LOCAL.value:
-            return LocalConfig()
-        return ProdConfig()
+            return LocalConfig()  # pyright: ignore[reportCallIssue]
+        return ProdConfig()  # pyright: ignore[reportCallIssue]
 
 
 @lru_cache()
@@ -382,7 +393,7 @@ def validate_redis_config():
 
     Raises ValueError with a clear message if configuration is invalid.
     """
-    mode = settings.REDIS_MODE.lower()
+    mode = settings.REDIS_MODE
 
     if mode == "none":
         return

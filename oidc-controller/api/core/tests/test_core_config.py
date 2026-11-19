@@ -108,13 +108,30 @@ class TestConfigValidation:
                 importlib.reload(config)
 
 
+class TestSettingsNormalization:
+    """Settings are validated once when built, since they are frozen."""
+
+    def test_controller_url_is_required(self):
+        with patch.dict(os.environ, {}, clear=True):
+            with pytest.raises(ValidationError, match="CONTROLLER_URL"):
+                FactoryConfig(EnvironmentEnum.LOCAL.value)()
+
+    def test_redis_mode_and_empty_password_are_normalized(self):
+        with patch.dict(os.environ, {"REDIS_MODE": " Single ", "REDIS_PASSWORD": ""}):
+            config = FactoryConfig(EnvironmentEnum.LOCAL.value)()
+        assert config.REDIS_MODE == "single"
+        assert config.REDIS_PASSWORD is None
+
+
 class TestOIDCConfig:
     """Tests for OIDC-specific configuration."""
 
     def test_default_token_ttl(self):
         """Test default TTL is 3600 seconds."""
         # Use patch to ensure clean environment
-        with patch.dict(os.environ, {}, clear=True):
+        with patch.dict(
+            os.environ, {"CONTROLLER_URL": "https://controller"}, clear=True
+        ):
             # We need to reload the config module or recreate the config object
             # Since FactoryConfig creates new instances, we can use that
             config = FactoryConfig(EnvironmentEnum.LOCAL.value)()

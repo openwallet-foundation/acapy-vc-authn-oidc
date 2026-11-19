@@ -78,7 +78,7 @@ async def build_async_redis_client() -> async_redis.Redis:
     For cluster mode, connects to the first node since PUBLISH broadcasts
     to all nodes in a Redis Cluster.
     """
-    mode = settings.REDIS_MODE.lower()
+    mode = settings.REDIS_MODE
 
     if mode == "single":
         hosts = parse_host_port_pairs(settings.REDIS_HOST)
@@ -86,7 +86,7 @@ async def build_async_redis_client() -> async_redis.Redis:
         return async_redis.Redis(
             host=host,
             port=port,
-            password=settings.REDIS_PASSWORD or None,
+            password=settings.REDIS_PASSWORD,
             db=settings.REDIS_DB,
         )
 
@@ -100,7 +100,7 @@ async def build_async_redis_client() -> async_redis.Redis:
         sentinel = Sentinel(sentinel_hosts, sentinel_kwargs=sentinel_kwargs)
         return sentinel.master_for(
             settings.REDIS_SENTINEL_MASTER_NAME,
-            password=settings.REDIS_PASSWORD or None,
+            password=settings.REDIS_PASSWORD,
         )
 
     elif mode == "cluster":
@@ -110,7 +110,7 @@ async def build_async_redis_client() -> async_redis.Redis:
         return async_redis.Redis(
             host=host,
             port=port,
-            password=settings.REDIS_PASSWORD or None,
+            password=settings.REDIS_PASSWORD,
         )
 
     else:

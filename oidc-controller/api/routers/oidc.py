@@ -94,14 +94,8 @@ class _PackingStorage(Protocol):
     def pack(self, value: dict) -> str: ...
 
 
-def _controller_url() -> str:
-    if not settings.CONTROLLER_URL:
-        raise RuntimeError("CONTROLLER_URL is not set")
-    return settings.CONTROLLER_URL
-
-
 def gen_deep_link(auth_session: AuthSession) -> str:
-    controller_host = _controller_url()
+    controller_host = settings.CONTROLLER_URL
     url_to_message = (
         controller_host + "/url/pres_exch/" + str(auth_session.pres_exch_id)
     )
@@ -242,7 +236,7 @@ async def get_authorize(request: Request, db: Database = Depends(get_db)):
     )
 
     # QR CONTENTS
-    controller_host = _controller_url()
+    controller_host = settings.CONTROLLER_URL
     url_to_message = (
         controller_host + "/url/pres_exch/" + str(auth_session.pres_exch_id)
     )

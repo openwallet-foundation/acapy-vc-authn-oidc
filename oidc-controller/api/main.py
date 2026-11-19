@@ -91,7 +91,7 @@ async def _startup(app: FastAPI):
     # Redis is required for both SSE cross-pod messaging AND PyOP token
     # storage — if it's unreachable the entire auth flow is broken, so we fail
     # fast here rather than starting and crashing on every request.
-    mode = settings.REDIS_MODE.lower()
+    mode = settings.REDIS_MODE
     if mode == "none":
         logger.debug("Redis disabled (REDIS_MODE=none)")
     else:

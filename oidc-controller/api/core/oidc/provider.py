@@ -70,7 +70,7 @@ if not pem_file_exists(SIGNING_KEY_FILEPATH):
     logger.info("creating new pem file")
     private_key = rsa.generate_private_key(
         public_exponent=65537,
-        key_size=int(settings.SIGNING_KEY_SIZE),
+        key_size=settings.SIGNING_KEY_SIZE,
         backend=default_backend(),
     )
     pem = private_key.private_bytes(
@@ -84,8 +84,6 @@ else:
 logger.info(f"pem file located at {SIGNING_KEY_FILEPATH}.")
 
 issuer_url = settings.CONTROLLER_URL
-if not issuer_url:
-    raise RuntimeError("CONTROLLER_URL must be set")
 if urlparse(issuer_url).scheme != "https":
     logger.warning(
         "CONTROLLER_URL is not HTTPS. changing openid-config for development"
@@ -237,9 +235,9 @@ subject_id_factory = HashBasedSubjectIdentifierFactory(settings.SUBJECT_ID_HASH_
 
 
 # Conditionally create storage backends based on REDIS_MODE setting
-if settings.REDIS_MODE.lower() != "none":
+if settings.REDIS_MODE != "none":
     # Redis storage for multi-pod deployments - shared state across all pods
-    redis_mode = settings.REDIS_MODE.lower()
+    redis_mode = settings.REDIS_MODE
 
     storage_class: type[BaseRedisWrapperWithPack] = extract_storage_class(redis_mode)
     authorization_code_storage = storage_class(

@@ -41,24 +41,26 @@ def parse_host_port_pairs(hosts_string: str) -> list[tuple[str, int]]:
     return nodes
 
 
-def build_redis_url() -> str | None:
+def build_redis_url() -> str:
     """Build Redis connection URL from settings based on REDIS_MODE.
 
     REDIS_HOST is always in host:port format (validated at startup).
 
     Returns:
-        str | None: Redis URL for single/sentinel modes, None for cluster mode
-                    (cluster uses parse_host_port_pairs directly)
+        str: Redis URL for single/sentinel modes
+
+    Raises:
+        ValueError: for other modes (cluster uses parse_host_port_pairs directly)
 
     URL Formats:
         - single: redis://[:password@]host:port/db
         - sentinel: redis+sentinel://[:password@]host1:port1,host2:port2/db/master_name
-        - cluster: Returns None (uses parse_host_port_pairs instead)
+        - cluster: not supported (uses parse_host_port_pairs instead)
 
     Note: For Sentinel URLs, the /db/service_name order is required,
     not /service_name/db, for compatibility with Redis Sentinel URL parsing.
     """
-    mode = settings.REDIS_MODE.lower()
+    mode = settings.REDIS_MODE
 
     if mode == "single":
         # REDIS_HOST is already host:port after validation
@@ -75,8 +77,7 @@ def build_redis_url() -> str | None:
             return f"redis+sentinel://:{settings.REDIS_PASSWORD}@{nodes}/{settings.REDIS_DB}/{master}"
         return f"redis+sentinel://{nodes}/{settings.REDIS_DB}/{master}"
 
-    # Cluster and other modes don't use URL format
-    return None
+    raise ValueError(f"No Redis URL for REDIS_MODE={mode}")
 
 
 # --- Redis client helpers ---
@@ -109,10 +110,7 @@ def _get_cluster_client():
 
 def _get_single_redis_client():
     """Get a single Redis client connection."""
-    redis_url = build_redis_url()
-    if redis_url is None:
-        raise ValueError(f"No Redis URL for REDIS_MODE={settings.REDIS_MODE}")
-    return redis.from_url(redis_url)
+    return redis.from_url(build_redis_url())
 
 
 # --- Redis storage wrappers for PyOP ---
@@ -372,14 +370,12 @@ def _handle_redis_failure(operation: str, error: Exception) -> str:
     return error_type
 
 
-def can_we_reach_redis(redis_url: str | None) -> bool:
+def can_we_reach_redis(redis_url: str) -> bool:
     """Test if we can reach a single Redis instance.
 
     Returns:
         bool: True if Redis is available, False otherwise
     """
-    if redis_url is None:
-        return False
     try:
         redis_client = redis.from_url(redis_url)
         redis_client.ping()
