@@ -5,16 +5,9 @@ Other users of this project can add their own variable substitutions or override
 the entire file to suit their own needs.
 """
 
-import copy
 import re
 from collections.abc import Callable
 from datetime import datetime, timedelta
-
-import structlog
-
-from ..core.config import settings
-
-logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
 
 SubstitutionFunction = Callable[..., int | str]
 
@@ -115,29 +108,3 @@ class VariableSubstitutionMap:
 
 # Create an instance of the custom mapping class
 variable_substitution_map = VariableSubstitutionMap()
-
-
-def apply_user_variables():
-    if settings.CONTROLLER_VARIABLE_SUBSTITUTION_OVERRIDE is None:
-        logger.warning("No user defined variable substitutions file provided")
-        return None
-    try:
-        with open(settings.CONTROLLER_VARIABLE_SUBSTITUTION_OVERRIDE) as user_file:
-            code = user_file.read()
-    except FileNotFoundError:
-        logger.warning("User defined variable substitutions file could not be found")
-        return None
-    else:
-        og_substitution_map = copy.copy(variable_substitution_map.user_static_map)
-        exec(code)
-        if not variable_substitution_map.user_static_map:
-            logger.info("No new user created variable substitution where found")
-
-        for pattern, func in variable_substitution_map.user_static_map.items():
-            if pattern not in og_substitution_map:
-                logger.info(
-                    f'New user created variable substitution: The pattern "{pattern.pattern}" is now mapped to the function {func.__name__}'
-                )
-
-
-apply_user_variables()
