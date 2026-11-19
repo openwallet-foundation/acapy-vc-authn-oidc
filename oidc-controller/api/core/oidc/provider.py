@@ -4,13 +4,6 @@ from urllib.parse import urlparse
 
 import structlog
 import structlog.typing
-from api.clientConfigurations.models import TOKENENDPOINTAUTHMETHODS
-from api.core.config import RedisMode, settings
-from api.core.models import VCUserinfo
-from api.core.redis_utils import (
-    BaseRedisWrapperWithPack,
-    extract_storage_class,
-)
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
@@ -20,6 +13,14 @@ from pyop.authz_state import AuthorizationState
 from pyop.provider import Provider
 from pyop.storage import StatelessWrapper
 from pyop.subject_identifier import HashBasedSubjectIdentifierFactory
+
+from api.clientConfigurations.models import TOKENENDPOINTAUTHMETHODS
+from api.core.config import RedisMode, settings
+from api.core.models import VCUserinfo
+from api.core.redis_utils import (
+    BaseRedisWrapperWithPack,
+    extract_storage_class,
+)
 
 logger: structlog.typing.FilteringBoundLogger = structlog.get_logger()
 DIR_PATH = os.path.dirname(os.path.realpath(__file__))
@@ -35,9 +36,8 @@ def get_signing_key_dir_path(to_replace_str, replacement_str, filename_str) -> s
 
 def save_pem_file(filename, content):
     """Save the pem file in oidc-controller dir."""
-    f = open(filename, "wb")
-    f.write(content)
-    f.close()
+    with open(filename, "wb") as f:
+        f.write(content)
 
 
 def pem_file_exists(filepath) -> bool:
@@ -123,15 +123,17 @@ class DynamicClientDatabase(dict):
         from api.db.session import COLLECTION_NAMES
 
         # Check cache first
-        if client_id in self._cache:
-            if time.time() - self._cache_time[client_id] < self._cache_ttl:
-                logger.debug(
-                    "Client loaded from cache",
-                    client_id=client_id,
-                    source="cache",
-                    cache_age=time.time() - self._cache_time[client_id],
-                )
-                return self._cache[client_id]
+        if (
+            client_id in self._cache
+            and time.time() - self._cache_time[client_id] < self._cache_ttl
+        ):
+            logger.debug(
+                "Client loaded from cache",
+                client_id=client_id,
+                source="cache",
+                cache_age=time.time() - self._cache_time[client_id],
+            )
+            return self._cache[client_id]
 
         # Load from database
         logger.debug(
@@ -302,7 +304,7 @@ async def init_provider(db: Database):
     Uses DynamicClientDatabase to ensure all pods see the same client configurations
     without requiring provider reloads when clients are added/updated.
     """
-    global provider
+    global provider  # noqa: PLW0603 - set once at startup
     from api.db.session import client as mongo_client
 
     # Create a callable that returns the database

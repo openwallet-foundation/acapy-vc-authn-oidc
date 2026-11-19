@@ -19,7 +19,7 @@ PRIVACY GUIDELINES:
 import hashlib
 import os
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Literal, Optional
+from typing import TYPE_CHECKING, Literal
 
 import structlog
 
@@ -97,7 +97,7 @@ FailureCategoryType = Literal[
 ]
 
 
-def _anonymize_ip(ip: Optional[str]) -> Optional[str]:
+def _anonymize_ip(ip: str | None) -> str | None:
     """
     One-way hash of IP address for fraud detection without tracking.
 
@@ -110,7 +110,7 @@ def _anonymize_ip(ip: Optional[str]) -> Optional[str]:
     return hashlib.sha256(f"{ip}{_IP_ANONYMIZATION_SALT}".encode()).hexdigest()[:16]
 
 
-def _extract_user_agent_family(user_agent: Optional[str]) -> Optional[str]:
+def _extract_user_agent_family(user_agent: str | None) -> str | None:
     """
     Extract generic browser/client family from User-Agent string.
 
@@ -159,7 +159,7 @@ def _extract_schema_names(ver_config: "VerificationConfig") -> list[str]:
         for restriction in item.restrictions:
             if restriction.schema_name:
                 schemas.add(restriction.schema_name)
-    return sorted(list(schemas))
+    return sorted(schemas)
 
 
 def _extract_issuer_dids(ver_config: "VerificationConfig") -> list[str]:
@@ -179,20 +179,20 @@ def _extract_issuer_dids(ver_config: "VerificationConfig") -> list[str]:
                 issuers.add(restriction.issuer_did)
             if restriction.schema_issuer_did:
                 issuers.add(restriction.schema_issuer_did)
-    return sorted(list(issuers))
+    return sorted(issuers)
 
 
 def audit_event(
     event: AuditEventType,
     *,
-    session_id: Optional[str] = None,
-    client_id: Optional[str] = None,
-    ver_config_id: Optional[str] = None,
-    outcome: Optional[OutcomeType] = None,
-    failure_category: Optional[FailureCategoryType] = None,
-    duration_ms: Optional[int] = None,
-    client_ip: Optional[str] = None,
-    user_agent: Optional[str] = None,
+    session_id: str | None = None,
+    client_id: str | None = None,
+    ver_config_id: str | None = None,
+    outcome: OutcomeType | None = None,
+    failure_category: FailureCategoryType | None = None,
+    duration_ms: int | None = None,
+    client_ip: str | None = None,
+    user_agent: str | None = None,
     **extra_safe_fields,
 ) -> None:
     """
@@ -248,8 +248,8 @@ def audit_auth_session_initiated(
     session_id: str,
     client_id: str,
     ver_config: "VerificationConfig",
-    client_ip: Optional[str] = None,
-    user_agent: Optional[str] = None,
+    client_ip: str | None = None,
+    user_agent: str | None = None,
 ) -> None:
     """Log when an authentication session is initiated."""
     audit_event(
@@ -268,7 +268,7 @@ def audit_auth_session_initiated(
 def audit_proof_request_created(
     session_id: str,
     ver_config: "VerificationConfig",
-    proof_name: Optional[str] = None,
+    proof_name: str | None = None,
 ) -> None:
     """Log when a proof request is created and ready for scanning."""
     audit_event(
@@ -284,8 +284,8 @@ def audit_proof_request_created(
 def audit_qr_scanned(
     session_id: str,
     scan_method: Literal["qr_code", "deep_link"],
-    client_ip: Optional[str] = None,
-    user_agent: Optional[str] = None,
+    client_ip: str | None = None,
+    user_agent: str | None = None,
 ) -> None:
     """Log when QR code is scanned or deep link is invoked."""
     audit_event(
@@ -302,7 +302,7 @@ def audit_proof_verified(
     ver_config_id: str,
     credential_schemas: list[str],
     issuer_dids: list[str],
-    duration_ms: Optional[int] = None,
+    duration_ms: int | None = None,
     revocation_checked: bool = False,
 ) -> None:
     """
@@ -327,7 +327,7 @@ def audit_proof_verification_failed(
     session_id: str,
     ver_config_id: str,
     failure_category: FailureCategoryType = "unknown",
-    duration_ms: Optional[int] = None,
+    duration_ms: int | None = None,
 ) -> None:
     """Log failed proof verification with categorized failure reason."""
     audit_event(
@@ -346,7 +346,7 @@ def audit_session_abandoned(
     phase: Literal[
         "qr_scan", "wallet_response", "proof_submission"
     ] = "wallet_response",
-    duration_ms: Optional[int] = None,
+    duration_ms: int | None = None,
 ) -> None:
     """Log when user abandons/declines the proof request."""
     audit_event(
@@ -363,7 +363,7 @@ def audit_session_expired(
     session_id: str,
     ver_config_id: str,
     phase: Literal["qr_scan", "wallet_response", "proof_submission"] = "qr_scan",
-    timeout_seconds: Optional[int] = None,
+    timeout_seconds: int | None = None,
 ) -> None:
     """Log when session expires due to timeout."""
     audit_event(
@@ -381,7 +381,7 @@ def audit_token_issued(
     client_id: str,
     ver_config_id: str,
     claims_count: int,
-    duration_ms: Optional[int] = None,
+    duration_ms: int | None = None,
 ) -> None:
     """
     Log successful token issuance.
@@ -400,8 +400,8 @@ def audit_token_issued(
 
 def audit_webhook_received(
     topic: str,
-    state: Optional[str] = None,
-    role: Optional[str] = None,
+    state: str | None = None,
+    role: str | None = None,
 ) -> None:
     """Log agent webhook receipt for monitoring."""
     audit_event(
@@ -413,9 +413,9 @@ def audit_webhook_received(
 
 
 def audit_invalid_client_request(
-    client_id: Optional[str],
+    client_id: str | None,
     error_type: str,
-    client_ip: Optional[str] = None,
+    client_ip: str | None = None,
 ) -> None:
     """Log invalid client requests for security monitoring."""
     audit_event(

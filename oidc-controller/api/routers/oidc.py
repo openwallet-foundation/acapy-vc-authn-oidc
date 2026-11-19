@@ -124,7 +124,7 @@ async def get_authorize(request: Request, db: Database = Depends(get_db)):
         raise HTTPException(
             status_code=http_status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid auth request: {e}",
-        )
+        ) from e
 
     # PyOP checks a code_verifier only when a challenge was sent, so without
     # this an RP could opt out of PKCE by omitting it.
@@ -269,9 +269,7 @@ async def get_authorize(request: Request, db: Database = Depends(get_db)):
     }
 
     # Prepare the template (autoescape=True prevents XSS via template injection)
-    with open(
-        settings.CONTROLLER_TEMPLATE_DIR + "/verified_credentials.html", "r"
-    ) as f:
+    with open(settings.CONTROLLER_TEMPLATE_DIR + "/verified_credentials.html") as f:
         template_file = f.read()
     template = _jinja_env.from_string(template_file)
 
@@ -425,7 +423,7 @@ def _store_claims(user_id: str, claims: dict[str, Any], session_id: str) -> None
         raise HTTPException(
             status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to store claims: {str(e)}",
-        )
+        ) from e
 
 
 def _log_id_token(token_response: dict[str, Any], session_id: str) -> None:
@@ -509,7 +507,7 @@ async def post_token(request: Request, db: Database = Depends(get_db)):
                 if e.oauth_error == "invalid_client"
                 else http_status.HTTP_400_BAD_REQUEST,
                 detail={"error": e.oauth_error, "error_description": str(e)},
-            )
+            ) from e
         _log_id_token(token_response, session_id)
 
         # SIEM Audit: Log successful token issuance (count only, no claim values)
@@ -556,10 +554,10 @@ async def get_userinfo(request: Request):
             status_code=http_status.HTTP_401_UNAUTHORIZED,
             detail=str(e),
             headers={"WWW-Authenticate": "Bearer"},
-        )
+        ) from e
     except Exception as e:
         logger.error(f"UserInfo unexpected error: {e}")
         raise HTTPException(
             status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve user info",
-        )
+        ) from e

@@ -1,3 +1,4 @@
+import contextlib
 import json
 import time
 from datetime import UTC, datetime
@@ -60,7 +61,7 @@ def _extract_credential_schemas(presentation_data: dict) -> list[str]:
     except Exception as e:
         # Return empty list if extraction fails
         logger.debug(f"Failed to extract schemas from presentation data: {e}")
-    return sorted(list(schemas))
+    return sorted(schemas)
 
 
 def _extract_issuer_dids(presentation_data: dict) -> list[str]:
@@ -90,7 +91,7 @@ def _extract_issuer_dids(presentation_data: dict) -> list[str]:
     except Exception as e:
         # Return empty list if extraction fails
         logger.debug(f"Failed to extract issuer DIDs from presentation data: {e}")
-    return sorted(list(issuers))
+    return sorted(issuers)
 
 
 async def _send_problem_report_safely(
@@ -207,12 +208,11 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                         logger.info(
                             f"Trying to find auth session by pres_exch_id pattern: {search_id}"
                         )
-                        try:
+                        # This lookup might fail if the pattern doesn't match
+                        with contextlib.suppress(Exception):
                             auth_session = await AuthSessionCRUD(
                                 db
                             ).get_by_pres_exch_id(f"{search_id}")
-                        except Exception:
-                            pass  # This lookup might fail if the pattern doesn't match
 
                     if auth_session:
                         logger.info(f"Found auth session: {auth_session.id}")

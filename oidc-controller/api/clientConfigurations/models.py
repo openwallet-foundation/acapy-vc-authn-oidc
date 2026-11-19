@@ -1,4 +1,4 @@
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -6,13 +6,13 @@ from ..core.config import settings
 from .examples import ex_client_config
 
 
-class TOKENENDPOINTAUTHMETHODS(str, Enum):
+class TOKENENDPOINTAUTHMETHODS(StrEnum):
     client_secret_basic = "client_secret_basic"
     client_secret_post = "client_secret_post"
 
     @classmethod
     def list(cls):
-        return list(map(lambda c: c.value, cls))
+        return [c.value for c in cls]
 
 
 class ClientConfigurationBase(BaseModel):

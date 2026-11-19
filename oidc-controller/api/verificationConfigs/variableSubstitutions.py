@@ -8,10 +8,10 @@ the entire file to suit their own needs.
 import copy
 import re
 import time
+from collections.abc import Callable
 from datetime import datetime, timedelta
 
 import structlog
-from typing_extensions import Callable
 
 from ..core.config import settings
 
@@ -95,7 +95,7 @@ class VariableSubstitutionMap:
     def __contains__(self, key: str) -> bool:
         res = key in self.static_map
         if not res:
-            for i in self.user_static_map.keys():
+            for i in self.user_static_map:
                 if re.match(i, key):
                     return True
         return res

@@ -259,7 +259,7 @@ async def test_revealed_attrs_dont_match_requested_attributes_throws_exception(
         }
     }
     auth_session_fixture.presentation_exchange = presentation_fixture["by_format"]
-    with pytest.raises(Exception):
+    with pytest.raises(RuntimeError):
         Token.get_claims(auth_session_fixture, ver_config_fixture)
 
 
@@ -491,8 +491,10 @@ async def test_get_claims_raises_error_on_missing_format(
     )
 
     # Act & Assert
-    with patch.object(settings, "ACAPY_PROOF_FORMAT", "indy"):
-        with pytest.raises(
+    with (
+        patch.object(settings, "ACAPY_PROOF_FORMAT", "indy"),
+        pytest.raises(
             ValueError, match="No valid proof format found in presentation exchange"
-        ):
-            Token.get_claims(auth_session_fixture, ver_config_fixture)
+        ),
+    ):
+        Token.get_claims(auth_session_fixture, ver_config_fixture)

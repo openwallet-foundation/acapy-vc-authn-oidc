@@ -522,14 +522,14 @@ class TestHelperFunctions:
         from api.core.oidc.provider import save_pem_file
 
         mock_file = MagicMock()
-        mock_open.return_value = mock_file
+        mock_open.return_value.__enter__.return_value = mock_file
 
         content = b"test pem content"
         save_pem_file("/path/to/key.pem", content)
 
         mock_open.assert_called_once_with("/path/to/key.pem", "wb")
         mock_file.write.assert_called_once_with(content)
-        mock_file.close.assert_called_once()
+        mock_open.return_value.__exit__.assert_called_once()
 
 
 class TestInitProvider:

@@ -781,7 +781,7 @@ class TestSinglePodStreamExpiry:
             call_count += 1
             if call_count == 1:
                 coro.close()
-                raise asyncio.TimeoutError()
+                raise TimeoutError()
             return await original_wait_for(coro, timeout)
 
         collected = []

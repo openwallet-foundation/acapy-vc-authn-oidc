@@ -18,7 +18,7 @@ import random
 import string
 import sys
 import time
-from typing import Any, Dict, Optional
+from typing import Any
 
 import requests
 
@@ -80,10 +80,10 @@ def wait_for_agent(url: str, timeout: int = 60) -> bool:
 def make_request(
     method: str,
     url: str,
-    json_data: Optional[Dict] = None,
-    api_key: Optional[str] = None,
-    params: Optional[Dict] = None,
-) -> Dict[Any, Any]:
+    json_data: dict | None = None,
+    api_key: str | None = None,
+    params: dict | None = None,
+) -> dict[Any, Any]:
     """Make HTTP request to agent admin API."""
     headers = {}
     if api_key:
@@ -102,7 +102,7 @@ def make_request(
         raise
 
 
-def get_public_did() -> Optional[str]:
+def get_public_did() -> str | None:
     """Check if issuer has a public DID."""
     log("Checking for public DID...")
     try:
@@ -178,7 +178,7 @@ def accept_taa():
         log(f"TAA check/accept: {e}")
 
 
-def find_existing_schema(schema_name: str, schema_version: str) -> Optional[str]:
+def find_existing_schema(schema_name: str, schema_version: str) -> str | None:
     """Check if schema already exists."""
     log(f"Checking for existing schema: {schema_name} v{schema_version}")
     try:
@@ -213,7 +213,7 @@ def create_schema() -> str:
     return schema_id
 
 
-def find_existing_cred_def(schema_id: str) -> Optional[str]:
+def find_existing_cred_def(schema_id: str) -> str | None:
     """Check if cred def already exists for schema."""
     log(f"Checking for existing cred def for schema: {schema_id}")
     try:

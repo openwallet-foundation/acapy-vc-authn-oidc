@@ -1,8 +1,9 @@
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum, auto
 
-from api.core.models import UUIDModel
 from pydantic import BaseModel, ConfigDict, Field
+
+from api.core.models import UUIDModel
 
 from ..core.config import settings
 

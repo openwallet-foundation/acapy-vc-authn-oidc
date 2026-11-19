@@ -3,6 +3,12 @@
 from unittest.mock import MagicMock
 
 import pytest
+from bson import ObjectId
+from fastapi import HTTPException
+from fastapi import status as http_status
+from pymongo import ReturnDocument
+from pymongo.database import Database
+
 from api.authSessions.crud import AuthSessionCRUD
 from api.authSessions.models import (
     AuthSession,
@@ -12,11 +18,6 @@ from api.authSessions.models import (
 )
 from api.core.models import PyObjectId
 from api.db.session import COLLECTION_NAMES
-from bson import ObjectId
-from fastapi import HTTPException
-from fastapi import status as http_status
-from pymongo import ReturnDocument
-from pymongo.database import Database
 
 
 @pytest.fixture

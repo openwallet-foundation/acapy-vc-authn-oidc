@@ -39,7 +39,6 @@ Production Deployment:
 
 import asyncio
 from datetime import UTC, datetime
-from typing import Optional
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -68,10 +67,10 @@ async def cleanup_endpoint(
     dry_run: bool = Query(
         False, description="Preview what would be deleted without actually deleting"
     ),
-    max_records: Optional[int] = Query(
+    max_records: int | None = Query(
         None, ge=1, le=10000, description="Override max presentation records limit"
     ),
-    max_connections: Optional[int] = Query(
+    max_connections: int | None = Query(
         None,
         ge=1,
         le=20000,
@@ -207,7 +206,7 @@ async def cleanup_endpoint(
 
         raise HTTPException(
             status_code=500, detail="Internal server error during cleanup operation"
-        )
+        ) from e
 
 
 @router.get("/health")

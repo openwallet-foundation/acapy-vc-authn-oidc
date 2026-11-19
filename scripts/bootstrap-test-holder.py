@@ -22,7 +22,7 @@ import sys
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 import requests
 
@@ -58,10 +58,10 @@ def log(message: str) -> None:
 def make_request(
     method: str,
     url: str,
-    json_data: Optional[Dict] = None,
-    params: Optional[Dict] = None,
+    json_data: dict | None = None,
+    params: dict | None = None,
     timeout: int = 30,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     response = requests.request(
         method, url, json=json_data, params=params, timeout=timeout
     )

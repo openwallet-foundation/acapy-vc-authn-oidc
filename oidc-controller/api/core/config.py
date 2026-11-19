@@ -4,7 +4,7 @@ import logging.config
 import os
 import re
 import sys
-from enum import Enum, StrEnum
+from enum import StrEnum
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -129,7 +129,7 @@ structlog.configure(
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
 
 
-class EnvironmentEnum(str, Enum):
+class EnvironmentEnum(StrEnum):
     PRODUCTION = "production"
     LOCAL = "local"
 
@@ -361,7 +361,7 @@ class FactoryConfig:
         return ProdConfig()  # pyright: ignore[reportCallIssue]
 
 
-@lru_cache()
+@lru_cache
 def get_configuration() -> GlobalConfig:
     return FactoryConfig(os.environ.get("ENVIRONMENT"))()
 

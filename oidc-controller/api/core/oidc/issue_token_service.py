@@ -109,7 +109,7 @@ class Token(BaseModel):
             logger.error(
                 f"An exception occurred while extracting the proof claims: {err}"
             )
-            raise RuntimeError(err)
+            raise RuntimeError(err) from err
 
         proof_claims = json.dumps(
             {c.type: c.value for c in presentation_claims.values()}

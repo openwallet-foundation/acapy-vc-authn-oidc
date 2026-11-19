@@ -25,8 +25,8 @@ Sentinel failover: If a Sentinel failover occurs mid-session, the pub/sub
 
 import asyncio
 import json
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from datetime import UTC, datetime
-from typing import AsyncGenerator, Awaitable, Callable
 
 import redis.asyncio as async_redis
 import structlog
@@ -68,7 +68,7 @@ def set_redis_client(client: async_redis.Redis) -> None:
     Called from the FastAPI startup event in main.py.
     Must be called after the event loop is running (not at module import time).
     """
-    global _redis_client
+    global _redis_client  # noqa: PLW0603 - set once at startup
     _redis_client = client
 
 
@@ -243,7 +243,7 @@ async def _sse_event_loop(
     request: Request,
     db: Database,
     wait_fn: Callable[[float], Awaitable[dict | None]],
-) -> AsyncGenerator[str, None]:
+) -> AsyncGenerator[str]:
     """Core SSE event loop shared by single-pod and multi-pod implementations.
 
     Handles the common logic:
@@ -312,7 +312,7 @@ async def _sse_event_loop(
 
 async def _single_pod_stream(
     pid: str, request: Request, db: Database
-) -> AsyncGenerator[str, None]:
+) -> AsyncGenerator[str]:
     """Generate SSE events for single-pod mode using in-process asyncio.Event."""
     event = asyncio.Event()
     if pid in _signals:
@@ -326,7 +326,7 @@ async def _single_pod_stream(
     async def wait_fn(timeout: float) -> dict | None:
         try:
             await asyncio.wait_for(event.wait(), timeout=timeout)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return None
         event.clear()
         status = _latest.get(pid)
@@ -359,7 +359,7 @@ async def _poll_redis_pubsub(pubsub) -> dict | None:
 
 async def _multi_pod_stream(
     pid: str, request: Request, db: Database, redis_client: async_redis.Redis
-) -> AsyncGenerator[str, None]:
+) -> AsyncGenerator[str]:
     """Generate SSE events for multi-pod mode using Redis pub/sub.
 
     Subscribes BEFORE reading DB state to close the race window where a webhook

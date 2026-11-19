@@ -314,7 +314,7 @@ async def test_traction_mode_connection_error_raises_exception(http_client):
 
         acapy = TractionTenantAcapy(http_client)
 
-        with pytest.raises(Exception):
+        with pytest.raises(httpx.ConnectError):
             await acapy.get_wallet_token()
 
 

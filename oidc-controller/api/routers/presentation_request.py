@@ -56,7 +56,6 @@ async def send_connectionless_proof_req(
     else:
         with open(
             f"{settings.CONTROLLER_TEMPLATE_DIR}/{settings.CONTROLLER_CAMERA_REDIRECT_URL}.html",
-            "r",
         ) as f:
             template_file = f.read()
 

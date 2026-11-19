@@ -1,5 +1,6 @@
-from api.core.config import settings
 from pydantic.config import JsonDict
+
+from api.core.config import settings
 
 ex_client_config: JsonDict = {
     "client_id": settings.OIDC_CLIENT_ID,
