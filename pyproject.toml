@@ -89,6 +89,7 @@ ignore = ["E501"]
 "os.environ".msg = "Read settings in the shell and pass the value in."
 "os.getenv".msg = "Read settings in the shell and pass the value in."
 "pathlib".msg = "Do file I/O in the shell."
+"pydantic.BaseModel".msg = "Subclass api.core.models.FrozenModel instead."
 "random".msg = "Pass random values in as arguments."
 "secrets".msg = "Pass random values in as arguments."
 "socket".msg = "Do network I/O in the shell."

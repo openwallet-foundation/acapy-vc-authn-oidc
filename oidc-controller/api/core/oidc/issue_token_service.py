@@ -5,10 +5,9 @@ from typing import Any
 
 import canonicaljson
 import structlog
-from pydantic import BaseModel
 
 from ...authSessions.models import AuthSession
-from ...core.models import RevealedAttribute
+from ...core.models import FrozenModel, RevealedAttribute
 from ...verificationConfigs.models import ReqAttr, VerificationConfig
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
@@ -17,12 +16,12 @@ PROOF_CLAIMS_ATTRIBUTE_NAME = "vc_presented_attributes"
 
 
 @dataclasses.dataclass(frozen=True)
-class Claim(BaseModel, frozen=True):
+class Claim(FrozenModel):
     type: str
     value: str
 
 
-class Token(BaseModel, frozen=True):
+class Token(FrozenModel):
     issuer: str
     audiences: list[str]
     lifetime: int

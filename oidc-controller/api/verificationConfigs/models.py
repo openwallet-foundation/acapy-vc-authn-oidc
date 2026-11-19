@@ -1,13 +1,14 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import ConfigDict, Field
 
+from ..core.models import FrozenModel
 from .examples import ex_ver_config
 from .helpers import replace_proof_variables
 
 
 # Slightly modified from ACAPY models.
-class AttributeFilter(BaseModel, frozen=True):
+class AttributeFilter(FrozenModel):
     schema_id: str | None = None
     cred_def_id: str | None = None
     schema_name: str | None = None
@@ -16,13 +17,13 @@ class AttributeFilter(BaseModel, frozen=True):
     issuer_did: str | None = None
 
 
-class ReqAttr(BaseModel, frozen=True):
+class ReqAttr(FrozenModel):
     names: list[str]
     label: str | None = None
     restrictions: list[AttributeFilter]
 
 
-class ReqPred(BaseModel, frozen=True):
+class ReqPred(FrozenModel):
     name: str
     label: str | None = None
     restrictions: list[AttributeFilter]
@@ -30,7 +31,7 @@ class ReqPred(BaseModel, frozen=True):
     p_type: str
 
 
-class VerificationProofRequest(BaseModel, frozen=True):
+class VerificationProofRequest(FrozenModel):
     name: str | None = None
     version: str = Field(pattern="[0-9](.[0.9])*", examples=["0.0.1"])
     non_revoked: str | None = None
@@ -38,12 +39,12 @@ class VerificationProofRequest(BaseModel, frozen=True):
     requested_predicates: list[ReqPred]
 
 
-class MetaData(BaseModel, frozen=True):
+class MetaData(FrozenModel):
     title: str | None = Field(default=None)
     claims: list[str] | None = Field(default=None)
 
 
-class VerificationConfigBase(BaseModel, frozen=True):
+class VerificationConfigBase(FrozenModel):
     subject_identifier: str = Field()
     proof_request: VerificationProofRequest = Field()
     generate_consistent_identifier: bool | None = Field(default=False)
@@ -86,15 +87,15 @@ class VerificationConfigBase(BaseModel, frozen=True):
     model_config = ConfigDict(json_schema_extra={"example": ex_ver_config})
 
 
-class VerificationConfig(VerificationConfigBase, frozen=True):
+class VerificationConfig(VerificationConfigBase):
     ver_config_id: str = Field()
 
 
-class VerificationConfigRead(VerificationConfigBase, frozen=True):
+class VerificationConfigRead(VerificationConfigBase):
     ver_config_id: str = Field()
 
 
-class VerificationConfigPatch(BaseModel, frozen=True):
+class VerificationConfigPatch(FrozenModel):
     subject_identifier: str | None = Field(None)
     proof_request: VerificationProofRequest | None = Field(None)
     generate_consistent_identifier: bool | None = Field(default=False)

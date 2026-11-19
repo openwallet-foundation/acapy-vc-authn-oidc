@@ -1,7 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum, auto
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field  # noqa: TID251 - routers mutate sessions
 
 from api.core.models import UUIDModel
 

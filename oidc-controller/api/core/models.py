@@ -1,9 +1,15 @@
 from datetime import UTC, datetime
-from typing import Required, TypedDict
+from typing import Required, TypedDict, dataclass_transform
 
 import structlog
 from bson import ObjectId
-from pydantic import BaseModel, ConfigDict, Field, field_serializer
+from pydantic import (
+    BaseModel,  # noqa: TID251 - base of FrozenModel and UUIDModel
+    ConfigDict,
+    Field,
+    PrivateAttr,
+    field_serializer,
+)
 from pydantic_core import core_schema
 from pyop.userinfo import Userinfo
 
@@ -28,13 +34,30 @@ class PyObjectId(ObjectId):
         field_schema.update(type="string")
 
 
-class HealthCheck(BaseModel, frozen=True):
+_ModelMetaclass = type(BaseModel)
+
+
+# Tells type checkers that subclasses are frozen without each one saying so.
+@dataclass_transform(
+    kw_only_default=True, frozen_default=True, field_specifiers=(Field, PrivateAttr)
+)
+class _FrozenModelMetaclass(_ModelMetaclass):
+    pass
+
+
+class FrozenModel(BaseModel, metaclass=_FrozenModelMetaclass):
+    """Base for immutable models. Use this instead of BaseModel."""
+
+    model_config = ConfigDict(frozen=True)
+
+
+class HealthCheck(FrozenModel):
     name: str
     version: str
     description: str
 
 
-class StatusMessage(BaseModel, frozen=True):
+class StatusMessage(FrozenModel):
     status: bool
     message: str
 
@@ -49,12 +72,12 @@ class UUIDModel(BaseModel):
         return str(value)
 
 
-class TimestampModel(BaseModel, frozen=True):
+class TimestampModel(FrozenModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))  # noqa: TID251 - default for new records
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))  # noqa: TID251 - default for new records
 
 
-class GenericErrorMessage(BaseModel, frozen=True):
+class GenericErrorMessage(FrozenModel):
     detail: str
 
 

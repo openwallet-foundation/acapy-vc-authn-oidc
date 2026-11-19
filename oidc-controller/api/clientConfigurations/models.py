@@ -1,8 +1,9 @@
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import ConfigDict, Field
 
 from ..core.config import settings
+from ..core.models import FrozenModel
 from .examples import ex_client_config
 
 
@@ -15,7 +16,7 @@ class TOKENENDPOINTAUTHMETHODS(StrEnum):
         return [c.value for c in cls]
 
 
-class ClientConfigurationBase(BaseModel, frozen=True):
+class ClientConfigurationBase(FrozenModel):
     client_id: str = Field(default=settings.OIDC_CLIENT_ID)
     client_name: str = Field(default=settings.OIDC_CLIENT_NAME)
     response_types: list[str] = Field(default=["code", "id_token", "token"])
@@ -31,15 +32,15 @@ class ClientConfigurationBase(BaseModel, frozen=True):
     )
 
 
-class ClientConfiguration(ClientConfigurationBase, frozen=True):
+class ClientConfiguration(ClientConfigurationBase):
     pass
 
 
-class ClientConfigurationRead(ClientConfigurationBase, frozen=True):
+class ClientConfigurationRead(ClientConfigurationBase):
     pass
 
 
-class ClientConfigurationPatch(BaseModel, frozen=True):
+class ClientConfigurationPatch(FrozenModel):
     client_id: str | None = None
     client_name: str | None = None
     response_types: list[str] | None = None

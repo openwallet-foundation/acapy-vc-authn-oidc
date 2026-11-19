@@ -1,7 +1,9 @@
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import ConfigDict, Field
+
+from ..models import FrozenModel
 
 
-class ServiceDecorator(BaseModel, frozen=True):
+class ServiceDecorator(FrozenModel):
     # https://github.com/hyperledger/aries-rfcs/tree/main/features/0056-service-decorator
     recipient_keys: list[str] | None = Field(default=None, alias="recipientKeys")
     routing_keys: list[str] | None = Field(default=None, alias="routingKeys")
@@ -10,7 +12,7 @@ class ServiceDecorator(BaseModel, frozen=True):
     model_config = ConfigDict(populate_by_name=True)
 
 
-class OOBServiceDecorator(ServiceDecorator, frozen=True):
+class OOBServiceDecorator(ServiceDecorator):
     # ServiceDecorator
     recipient_keys: list[str] | None = Field(default=None, alias="recipientKeys")
     routing_keys: list[str] | None = Field(default=None, alias="routingKeys")

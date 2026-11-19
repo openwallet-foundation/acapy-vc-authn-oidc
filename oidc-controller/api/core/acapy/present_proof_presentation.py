@@ -2,12 +2,14 @@ import base64
 import json
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import ConfigDict, Field
 
 from api.core.acapy import PresentProofv20Attachment, ServiceDecorator
 
+from ..models import FrozenModel
 
-class PresentationRequestMessage(BaseModel, frozen=True):
+
+class PresentationRequestMessage(FrozenModel):
     # https://github.com/hyperledger/aries-rfcs/blob/main/features/0037-present-proof/README.md#presentation
     id: str = Field(alias="@id")
     type: str = Field(
