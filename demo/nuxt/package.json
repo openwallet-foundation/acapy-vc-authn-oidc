@@ -9,9 +9,9 @@
     "start": "node .output/server/index.mjs"
   },
   "dependencies": {
-    "bootstrap": "^5.3.3",
-    "nuxt": "^4.5.2",
-    "nuxt-oidc-auth": "^1.0.0-beta.10"
+    "bootstrap": "^5.3.9",
+    "nuxt": "^4.6.4",
+    "nuxt-oidc-auth": "^1.0.0-beta.13"
   },
   "overrides": {
     "@nuxt/devtools-ui-kit": "^3.4.1",
