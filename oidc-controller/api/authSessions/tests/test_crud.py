@@ -446,6 +446,26 @@ class TestAuthSessionCRUD:
         )
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("matched,expected", [({"_id": 1}, True), (None, False)])
+    async def test_claim_auth_code_is_atomic_and_requires_verified(
+        self, auth_session_crud, mock_database, mock_collection, matched, expected
+    ):
+        """The claim must be one conditional update, gated on VERIFIED and unredeemed."""
+        mock_database.get_collection.return_value = mock_collection
+        mock_collection.find_one_and_update.return_value = matched
+
+        assert await auth_session_crud.claim_auth_code("code") is expected
+
+        mock_collection.find_one_and_update.assert_called_once_with(
+            {
+                "pyop_auth_code": "code",
+                "proof_status": "verified",
+                "code_redeemed": {"$ne": True},
+            },
+            {"$set": {"code_redeemed": True}},
+        )
+
+    @pytest.mark.asyncio
     async def test_update_pyop_auth_code_success(
         self, auth_session_crud, mock_database, mock_collection
     ):

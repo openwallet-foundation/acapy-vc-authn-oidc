@@ -59,6 +59,8 @@ services:
       # OIDC UserInfo Configuration
       - CONTROLLER_ENABLE_USERINFO_ENDPOINT=${CONTROLLER_ENABLE_USERINFO_ENDPOINT:-false}
       - OIDC_ACCESS_TOKEN_TTL=${OIDC_ACCESS_TOKEN_TTL:-3600}
+      - CONTROLLER_REQUIRE_PKCE=${CONTROLLER_REQUIRE_PKCE:-false}
+      - CONTROLLER_API_KEY=${CONTROLLER_API_KEY}
 
       # Legacy variables (passed for backward compatibility)
       - MT_ACAPY_WALLET_ID=${MT_ACAPY_WALLET_ID}
@@ -130,7 +132,7 @@ services:
       - vc_auth
 
   keycloak:
-    image: quay.io/keycloak/keycloak:26.6.3
+    image: quay.io/keycloak/keycloak:26.8.2
     command: start-dev --import-realm
     ports:
       - 8880:8080

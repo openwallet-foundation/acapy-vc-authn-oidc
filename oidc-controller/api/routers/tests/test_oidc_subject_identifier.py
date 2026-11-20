@@ -98,6 +98,7 @@ class TestPostTokenAuthSessionUpdate:
             mock_crud = MagicMock()
             mock_crud.get_by_pyop_auth_code = AsyncMock(return_value=mock_auth_session)
             mock_crud.update_pyop_user_id = AsyncMock(return_value=True)
+            mock_crud.claim_auth_code = AsyncMock(return_value=True)
             mock_crud_class.return_value = mock_crud
 
             mock_ver_crud = MagicMock()
@@ -199,6 +200,7 @@ class TestPostTokenAuthSessionUpdate:
             mock_crud = MagicMock()
             mock_crud.get_by_pyop_auth_code = AsyncMock(return_value=mock_auth_session)
             mock_crud.update_pyop_user_id = AsyncMock(return_value=True)
+            mock_crud.claim_auth_code = AsyncMock(return_value=True)
             mock_crud_class.return_value = mock_crud
 
             mock_ver_crud = MagicMock()
@@ -378,6 +380,7 @@ class TestPostTokenIntegration:
             mock_crud = MagicMock()
             mock_crud.get_by_pyop_auth_code = AsyncMock(return_value=mock_auth_session)
             mock_crud.update_pyop_user_id = AsyncMock(return_value=True)
+            mock_crud.claim_auth_code = AsyncMock(return_value=True)
             mock_crud_class.return_value = mock_crud
 
             mock_ver_crud = MagicMock()

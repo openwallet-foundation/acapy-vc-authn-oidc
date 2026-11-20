@@ -8,7 +8,7 @@ from pathlib import Path
 import httpx
 import structlog
 import uvicorn
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi import status as http_status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -22,6 +22,7 @@ from api.core.oidc.provider import init_provider
 from api.core.webhook_utils import register_tenant_webhook
 
 from .clientConfigurations.router import router as client_config_router
+from .core.auth import get_api_key
 from .core.redis_utils import (
     _handle_redis_failure,
     build_redis_url,
@@ -215,7 +216,12 @@ app.include_router(well_known_oid_config.router, tags=[".well-known"])
 app.include_router(
     oidc.router, tags=["OpenID Connect Provider"], include_in_schema=False
 )
-app.include_router(acapy_handler.router, prefix="/webhooks", include_in_schema=False)
+app.include_router(
+    acapy_handler.router,
+    prefix="/webhooks",
+    include_in_schema=False,
+    dependencies=[Depends(get_api_key)],
+)
 app.include_router(presentation_request.router, include_in_schema=False)
 app.include_router(cleanup.router, tags=["cleanup"])
 app.include_router(sse_router, include_in_schema=False)

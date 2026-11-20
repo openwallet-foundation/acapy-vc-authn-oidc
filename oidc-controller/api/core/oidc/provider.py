@@ -214,6 +214,7 @@ configuration_information = {
     "request_uri_parameter_supported": False,
     "scopes_supported": ["openid"],
     "token_endpoint_auth_methods_supported": TOKENENDPOINTAUTHMETHODS.list(),
+    "code_challenge_methods_supported": ["S256"],
     "frontchannel_logout_supported": True,
     "frontchannel_logout_session_supported": True,
     "backchannel_logout_supported": True,

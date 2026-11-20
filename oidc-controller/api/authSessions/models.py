@@ -42,6 +42,9 @@ class AuthSessionBase(BaseModel):
 class AuthSession(AuthSessionBase, UUIDModel):
     proof_status: AuthSessionState = Field(default=AuthSessionState.NOT_STARTED)
     presentation_exchange: dict | None = Field(default_factory=dict)
+    # Set atomically by AuthSessionCRUD.claim_auth_code; deliberately absent from
+    # AuthSessionPatch so session updates can never reset it.
+    code_redeemed: bool = False
 
 
 class AuthSessionCreate(AuthSessionBase):
