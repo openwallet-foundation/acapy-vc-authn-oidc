@@ -224,9 +224,98 @@ class TestSessionExpiry:
         mock_audit.assert_called_once()
         assert mock_audit.call_args.kwargs["ver_config_id"] == TEST_VER_CONFIG_ID
 
+    @pytest.mark.parametrize("accept", ["application/json", "text/html"])
+    def test_proof_request_fetch_expires_overdue_session(
+        self, integration_client, oob_mode, accept
+    ):
+        """A wallet fetching the proof request after the deadline gets 410 and
+        the session is marked EXPIRED instead of PENDING."""
+        from api.authSessions.models import AuthSessionState
+        from api.core.models import PyObjectId
+        from api.db.collections import COLLECTION_NAMES
 
-# ---------------------------------------------------------------------------
-# Token endpoint error cases
+        client, db = integration_client
+
+        with acapy_oob_mock():
+            auth_resp = client.get("/authorize", params=authorize_params())
+        pid = parse_pid_from_html(auth_resp.text)
+
+        col = db.get_collection(COLLECTION_NAMES.AUTH_SESSION)
+        col.update_one(
+            {"_id": PyObjectId(pid)},
+            {"$set": {"expired_timestamp": datetime.now(UTC) - timedelta(seconds=60)}},
+        )
+
+        resp = client.get(
+            f"/url/pres_exch/{FAKE_PRES_EX_ID}", headers={"Accept": accept}
+        )
+        assert resp.status_code == 410
+
+        session = col.find_one({"_id": PyObjectId(pid)})
+        assert session["proof_status"] == AuthSessionState.EXPIRED
+
+    @pytest.mark.parametrize(
+        "proof_status", ["expired", "verified", "failed", "abandoned"]
+    )
+    def test_proof_request_fetch_rejected_for_finished_session(
+        self, integration_client, oob_mode, proof_status
+    ):
+        from api.core.models import PyObjectId
+        from api.db.collections import COLLECTION_NAMES
+
+        client, db = integration_client
+
+        with acapy_oob_mock():
+            auth_resp = client.get("/authorize", params=authorize_params())
+        pid = parse_pid_from_html(auth_resp.text)
+
+        col = db.get_collection(COLLECTION_NAMES.AUTH_SESSION)
+        col.update_one(
+            {"_id": PyObjectId(pid)}, {"$set": {"proof_status": proof_status}}
+        )
+
+        resp = client.get(
+            f"/url/pres_exch/{FAKE_PRES_EX_ID}",
+            headers={"Accept": "application/json"},
+        )
+        assert resp.status_code == 410
+
+        session = col.find_one({"_id": PyObjectId(pid)})
+        assert session["proof_status"] == proof_status
+
+    @pytest.mark.parametrize("verified", [True, False])
+    def test_done_webhook_does_not_override_expired_session(
+        self, integration_client, oob_mode, verified
+    ):
+        """A presentation that completes after the session expired leaves it
+        EXPIRED, since the browser has already stopped listening."""
+        from api.authSessions.models import AuthSessionState
+        from api.core.models import PyObjectId
+        from api.db.collections import COLLECTION_NAMES
+
+        client, db = integration_client
+
+        with acapy_oob_mock():
+            auth_resp = client.get("/authorize", params=authorize_params())
+        pid = parse_pid_from_html(auth_resp.text)
+
+        col = db.get_collection(COLLECTION_NAMES.AUTH_SESSION)
+        col.update_one(
+            {"_id": PyObjectId(pid)},
+            {"$set": {"proof_status": AuthSessionState.EXPIRED}},
+        )
+
+        resp = client.post(
+            "/webhooks/topic/present_proof_v2_0/",
+            json=make_proof_webhook(FAKE_PRES_EX_ID, verified=verified),
+        )
+        assert resp.status_code == 200
+
+        session = col.find_one({"_id": PyObjectId(pid)})
+        assert session["proof_status"] == AuthSessionState.EXPIRED
+        assert not session.get("presentation_exchange")
+
+
 # ---------------------------------------------------------------------------
 
 
