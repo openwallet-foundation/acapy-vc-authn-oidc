@@ -1,9 +1,6 @@
 services:
-  # mongo 8.3 exits on the Ubuntu 7.0 runner kernel because its kernel check
-  # does not recognise Ubuntu patch levels (SERVER-136848). 8.2 has no such check.
-  # Drop this once mongo 8.3.16+ is published (SERVER-131779).
   controller-db:
-    image: mongo:8.2
+    image: mongo:8.3
 
   # Override verifier aca-py to use internal docker endpoint (no ngrok needed for E2E)
   aca-py:
@@ -12,7 +9,7 @@ services:
 
   # Holder agent for E2E tests — auto-accepts invites and responds to proof requests
   holder-aca-py:
-    image: ghcr.io/openwallet-foundation/acapy-agent:py3.13-1.6.1
+    image: ghcr.io/openwallet-foundation/acapy-agent:py3.13-1.7.0
     environment:
       - ACAPY_LABEL=test-holder-agent
       - ACAPY_ENDPOINT=http://holder-aca-py:8041
