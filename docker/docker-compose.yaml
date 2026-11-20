@@ -130,7 +130,7 @@ services:
       - vc_auth
 
   keycloak:
-    image: quay.io/keycloak/keycloak:26.6.3
+    image: quay.io/keycloak/keycloak:26.8.2
     command: start-dev --import-realm
     ports:
       - 8880:8080
