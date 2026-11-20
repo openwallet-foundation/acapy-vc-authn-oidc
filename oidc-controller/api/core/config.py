@@ -207,6 +207,10 @@ class GlobalConfig(BaseSettings):
     CONTROLLER_ENABLE_USERINFO_ENDPOINT: bool = strtobool(
         os.environ.get("CONTROLLER_ENABLE_USERINFO_ENDPOINT", False)
     )
+    # Reject authorization requests without an S256 PKCE challenge. Defaults to False.
+    CONTROLLER_REQUIRE_PKCE: bool = strtobool(
+        os.environ.get("CONTROLLER_REQUIRE_PKCE", False)
+    )
 
     ACAPY_AGENT_URL: str | None = os.environ.get("ACAPY_AGENT_URL")
     if not ACAPY_AGENT_URL:

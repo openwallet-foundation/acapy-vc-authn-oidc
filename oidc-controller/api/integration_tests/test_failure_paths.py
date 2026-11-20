@@ -30,6 +30,7 @@ from .conftest import (
     called_paths,
     make_abandoned_webhook,
     make_proof_webhook,
+    parse_auth_code_from_url,
     parse_pid_from_html,
     parse_sse_status,
 )
@@ -229,6 +230,17 @@ class TestSessionExpiry:
 # ---------------------------------------------------------------------------
 
 
+def _unverified_auth_code(db, pid):
+    from bson import ObjectId
+
+    from api.db.collections import COLLECTION_NAMES
+
+    session = db.get_collection(COLLECTION_NAMES.AUTH_SESSION).find_one(
+        {"_id": ObjectId(pid)}
+    )
+    return parse_auth_code_from_url(session["response_url"])
+
+
 class TestTokenErrors:
     def test_token_with_invalid_auth_code_returns_error(self, integration_client):
         """POST /token with a bogus auth code returns a non-200 error response."""
@@ -249,43 +261,67 @@ class TestTokenErrors:
         # 404 (auth_session not found) or 400/401 from pyop
         assert resp.status_code >= 400
 
-    def test_token_before_verification_returns_error(
+    def test_token_for_unverified_session_returns_error(
         self, integration_client, oob_mode
     ):
-        """Attempting /token with a valid but unverified auth code returns an error.
+        """A code whose proof was never verified must not be redeemable."""
+        client, db = integration_client
 
-        The auth_session exists but proof_status is NOT_STARTED.  The token
-        endpoint looks up by pyop_auth_code first; if the code is valid but the
-        session is not verified we still proceed to pyop which validates the
-        code itself.  The key assertion: we get back a proper error, not a 200.
-        """
-        client, _ = integration_client
-
-        # Start authorization but do NOT inject a webhook
         with acapy_oob_mock():
             auth_resp = client.get("/authorize", params=authorize_params())
         pid = parse_pid_from_html(auth_resp.text)
+        auth_code = _unverified_auth_code(db, pid)
 
-        # Get the redirect (which has the auth code) without verifying
-        cb_resp = client.get("/callback", params={"pid": pid}, follow_redirects=False)
-        auth_code = cb_resp.headers["location"].split("code=")[1].split("&")[0]
-
-        # The token endpoint must fail: StatelessWrapper encodes auth codes and
-        # handle_token_request validates the redirect_uri against the original request
         resp = client.post(
             "/token",
             data={
                 "grant_type": "authorization_code",
                 "code": auth_code,
-                # Deliberately wrong redirect_uri to force pyop rejection
-                "redirect_uri": "http://wrong-redirect.example.com/",
+                "redirect_uri": TEST_REDIRECT_URI,
             },
             headers={
                 "Authorization": basic_auth_header(TEST_CLIENT_ID, TEST_CLIENT_SECRET),
                 "Content-Type": "application/x-www-form-urlencoded",
             },
         )
-        assert resp.status_code >= 400
+        assert resp.status_code in (400, 401, 403)
+
+    def test_authorization_code_cannot_be_redeemed_twice(
+        self, integration_client, oob_mode
+    ):
+        """RFC 6749 4.1.2: an authorization code MUST be single-use."""
+        client, _ = integration_client
+
+        with acapy_oob_mock(pres_ex_id=FAKE_PRES_EX_ID):
+            auth_resp = client.get("/authorize", params=authorize_params())
+        pid = parse_pid_from_html(auth_resp.text)
+        client.post(
+            "/webhooks/topic/present_proof_v2_0/",
+            json=make_proof_webhook(FAKE_PRES_EX_ID, verified=True),
+        )
+        cb_resp = client.get("/callback", params={"pid": pid}, follow_redirects=False)
+        auth_code = parse_auth_code_from_url(cb_resp.headers["location"])
+
+        def redeem():
+            return client.post(
+                "/token",
+                data={
+                    "grant_type": "authorization_code",
+                    "code": auth_code,
+                    "redirect_uri": TEST_REDIRECT_URI,
+                },
+                headers={
+                    "Authorization": basic_auth_header(
+                        TEST_CLIENT_ID, TEST_CLIENT_SECRET
+                    ),
+                    "Content-Type": "application/x-www-form-urlencoded",
+                },
+            )
+
+        assert redeem().status_code == 200
+        second = redeem()
+        assert second.status_code in (400, 401, 403, 404)
+        assert "access_token" not in second.text
 
 
 # ---------------------------------------------------------------------------
