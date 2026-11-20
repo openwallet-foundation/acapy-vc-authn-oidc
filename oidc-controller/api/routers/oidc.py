@@ -33,7 +33,7 @@ from ..adapters.siem_audit import (
 from ..authSessions.crud import AuthSessionCreate, AuthSessionCRUD
 from ..authSessions.models import AuthSession, AuthSessionPatch, AuthSessionState
 from ..clientConfigurations.crud import ClientConfigurationCRUD
-from ..core.config import settings
+from ..config import settings
 from ..core.oidc.issue_token_service import Token
 from ..db.session import get_db
 from ..routers.sse import notify

@@ -10,7 +10,7 @@ from api.adapters.acapy.config import (
     SingleTenantAcapy,
     TractionTenantAcapy,
 )
-from api.core.config import settings
+from api.config import settings
 
 
 def reset_acapy_cache(cls):

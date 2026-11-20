@@ -125,7 +125,7 @@ strict = [
     "oidc-controller/api/core/acapy/present_proof_presentation.py",
     "oidc-controller/api/core/acapy/service_decorator.py",
     "oidc-controller/api/adapters/auth.py",
-    "oidc-controller/api/core/config.py",
+    "oidc-controller/api/config.py",
     "oidc-controller/api/adapters/http_exception_util.py",
     "oidc-controller/api/db/collections.py",
     "oidc-controller/api/routers/cleanup.py",
@@ -212,7 +212,7 @@ source_modules = [
     "api.verificationConfigs.models",
     "api.verificationConfigs.variableSubstitutions",
 ]
-forbidden_modules = ["api.core.config"]
+forbidden_modules = ["api.config"]
 allow_indirect_imports = true
 
 [build-system]

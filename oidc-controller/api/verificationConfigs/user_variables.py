@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 
 import structlog
 
-from ..core.config import settings
+from ..config import settings
 from . import variableSubstitutions
 from .variableSubstitutions import variable_substitution_map
 

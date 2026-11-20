@@ -6,7 +6,7 @@ from pymongo import ASCENDING, MongoClient
 from pymongo.collection import Collection
 from pymongo.errors import OperationFailure
 
-from api.core.config import settings
+from api.config import settings
 
 from ..authSessions.models import AuthSessionState
 from .collections import COLLECTION_NAMES

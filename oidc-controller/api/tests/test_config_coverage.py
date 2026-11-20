@@ -3,7 +3,8 @@ import os
 from unittest.mock import MagicMock, patch
 
 import pytest
-from api.core import config
+
+from api import config
 
 
 class TestConfigEdgeCases:

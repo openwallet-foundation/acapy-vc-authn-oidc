@@ -7,7 +7,7 @@ from pymongo.database import Database
 from ..adapters.siem_audit import audit_qr_scanned
 from ..authSessions.crud import AuthSessionCRUD
 from ..authSessions.models import AuthSession, AuthSessionPatch, AuthSessionState
-from ..core.config import settings
+from ..config import settings
 from ..db.session import get_db
 from ..routers.oidc import gen_deep_link
 from ..routers.sse import notify

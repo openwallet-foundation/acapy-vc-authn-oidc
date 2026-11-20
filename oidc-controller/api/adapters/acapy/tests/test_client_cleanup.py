@@ -6,7 +6,7 @@ import httpx
 import pytest
 import respx
 from api.adapters.acapy.client import AcapyClient
-from api.core.config import settings
+from api.config import settings
 
 
 @pytest.fixture

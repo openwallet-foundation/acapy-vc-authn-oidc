@@ -24,8 +24,8 @@ from api.adapters.acapy.tests.__mocks__ import (
     create_presentation_response_http,
     presentation_request_configuration,
 )
+from api.config import settings
 from api.core.acapy.models import CreatePresentationResponse, WalletDid
-from api.core.config import settings
 
 
 @pytest.fixture

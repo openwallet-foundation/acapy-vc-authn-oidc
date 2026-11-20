@@ -19,7 +19,7 @@ from starlette.responses import Response
 from api.adapters.acapy.config import MultiTenantAcapy, TractionTenantAcapy
 from api.adapters.oidc.provider import init_provider
 from api.adapters.webhook_utils import register_tenant_webhook
-from api.core.config import RedisMode, settings, validate_redis_config
+from api.config import RedisMode, settings, validate_redis_config
 
 from .adapters.auth import get_api_key
 from .adapters.redis_utils import (

@@ -12,7 +12,7 @@ import respx.mocks
 
 os.environ.setdefault("CONTROLLER_URL", "https://controller")
 
-from api.core.config import settings  # noqa: E402
+from api.config import settings  # noqa: E402
 
 respx.mocks.DEFAULT_MOCKER = "httpx"
 

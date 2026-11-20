@@ -19,7 +19,7 @@ from api.adapters.redis_utils import (
     extract_storage_class,
 )
 from api.clientConfigurations.models import TOKENENDPOINTAUTHMETHODS
-from api.core.config import RedisMode, settings
+from api.config import RedisMode, settings
 from api.core.models import VCUserinfo
 
 logger: structlog.typing.FilteringBoundLogger = structlog.get_logger()

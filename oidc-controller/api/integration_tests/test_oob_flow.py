@@ -710,7 +710,7 @@ class TestPresentationRequestURL:
         # Point camera redirect at a plain URL so the endpoint doesn't try to
         # open a template file before reaching the wallet (non-HTML) branch.
         monkeypatch.setattr(
-            "api.core.config.settings.CONTROLLER_CAMERA_REDIRECT_URL",
+            "api.config.settings.CONTROLLER_CAMERA_REDIRECT_URL",
             "http://example.com/scan-help.html",
         )
         with acapy_oob_mock():

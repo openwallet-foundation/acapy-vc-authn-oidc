@@ -3,7 +3,7 @@ import secrets
 from fastapi import HTTPException, Security, status
 from fastapi.security import APIKeyHeader
 
-from api.core.config import settings
+from api.config import settings
 
 api_key_header = APIKeyHeader(name="x-api-key", auto_error=False)
 API_KEY = settings.CONTROLLER_API_KEY

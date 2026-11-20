@@ -10,7 +10,7 @@ from fastapi import HTTPException
 from pymongo.database import Database
 
 from api.authSessions.models import AuthSession, AuthSessionState
-from api.core.config import settings
+from api.config import settings
 from api.routers.acapy_handler import (
     _extract_credential_schemas,
     _extract_issuer_dids,

@@ -12,7 +12,7 @@ import structlog
 from pymongo import MongoClient
 
 from api.authSessions.models import AuthSessionState
-from api.core.config import settings
+from api.config import settings
 from api.db.collections import COLLECTION_NAMES
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)

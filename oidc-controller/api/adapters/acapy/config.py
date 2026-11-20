@@ -5,7 +5,7 @@ from typing import Protocol
 import httpx
 import structlog
 
-from api.core.config import settings
+from api.config import settings
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
 

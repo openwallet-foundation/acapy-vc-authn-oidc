@@ -9,12 +9,12 @@ from api.adapters.acapy.config import (
     SingleTenantAcapy,
     TractionTenantAcapy,
 )
+from api.config import settings
 from api.core.acapy.models import (
     CreatePresentationResponse,
     OobCreateInvitationResponse,
     WalletDid,
 )
-from api.core.config import settings
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
 

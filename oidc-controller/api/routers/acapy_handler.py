@@ -18,7 +18,7 @@ from ..adapters.siem_audit import (
 )
 from ..authSessions.crud import AuthSessionCRUD
 from ..authSessions.models import AuthSession, AuthSessionPatch, AuthSessionState
-from ..core.config import settings
+from ..config import settings
 from ..db.session import get_db
 from ..routers.sse import notify
 

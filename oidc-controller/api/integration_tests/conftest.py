@@ -24,7 +24,7 @@ from fastapi.testclient import TestClient
 from httpx import Response
 
 import api.db.session as db_session_module
-from api.core.config import settings
+from api.config import settings
 from api.db.collections import COLLECTION_NAMES
 from api.db.session import get_db
 from api.main import app

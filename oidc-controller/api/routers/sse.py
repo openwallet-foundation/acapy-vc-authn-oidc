@@ -37,7 +37,7 @@ from starlette.responses import StreamingResponse
 from ..adapters.redis_utils import parse_host_port_pairs
 from ..authSessions.crud import AuthSessionCRUD
 from ..authSessions.models import AuthSession, AuthSessionPatch, AuthSessionState
-from ..core.config import RedisMode, settings
+from ..config import RedisMode, settings
 from ..db.session import get_db
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)

@@ -10,7 +10,7 @@ import httpx
 import structlog
 
 from ..adapters.acapy.client import AcapyClient
-from ..core.config import settings
+from ..config import settings
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
 

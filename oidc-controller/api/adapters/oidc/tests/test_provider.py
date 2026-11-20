@@ -6,7 +6,7 @@ import pytest
 from api.adapters.oidc import provider as provider_module
 from api.adapters.oidc.provider import DynamicClientDatabase
 from api.adapters.redis_utils import SingleRedisWrapperWithPack
-from api.core.config import settings as real_settings
+from api.config import settings as real_settings
 
 
 class TestSingleRedisWrapperWithPack:
@@ -438,7 +438,7 @@ class TestHelperFunctions:
     def test_build_redis_url_without_password(self):
         """Test Redis URL building without password."""
         from api.adapters.redis_utils import build_redis_url
-        from api.core.config import settings
+        from api.config import settings
 
         # Save original values
         original_mode = settings.REDIS_MODE
@@ -465,7 +465,7 @@ class TestHelperFunctions:
     def test_build_redis_url_with_password(self):
         """Test Redis URL building with password."""
         from api.adapters.redis_utils import build_redis_url
-        from api.core.config import settings
+        from api.config import settings
 
         # Save original values
         original_mode = settings.REDIS_MODE

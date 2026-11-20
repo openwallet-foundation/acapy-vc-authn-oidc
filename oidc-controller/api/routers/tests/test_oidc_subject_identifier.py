@@ -250,7 +250,7 @@ class TestStoreSubjectIdentifierEdgeCases:
         mock_provider_obj.authz_state.subject_identifiers = mock_storage
 
         with (
-            patch("api.core.config.settings") as mock_settings,
+            patch("api.config.settings") as mock_settings,
             patch("api.routers.oidc.provider") as mock_provider,
         ):
             mock_settings.REDIS_MODE = "none"  # Stateless mode
@@ -279,7 +279,7 @@ class TestStoreSubjectIdentifierEdgeCases:
         mock_provider_obj.authz_state.subject_identifiers = mock_storage
 
         with (
-            patch("api.core.config.settings") as mock_settings,
+            patch("api.config.settings") as mock_settings,
             patch("api.routers.oidc.provider") as mock_provider,
         ):
             mock_settings.REDIS_MODE = "none"
@@ -305,7 +305,7 @@ class TestStoreSubjectIdentifierEdgeCases:
         mock_provider_obj.authz_state.subject_identifiers = mock_storage
 
         with (
-            patch("api.core.config.settings") as mock_settings,
+            patch("api.config.settings") as mock_settings,
             patch("api.routers.oidc.provider") as mock_provider,
         ):
             mock_settings.REDIS_MODE = "none"
