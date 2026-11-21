@@ -12,6 +12,7 @@ from pymongo.database import Database
 from api.authSessions.models import AuthSession, AuthSessionPatch, AuthSessionState
 from api.config import settings
 from api.core.models import PyObjectId
+from api.core.oidc.tests.__mocks__ import presentation as mock_presentation
 from api.routers.acapy_handler import (
     _extract_credential_schemas,
     _extract_issuer_dids,
@@ -1166,15 +1167,7 @@ class TestMiscWebhookCoverage:
 
 def _make_presentation_data(identifiers, format_key="indy"):
     """Helper to build a minimal presentation_data dict."""
-    return {
-        "by_format": {
-            format_key: {
-                "pres": {
-                    "identifiers": identifiers,
-                }
-            }
-        }
-    }
+    return {"by_format": {"pres": {format_key: {"identifiers": identifiers}}}}
 
 
 class TestExtractCredentialSchemas:
@@ -1226,7 +1219,7 @@ class TestExtractCredentialSchemas:
         assert _extract_credential_schemas(data) == ["some-opaque-id"]
 
     def test_missing_identifiers_key(self):
-        data = {"by_format": {"indy": {"pres": {}}}}
+        data = {"by_format": {"pres": {"indy": {}}}}
         assert _extract_credential_schemas(data) == []
 
     def test_missing_schema_id_key(self):
@@ -1236,6 +1229,10 @@ class TestExtractCredentialSchemas:
     def test_malformed_by_format(self):
         assert _extract_credential_schemas({"by_format": "bad"}) == []
 
+    def test_real_acapy_record(self):
+        """by_format nests the format under "pres", as ACA-Py sends it."""
+        assert _extract_credential_schemas(mock_presentation) == ["Person"]
+
     def test_schema_name_only_after_marker(self):
         """schema_id with only one part after :2: (no version)."""
         data = _make_presentation_data([{"schema_id": "DID:2:SchemaOnly"}])
@@ -1243,8 +1240,7 @@ class TestExtractCredentialSchemas:
 
     def test_exception_in_extraction_returns_empty(self):
         """When the by_format value is not dict-like, the exception is caught."""
-        # by_format value is a string, so .get("pres") raises AttributeError
-        data = {"by_format": {"indy": "not-a-dict"}}
+        data = {"by_format": {"pres": {"indy": "not-a-dict"}}}
         assert _extract_credential_schemas(data) == []
 
 
@@ -1297,7 +1293,7 @@ class TestExtractIssuerDids:
         assert _extract_issuer_dids(data) == ["some-opaque-id"]
 
     def test_missing_identifiers_key(self):
-        data = {"by_format": {"indy": {"pres": {}}}}
+        data = {"by_format": {"pres": {"indy": {}}}}
         assert _extract_issuer_dids(data) == []
 
     def test_missing_cred_def_id_key(self):
@@ -1307,21 +1303,24 @@ class TestExtractIssuerDids:
     def test_malformed_by_format(self):
         assert _extract_issuer_dids({"by_format": "bad"}) == []
 
+    def test_real_acapy_record(self):
+        assert _extract_issuer_dids(mock_presentation) == ["QEquAHkM35w4XVT3Ku5yat"]
+
     def test_both_formats_combined(self):
         """Identifiers present under both indy and anoncreds."""
         data = {
             "by_format": {
-                "indy": {
-                    "pres": {"identifiers": [{"cred_def_id": "did:sov:A:3:CL:1:t"}]}
-                },
-                "anoncreds": {
-                    "pres": {"identifiers": [{"cred_def_id": "did:sov:B:3:CL:2:t"}]}
-                },
+                "pres": {
+                    "indy": {"identifiers": [{"cred_def_id": "did:sov:A:3:CL:1:t"}]},
+                    "anoncreds": {
+                        "identifiers": [{"cred_def_id": "did:sov:B:3:CL:2:t"}]
+                    },
+                }
             }
         }
         assert _extract_issuer_dids(data) == ["did:sov:A", "did:sov:B"]
 
     def test_exception_in_extraction_returns_empty(self):
         """When the by_format value is not dict-like, the exception is caught."""
-        data = {"by_format": {"indy": "not-a-dict"}}
+        data = {"by_format": {"pres": {"indy": "not-a-dict"}}}
         assert _extract_issuer_dids(data) == []

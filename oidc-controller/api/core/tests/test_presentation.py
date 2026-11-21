@@ -1,4 +1,4 @@
-from api.core.acapy.presentation import ByFormat
+from api.core.acapy.presentation import ByFormat, Presentations
 
 REQUEST = {"requested_attributes": {"r0": {"names": ["name"]}}}
 PRES = {
@@ -46,4 +46,20 @@ def test_other_formats_are_ignored():
         }
     )
     assert by_format.select("indy") is None
-    assert by_format.presentations() == []
+    assert by_format.pres.identifiers() == []
+
+
+def test_reads_identifiers_from_both_formats():
+    pres = Presentations.model_validate(
+        {
+            "indy": {"identifiers": [{"cred_def_id": "did:sov:B:3:CL:2:t"}]},
+            "anoncreds": {
+                "identifiers": [
+                    {"schema_id": "did:sov:A:2:Person:1.0"},
+                    {"cred_def_id": "did:sov:A:3:CL:1:t"},
+                ]
+            },
+        }
+    )
+    assert pres.schema_names() == ["Person"]
+    assert pres.issuer_dids() == ["did:sov:A", "did:sov:B"]

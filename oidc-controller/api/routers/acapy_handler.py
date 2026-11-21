@@ -6,6 +6,7 @@ from typing import Any
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import ValidationError
 from pymongo.database import Database
 
 from ..adapters.acapy.client import AcapyClient
@@ -19,6 +20,7 @@ from ..adapters.siem_audit import (
 from ..authSessions.crud import AuthSessionCRUD
 from ..authSessions.models import AuthSession, AuthSessionPatch
 from ..config import settings
+from ..core.acapy.presentation import Presentations
 from ..core.auth_session import (
     Abandoned,
     Expired,
@@ -36,71 +38,24 @@ logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
 router = APIRouter()
 
 
-def _extract_credential_schemas(presentation_data: dict) -> list[str]:
-    """
-    Extract schema names from verified presentation data.
-
-    Safe to log - schema names are public metadata, not PII.
-    """
-    schemas = set()
+def _presentations(presentation_data: dict[str, Any]) -> Presentations:
+    by_format = presentation_data.get("by_format")
+    pres = by_format.get("pres") if isinstance(by_format, dict) else None
     try:
-        # Try to extract from various proof formats
-        by_format = presentation_data.get("by_format", {})
-        for format_key in ["indy", "anoncreds"]:
-            if format_key in by_format:
-                pres = by_format[format_key].get("pres", {})
-                identifiers = pres.get("identifiers", [])
-                for identifier in identifiers:
-                    if schema_id := identifier.get("schema_id"):
-                        # schema_id format: <issuer_did>:2:<schema_name>:<version>
-                        # The issuer DID may itself contain colons (e.g. did:sov:ABC),
-                        # so we locate the ":2:" marker to split reliably.
-                        marker = ":2:"
-                        marker_pos = schema_id.find(marker)
-                        if marker_pos != -1:
-                            remainder = schema_id[marker_pos + len(marker) :]
-                            # remainder is "<schema_name>:<version>"
-                            rem_parts = remainder.split(":")
-                            if len(rem_parts) >= 2:
-                                schemas.add(rem_parts[0])
-                            else:
-                                schemas.add(remainder)
-                        else:
-                            schemas.add(schema_id)
-    except Exception as e:
-        # Return empty list if extraction fails
-        logger.debug(f"Failed to extract schemas from presentation data: {e}")
-    return sorted(schemas)
+        return Presentations.model_validate(pres or {})
+    except ValidationError as e:
+        logger.debug(f"Failed to read identifiers from presentation data: {e}")
+        return Presentations()
 
 
-def _extract_issuer_dids(presentation_data: dict) -> list[str]:
-    """
-    Extract issuer DIDs from verified presentation data.
+def _extract_credential_schemas(presentation_data: dict[str, Any]) -> list[str]:
+    """Schema names from a presentation. Safe to log: public metadata, not PII."""
+    return _presentations(presentation_data).schema_names()
 
-    Safe to log - DIDs are public identifiers, not PII.
-    """
-    issuers = set()
-    try:
-        by_format = presentation_data.get("by_format", {})
-        for format_key in ["indy", "anoncreds"]:
-            if format_key in by_format:
-                pres = by_format[format_key].get("pres", {})
-                identifiers = pres.get("identifiers", [])
-                for identifier in identifiers:
-                    if cred_def_id := identifier.get("cred_def_id"):
-                        # cred_def_id format: <issuer_did>:3:CL:<schema_seq_no>:<tag>
-                        # The issuer DID may itself contain colons (e.g. did:sov:ABC),
-                        # so we locate the ":3:CL:" marker to extract the DID prefix.
-                        marker = ":3:CL:"
-                        marker_pos = cred_def_id.find(marker)
-                        if marker_pos != -1:
-                            issuers.add(cred_def_id[:marker_pos])
-                        else:
-                            issuers.add(cred_def_id)
-    except Exception as e:
-        # Return empty list if extraction fails
-        logger.debug(f"Failed to extract issuer DIDs from presentation data: {e}")
-    return sorted(issuers)
+
+def _extract_issuer_dids(presentation_data: dict[str, Any]) -> list[str]:
+    """Issuer DIDs from a presentation. Safe to log: public identifiers, not PII."""
+    return _presentations(presentation_data).issuer_dids()
 
 
 async def _send_problem_report_safely(
