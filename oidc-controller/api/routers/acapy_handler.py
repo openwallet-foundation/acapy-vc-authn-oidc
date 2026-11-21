@@ -1,5 +1,4 @@
 import contextlib
-import json
 import time
 from datetime import UTC, datetime
 from typing import Any
@@ -21,6 +20,7 @@ from ..authSessions.crud import AuthSessionCRUD
 from ..authSessions.models import AuthSession, AuthSessionPatch
 from ..config import settings
 from ..core.acapy.presentation import Presentations
+from ..core.acapy.webhooks import ConnectionWebhook, PresentProofWebhook
 from ..core.auth_session import (
     Abandoned,
     Expired,
@@ -30,6 +30,7 @@ from ..core.auth_session import (
     apply,
     has_expired,
 )
+from ..core.models import FrozenModel
 from ..db.session import get_db
 from ..routers.sse import notify
 
@@ -105,8 +106,15 @@ async def _update_auth_session(db: Database, auth_session: AuthSession) -> None:
     )
 
 
-async def _parse_webhook_body(request: Request) -> dict[Any, Any]:
-    return json.loads((await request.body()).decode("ascii"))
+async def _parse_webhook[M: FrozenModel](request: Request, model: type[M]) -> M:
+    try:
+        return model.model_validate_json(await request.body())
+    except ValidationError as e:
+        # Leave the input out of the error: it can hold presentation data.
+        raise HTTPException(
+            status_code=422,
+            detail=e.errors(include_input=False, include_url=False),
+        ) from e
 
 
 @router.post("/topic/{topic}/")
@@ -122,33 +130,27 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
     match topic:
         case "connections":
             if settings.USE_CONNECTION_BASED_VERIFICATION:
-                webhook_body = await _parse_webhook_body(request)
-                logger.info(f">>>> connection_id: {webhook_body.get('connection_id')}")
-                logger.info(f">>>> connection state: {webhook_body.get('state')}")
+                connection = await _parse_webhook(request, ConnectionWebhook)
+                logger.info(f">>>> connection_id: {connection.connection_id}")
+                logger.info(f">>>> connection state: {connection.state}")
 
                 # Log request state for debugging but don't act on it yet
-                if webhook_body.get("state") == "request":
+                if connection.state == "request":
                     logger.info(
-                        f"Connection {webhook_body.get('connection_id')} is in request state, waiting for active/completed"
+                        f"Connection {connection.connection_id} is in request state, waiting for active/completed"
                     )
 
-                if webhook_body.get("state") in [
-                    "active",
-                    "completed",
-                ] and isinstance(webhook_body.get("connection_id"), str):
+                if (
+                    connection.state in ["active", "completed"]
+                    and connection.connection_id is not None
+                ):
                     # Connection established, now send presentation request
-                    connection_id = webhook_body["connection_id"]
-                    invitation_msg_id = webhook_body.get("invitation_msg_id")
+                    connection_id = connection.connection_id
 
-                    logger.debug(f"Full webhook body: {webhook_body}")
-                    logger.debug(f"Available keys: {list(webhook_body.keys())}")
+                    logger.debug(f"Full webhook body: {connection}")
 
                     # Try multiple possible fields for invitation message ID
-                    search_id = (
-                        invitation_msg_id
-                        or webhook_body.get("invi_msg_id")
-                        or webhook_body.get("invitation_id")
-                    )
+                    search_id = connection.invitation_search_id()
 
                     # Find the auth session by invitation message ID (stored as connection_id initially)
                     logger.info(f"Looking for auth session with search_id: {search_id}")
@@ -234,15 +236,15 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                             )
                     else:
                         logger.debug(
-                            f"No auth session found for invitation_msg_id: {invitation_msg_id}"
+                            f"No auth session found for invitation_msg_id: {connection.invitation_msg_id}"
                         )
 
         case "present_proof_v2_0":
-            webhook_body = await _parse_webhook_body(request)
+            webhook_body = await _parse_webhook(request, PresentProofWebhook)
 
-            pres_ex_id = str(webhook_body.get("pres_ex_id"))
-            state = webhook_body.get("state")
-            role = webhook_body.get("role")
+            pres_ex_id = webhook_body.pres_ex_id
+            state = webhook_body.state
+            role = webhook_body.role
 
             # Emitted by ACA-Py for every record removal (auto-remove, cleanup)
             if state == "deleted":
@@ -258,16 +260,13 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                 role=role,
             )
 
-            logger.info(
-                f">>>> pres_exch_id: {webhook_body['pres_ex_id']}, state: {state}"
-            )
+            logger.info(f">>>> pres_exch_id: {pres_ex_id}, state: {state}")
 
             # Check for prover-role (issue #898)
 
             if role == "prover":
                 # Handle prover-role separately - VC-AuthN is responding to a proof request
-                connection_id = webhook_body.get("connection_id")
-                state = webhook_body.get("state")
+                connection_id = webhook_body.connection_id
 
                 logger.info(
                     f"Prover-role webhook received: {state}",
@@ -283,9 +282,7 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
 
             # Existing verifier-role code continues below...
             try:
-                auth_session = await AuthSessionCRUD(db).get_by_pres_exch_id(
-                    webhook_body["pres_ex_id"]
-                )
+                auth_session = await AuthSessionCRUD(db).get_by_pres_exch_id(pres_ex_id)
             except HTTPException as e:
                 if e.status_code != 404:
                     raise
@@ -297,21 +294,21 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                 )
                 return {"status": "unknown presentation exchange"}
 
-            if webhook_body["state"] == "presentation-received":
+            if state == "presentation-received":
                 logger.info("presentation-received")
 
-            if webhook_body["state"] == "done":
+            if state == "done":
                 duration_ms = int((time.time() - webhook_start_time) * 1000)
 
-                if webhook_body["verified"] == "true":
+                if webhook_body.is_verified:
                     logger.info("VERIFIED")
 
-                    by_format = webhook_body.get("by_format")
+                    by_format = webhook_body.by_format
                     if not by_format:
                         logger.error(
                             "Missing by_format in webhook body — cannot extract proof claims. "
                             "Ensure ACA-Py is configured with --debug-webhooks.",
-                            pres_ex_id=webhook_body["pres_ex_id"],
+                            pres_ex_id=pres_ex_id,
                         )
                         auth_session = apply(auth_session, Failed())
                         await _update_auth_session(db, auth_session)
@@ -326,13 +323,15 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
 
                     auth_session = apply(auth_session, Verified(by_format))
                     logger.debug(
-                        f"Retrieved presentation data via API for {webhook_body['pres_ex_id']}"
+                        f"Retrieved presentation data via API for {pres_ex_id}"
                     )
 
                     # SIEM Audit: Log successful verification (metadata only, no PII)
                     # Extract schema names from presentation for audit
-                    credential_schemas = _extract_credential_schemas(webhook_body)
-                    issuer_dids = _extract_issuer_dids(webhook_body)
+                    credential_schemas = _extract_credential_schemas(
+                        {"by_format": by_format}
+                    )
+                    issuer_dids = _extract_issuer_dids({"by_format": by_format})
 
                     audit_proof_verified(
                         session_id=str(auth_session.id),
@@ -366,7 +365,7 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                         await _send_problem_report_safely(
                             client,
                             auth_session.pres_exch_id,
-                            f"Presentation verification failed: {webhook_body.get('error_msg', 'Unknown error')}",
+                            f"Presentation verification failed: {webhook_body.error_msg or 'Unknown error'}",
                         )
 
                 await _update_auth_session(db, auth_session)
@@ -375,11 +374,11 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                 )
 
                 # Connection cleanup is now handled above in the combined cleanup operation
-            if webhook_body["state"] == "abandoned":
+            if state == "abandoned":
                 logger.info("ABANDONED")
                 # Note: error_msg may contain sensitive info, log at debug level only
                 logger.debug(
-                    f"Abandonment reason: {webhook_body.get('error_msg', 'No reason provided')}"
+                    f"Abandonment reason: {webhook_body.error_msg or 'No reason provided'}"
                 )
                 auth_session = apply(auth_session, Abandoned())
 
@@ -402,7 +401,7 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                     await _send_problem_report_safely(
                         client,
                         auth_session.pres_exch_id,
-                        f"Presentation abandoned: {webhook_body.get('error_msg', 'Unknown error')}",
+                        f"Presentation abandoned: {webhook_body.error_msg or 'Unknown error'}",
                     )
                 await _update_auth_session(db, auth_session)
                 await _cleanup__connection(

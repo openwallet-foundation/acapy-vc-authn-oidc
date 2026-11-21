@@ -129,6 +129,7 @@ strict = [
     "oidc-controller/api/core/acapy/present_proof_attachment.py",
     "oidc-controller/api/core/acapy/present_proof_presentation.py",
     "oidc-controller/api/core/acapy/service_decorator.py",
+    "oidc-controller/api/core/acapy/webhooks.py",
     "oidc-controller/api/adapters/auth.py",
     "oidc-controller/api/config.py",
     "oidc-controller/api/adapters/http_exception_util.py",

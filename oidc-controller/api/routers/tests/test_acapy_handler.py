@@ -1324,3 +1324,27 @@ class TestExtractIssuerDids:
         """When the by_format value is not dict-like, the exception is caught."""
         data = {"by_format": {"pres": {"indy": "not-a-dict"}}}
         assert _extract_issuer_dids(data) == []
+
+
+class TestMalformedWebhookBodies:
+    @pytest.mark.asyncio
+    @patch("api.routers.acapy_handler.AuthSessionCRUD")
+    @patch("api.routers.acapy_handler.AcapyClient")
+    @pytest.mark.parametrize(
+        "body",
+        [
+            {"state": "done", "verified": "true"},
+            {"pres_ex_id": "pex-1", "state": "done", "by_format": "secret-value"},
+        ],
+    )
+    async def test_rejected_with_422_without_echoing_input(
+        self, mock_acapy_client, mock_crud, body, mock_request, mock_db
+    ):
+        mock_request.body.return_value = json.dumps(body).encode()
+
+        with pytest.raises(HTTPException) as exc:
+            await post_topic(mock_request, "present_proof_v2_0", mock_db)
+
+        assert exc.value.status_code == 422
+        assert "secret-value" not in str(exc.value.detail)
+        mock_crud.assert_not_called()
