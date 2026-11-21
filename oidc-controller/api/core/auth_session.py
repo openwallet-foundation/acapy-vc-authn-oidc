@@ -6,7 +6,7 @@ session that apply returns. apply never modifies its argument.
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, assert_never
 
 from api.authSessions.models import AuthSession, AuthSessionState
 
@@ -71,6 +71,8 @@ def apply(session: AuthSession, event: Event) -> AuthSession:
             update = {"proof_status": AuthSessionState.ABANDONED}
         case Expired():
             update = {"proof_status": AuthSessionState.EXPIRED}
+        case _:
+            assert_never(event)
     return session.model_copy(update=update)
 
 
