@@ -654,7 +654,7 @@ class TestConnectionBasedVerificationIntegration:
         mock_request,
         mock_db,
     ):
-        """Test that exceptions during pres_exch_id lookup are handled gracefully."""
+        """A pres_exch_id lookup that finds nothing is not an error."""
         # Setup mocks
         webhook_body = {
             "connection_id": "test-connection-id",
@@ -668,7 +668,9 @@ class TestConnectionBasedVerificationIntegration:
 
         # All lookups fail
         mock_crud_instance.get_by_connection_id.side_effect = [None, None]
-        mock_crud_instance.get_by_pres_exch_id.side_effect = Exception("Database error")
+        mock_crud_instance.get_by_pres_exch_id.side_effect = HTTPException(
+            status_code=404
+        )
 
         # Execute - should not raise exception
         result = await post_topic(mock_request, "connections", mock_db)
@@ -678,6 +680,27 @@ class TestConnectionBasedVerificationIntegration:
         mock_crud_instance.get_by_pres_exch_id.assert_called_once_with(
             "test-invitation-id"
         )
+
+    @pytest.mark.asyncio
+    @patch("api.routers.acapy_handler.settings.USE_CONNECTION_BASED_VERIFICATION", True)
+    @patch("api.routers.acapy_handler.AuthSessionCRUD")
+    async def test_connection_webhook_pres_exch_id_lookup_database_error_propagates(
+        self, mock_auth_session_crud, mock_request, mock_db
+    ):
+        """A database failure must not look like "no session found"."""
+        webhook_body = {
+            "connection_id": "test-connection-id",
+            "invitation_msg_id": "test-invitation-id",
+            "state": "active",
+        }
+        mock_request.body.return_value = json.dumps(webhook_body).encode()
+        mock_crud_instance = AsyncMock()
+        mock_auth_session_crud.return_value = mock_crud_instance
+        mock_crud_instance.get_by_connection_id.side_effect = [None, None]
+        mock_crud_instance.get_by_pres_exch_id.side_effect = RuntimeError("db down")
+
+        with pytest.raises(RuntimeError, match="db down"):
+            await post_topic(mock_request, "connections", mock_db)
 
     @pytest.mark.asyncio
     @patch("api.routers.acapy_handler.settings.USE_CONNECTION_BASED_VERIFICATION", True)

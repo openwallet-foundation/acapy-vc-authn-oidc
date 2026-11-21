@@ -1,4 +1,3 @@
-import contextlib
 import time
 from datetime import UTC, datetime
 from typing import Any
@@ -174,11 +173,14 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                         logger.info(
                             f"Trying to find auth session by pres_exch_id pattern: {search_id}"
                         )
-                        # This lookup might fail if the pattern doesn't match
-                        with contextlib.suppress(Exception):
+                        try:
                             auth_session = await AuthSessionCRUD(
                                 db
-                            ).get_by_pres_exch_id(f"{search_id}")
+                            ).get_by_pres_exch_id(search_id)
+                        except HTTPException as e:
+                            # Not found is expected; anything else is a real failure.
+                            if e.status_code != 404:
+                                raise
 
                     if auth_session:
                         logger.info(f"Found auth session: {auth_session.id}")
