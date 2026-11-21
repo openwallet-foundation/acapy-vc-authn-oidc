@@ -1,5 +1,5 @@
 from datetime import UTC, datetime
-from typing import Required, TypedDict, dataclass_transform
+from typing import dataclass_transform
 
 import structlog
 from bson import ObjectId
@@ -77,14 +77,6 @@ class TimestampModel(FrozenModel):
 
 class GenericErrorMessage(FrozenModel):
     detail: str
-
-
-# Currently used as a TypedDict since it can be used as a part of a
-# Pydantic class but a Pydantic class can not inherit from TypedDict
-# and and BaseModel
-class RevealedAttribute(TypedDict, total=False):
-    sub_proof_index: int
-    values: Required[dict]
 
 
 class VCUserinfo(Userinfo):

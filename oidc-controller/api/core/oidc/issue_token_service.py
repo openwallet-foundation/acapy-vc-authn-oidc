@@ -5,10 +5,12 @@ from typing import Any
 
 import canonicaljson
 import structlog
+from pydantic import ValidationError
 
 from ...authSessions.models import AuthSession
-from ...core.models import FrozenModel, RevealedAttribute
-from ...verificationConfigs.models import ReqAttr, VerificationConfig
+from ...core.models import FrozenModel
+from ...verificationConfigs.models import VerificationConfig
+from ..acapy.presentation import ByFormat
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
 
@@ -52,55 +54,48 @@ class Token(FrozenModel):
 
         presentation_claims: dict[str, Claim] = {}
 
-        # Make fallback logic more robust by checking both pres_request and pres.
-        # This handles in-flight sessions during configuration changes and guards against malformed data.
-        pres_exch = auth_session.presentation_exchange or {}
-        pres_request = pres_exch.get("pres_request", {})
-        pres = pres_exch.get("pres", {})
+        try:
+            by_format = ByFormat.model_validate(
+                auth_session.presentation_exchange or {}
+            )
+        except ValidationError as err:
+            logger.error(
+                f"Presentation exchange does not match the expected shape: {err}"
+            )
+            raise RuntimeError(err) from err
 
-        if proof_format not in pres_request or proof_format not in pres:
-            if "indy" in pres_request and "indy" in pres:
-                logger.debug(
-                    f"Configured proof format '{proof_format}' not found in record, falling back to 'indy'"
-                )
-                proof_format = "indy"
-            elif "anoncreds" in pres_request and "anoncreds" in pres:
-                logger.debug(
-                    f"Configured proof format '{proof_format}' not found in record, falling back to 'anoncreds'"
-                )
-                proof_format = "anoncreds"
-            else:
-                # If we reach here, we have a data inconsistency or unsupported format
-                raise ValueError("No valid proof format found in presentation exchange")
+        # Falls back to another format when the record has no data for the
+        # configured one, e.g. for sessions in flight during a config change.
+        selected = by_format.select(proof_format)
+        if selected is None:
+            raise ValueError("No valid proof format found in presentation exchange")
+        selected_format, pres_request, presentation = selected
+        if selected_format != proof_format:
+            logger.debug(
+                f"Configured proof format '{proof_format}' not found in record, falling back to '{selected_format}'"
+            )
 
         logger.info(
             "Extracted requested attributes from presentation request",
-            requested_attributes=pres_exch["pres_request"][proof_format][
-                "requested_attributes"
-            ],
-            proof_format=proof_format,
+            requested_attributes={
+                referent: attr.names
+                for referent, attr in pres_request.requested_attributes.items()
+            },
+            proof_format=selected_format,
         )
 
-        referent: str
-        requested_attr: ReqAttr
+        revealed_attrs = presentation.requested_proof.revealed_attr_groups
         try:
-            for referent, requested_attrdict in pres_exch["pres_request"][proof_format][
-                "requested_attributes"
-            ].items():
-                requested_attr = ReqAttr(**requested_attrdict)
+            for referent, requested_attr in pres_request.requested_attributes.items():
                 logger.debug(
                     f"Processing referent: {referent}, requested_attr: {requested_attr}"
                 )
-                revealed_attrs: dict[str, RevealedAttribute] = pres_exch["pres"][
-                    proof_format
-                ]["requested_proof"]["revealed_attr_groups"]
-                logger.debug(f"revealed_attrs: {revealed_attrs}")
                 # loop through each value and put it in token as a claim
                 for attr_name in requested_attr.names:
                     logger.debug(f"AttrName: {attr_name}")
                     presentation_claims[attr_name] = Claim(
                         type=attr_name,
-                        value=revealed_attrs[referent]["values"][attr_name]["raw"],
+                        value=revealed_attrs[referent].values[attr_name].raw,
                     )
                     logger.debug(f"Compiled presentation_claims: {presentation_claims}")
         except Exception as err:
