@@ -34,6 +34,7 @@ from ..authSessions.crud import AuthSessionCreate, AuthSessionCRUD
 from ..authSessions.models import AuthSession, AuthSessionPatch, AuthSessionState
 from ..clientConfigurations.crud import ClientConfigurationCRUD
 from ..config import settings
+from ..core.auth_session import Expired, apply
 from ..core.oidc.issue_token_service import Token
 from ..db.session import get_db
 from ..routers.sse import notify
@@ -80,7 +81,7 @@ async def poll_pres_exch_complete(pid: str, db: Database = Depends(get_db)):
 
     if expired_time < now and auth_session.proof_status == AuthSessionState.NOT_STARTED:
         logger.warning("PROOF EXPIRED")
-        auth_session.proof_status = AuthSessionState.EXPIRED
+        auth_session = apply(auth_session, Expired())
         await AuthSessionCRUD(db).patch(
             str(auth_session.id), AuthSessionPatch(**auth_session.model_dump())
         )

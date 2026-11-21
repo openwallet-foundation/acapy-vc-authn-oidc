@@ -19,6 +19,7 @@ from ..adapters.siem_audit import (
 from ..authSessions.crud import AuthSessionCRUD
 from ..authSessions.models import AuthSession, AuthSessionPatch, AuthSessionState
 from ..config import settings
+from ..core.auth_session import Abandoned, Expired, Failed, RequestSent, Verified, apply
 from ..db.session import get_db
 from ..routers.sse import notify
 
@@ -233,12 +234,13 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                                 )
 
                                 # Update auth session with presentation exchange details and real connection ID
-                                auth_session.pres_exch_id = pres_response.pres_ex_id
-                                auth_session.presentation_exchange = (
-                                    pres_response.model_dump()
-                                )
-                                auth_session.connection_id = (
-                                    connection_id  # Update with real connection ID
+                                auth_session = apply(
+                                    auth_session,
+                                    RequestSent(
+                                        pres_response.pres_ex_id,
+                                        pres_response.model_dump(),
+                                        connection_id,  # the real connection ID
+                                    ),
                                 )
                                 await _update_auth_session(db, auth_session)
 
@@ -250,7 +252,7 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                                     f"Failed to send presentation request: {e}"
                                 )
                                 # Set auth session to failed state
-                                auth_session.proof_status = AuthSessionState.FAILED
+                                auth_session = apply(auth_session, Failed())
                                 await _update_auth_session(db, auth_session)
 
                                 # Send problem report if we have a presentation exchange ID
@@ -348,7 +350,7 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                             "Ensure ACA-Py is configured with --debug-webhooks.",
                             pres_ex_id=webhook_body["pres_ex_id"],
                         )
-                        auth_session.proof_status = AuthSessionState.FAILED
+                        auth_session = apply(auth_session, Failed())
                         await _update_auth_session(db, auth_session)
                         await notify(str(auth_session.id), "failed")
                         await _cleanup__connection(
@@ -359,8 +361,7 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                         )
                         return {"status": "missing by_format"}
 
-                    auth_session.proof_status = AuthSessionState.VERIFIED
-                    auth_session.presentation_exchange = by_format
+                    auth_session = apply(auth_session, Verified(by_format))
                     logger.debug(
                         f"Retrieved presentation data via API for {webhook_body['pres_ex_id']}"
                     )
@@ -382,7 +383,7 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                     await notify(str(auth_session.id), "verified")
                 else:
                     logger.info("VERIFICATION FAILED")
-                    auth_session.proof_status = AuthSessionState.FAILED
+                    auth_session = apply(auth_session, Failed())
 
                     # SIEM Audit: Log failed verification
                     audit_proof_verification_failed(
@@ -417,7 +418,7 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                 logger.debug(
                     f"Abandonment reason: {webhook_body.get('error_msg', 'No reason provided')}"
                 )
-                auth_session.proof_status = AuthSessionState.ABANDONED
+                auth_session = apply(auth_session, Abandoned())
 
                 # SIEM Audit: Log session abandonment
                 duration_ms = int((time.time() - webhook_start_time) * 1000)
@@ -457,7 +458,7 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                 and auth_session.proof_status == AuthSessionState.NOT_STARTED
             ):
                 logger.info("EXPIRED")
-                auth_session.proof_status = AuthSessionState.EXPIRED
+                auth_session = apply(auth_session, Expired())
 
                 # SIEM Audit: Log session expiration
                 audit_session_expired(

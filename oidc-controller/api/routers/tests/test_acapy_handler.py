@@ -9,8 +9,9 @@ from bson import ObjectId
 from fastapi import HTTPException
 from pymongo.database import Database
 
-from api.authSessions.models import AuthSession, AuthSessionState
+from api.authSessions.models import AuthSession, AuthSessionPatch, AuthSessionState
 from api.config import settings
+from api.core.models import PyObjectId
 from api.routers.acapy_handler import (
     _extract_credential_schemas,
     _extract_issuer_dids,
@@ -24,38 +25,27 @@ def mock_db():
     return MagicMock(spec=Database)
 
 
+SESSION_ID = "507f1f77bcf86cd799439011"
+
+
 @pytest.fixture
 def mock_auth_session():
-    """Mock auth session fixture."""
-    auth_session = MagicMock(spec=AuthSession)
-    auth_session.id = "test-session-id"
-    auth_session.pres_exch_id = "test-pres-ex-id"
-    auth_session.connection_id = "test-connection-id"
-    auth_session.proof_request = {"test": "proof_request"}
-    auth_session.proof_status = AuthSessionState.NOT_STARTED
-    auth_session.expired_timestamp = datetime.now(UTC) + timedelta(seconds=3600)
-    auth_session.ver_config_id = "test-ver-config-id"
-    auth_session.request_parameters = {"test": "params"}
-    auth_session.pyop_auth_code = "test-auth-code"
-    auth_session.response_url = "http://test.com/callback"
-    auth_session.presentation_exchange = {}
-    auth_session.multi_use = False
-    auth_session.model_dump = MagicMock(
-        return_value={
-            "id": "test-session-id",
-            "pres_exch_id": "test-pres-ex-id",
-            "connection_id": "test-connection-id",
-            "proof_request": {"test": "proof_request"},
-            "proof_status": AuthSessionState.NOT_STARTED,
-            "ver_config_id": "test-ver-config-id",
-            "request_parameters": {"test": "params"},
-            "pyop_auth_code": "test-auth-code",
-            "response_url": "http://test.com/callback",
-            "presentation_exchange": {},
-            "multi_use": False,
-        }
+    """Auth session fixture."""
+    return AuthSession(
+        _id=PyObjectId(SESSION_ID),
+        pres_exch_id="test-pres-ex-id",
+        connection_id="test-connection-id",
+        proof_request={"test": "proof_request"},
+        expired_timestamp=datetime.now(UTC) + timedelta(seconds=3600),
+        ver_config_id="test-ver-config-id",
+        request_parameters={"test": "params"},
+        pyop_auth_code="test-auth-code",
+        response_url="http://test.com/callback",
     )
-    return auth_session
+
+
+def _saved_session(mock_auth_session_crud: MagicMock) -> AuthSessionPatch:
+    return mock_auth_session_crud.return_value.patch.call_args.args[1]
 
 
 @pytest.fixture
@@ -165,7 +155,7 @@ class TestConnectionBasedVerificationWebhooks:
         mock_client_instance.send_problem_report.assert_called_once_with(
             "test-pres-ex-id", "Failed to send presentation request: Connection error"
         )
-        mock_notify.assert_awaited_once_with("test-session-id", "failed")
+        mock_notify.assert_awaited_once_with(SESSION_ID, "failed")
 
     @pytest.mark.asyncio
     @patch("api.routers.acapy_handler.settings.USE_CONNECTION_BASED_VERIFICATION", True)
@@ -209,7 +199,7 @@ class TestConnectionBasedVerificationWebhooks:
         mock_client_instance.send_problem_report.assert_called_once_with(
             "test-pres-ex-id", "Presentation verification failed: Verification failed"
         )
-        mock_notify.assert_awaited_once_with("test-session-id", "failed")
+        mock_notify.assert_awaited_once_with(SESSION_ID, "failed")
 
     @pytest.mark.asyncio
     @patch("api.routers.acapy_handler.settings.USE_CONNECTION_BASED_VERIFICATION", True)
@@ -238,21 +228,6 @@ class TestConnectionBasedVerificationWebhooks:
 
         # Configure auth session as multi-use
         mock_auth_session.multi_use = True
-        mock_auth_session.model_dump = MagicMock(
-            return_value={
-                "id": "test-session-id",
-                "pres_exch_id": "test-pres-ex-id",
-                "connection_id": "test-connection-id",
-                "proof_request": {"test": "proof_request"},
-                "proof_status": AuthSessionState.NOT_STARTED,
-                "ver_config_id": "test-ver-config-id",
-                "request_parameters": {"test": "params"},
-                "pyop_auth_code": "test-auth-code",
-                "response_url": "http://test.com/callback",
-                "presentation_exchange": {},
-                "multi_use": True,
-            }
-        )
 
         mock_auth_session_crud.return_value.get_by_pres_exch_id = AsyncMock(
             return_value=mock_auth_session
@@ -275,7 +250,7 @@ class TestConnectionBasedVerificationWebhooks:
         assert result == {}
         # Verify connection was NOT deleted
         mock_client_instance.delete_connection.assert_not_called()
-        mock_notify.assert_awaited_once_with("test-session-id", "verified")
+        mock_notify.assert_awaited_once_with(SESSION_ID, "verified")
 
     @pytest.mark.asyncio
     @patch("api.routers.acapy_handler.settings.USE_CONNECTION_BASED_VERIFICATION", True)
@@ -318,7 +293,7 @@ class TestConnectionBasedVerificationWebhooks:
         mock_client_instance.send_problem_report.assert_called_once_with(
             "test-pres-ex-id", "Presentation abandoned: Presentation abandoned by user"
         )
-        mock_notify.assert_awaited_once_with("test-session-id", "abandoned")
+        mock_notify.assert_awaited_once_with(SESSION_ID, "abandoned")
 
     @pytest.mark.asyncio
     @patch("api.routers.acapy_handler.settings.USE_CONNECTION_BASED_VERIFICATION", True)
@@ -362,12 +337,15 @@ class TestConnectionBasedVerificationWebhooks:
         result = await post_topic(mock_request, "present_proof_v2_0", mock_db)
 
         assert result == {}
-        assert mock_auth_session.proof_status == AuthSessionState.EXPIRED
+        assert (
+            _saved_session(mock_auth_session_crud).proof_status
+            == AuthSessionState.EXPIRED
+        )
         mock_client_instance.send_problem_report.assert_called_once_with(
             "test-pres-ex-id",
             f"Presentation expired: timeout after {settings.CONTROLLER_PRESENTATION_EXPIRE_TIME} seconds",
         )
-        mock_notify.assert_awaited_once_with("test-session-id", "expired")
+        mock_notify.assert_awaited_once_with(SESSION_ID, "expired")
         # Verify single-use connection was cleaned up
         mock_client_instance.delete_connection.assert_called_once_with(
             "test-connection-id"
@@ -447,8 +425,11 @@ class TestConnectionBasedVerificationWebhooks:
         result = await post_topic(mock_request, "present_proof_v2_0", mock_db)
 
         assert result == {"status": "missing by_format"}
-        assert mock_auth_session.proof_status == AuthSessionState.FAILED
-        mock_notify.assert_awaited_once_with("test-session-id", "failed")
+        assert (
+            _saved_session(mock_auth_session_crud).proof_status
+            == AuthSessionState.FAILED
+        )
+        mock_notify.assert_awaited_once_with(SESSION_ID, "failed")
 
     @pytest.mark.asyncio
     @patch(
@@ -509,27 +490,13 @@ class TestConnectionBasedVerificationWebhooks:
         mock_request.body.return_value = json.dumps(webhook_body).encode("ascii")
 
         # Mock auth session without pres_exch_id
-        mock_auth_session_no_pres_id = MagicMock(spec=AuthSession)
-        mock_auth_session_no_pres_id.id = "test-session-id"
-        mock_auth_session_no_pres_id.pres_exch_id = None
-        mock_auth_session_no_pres_id.connection_id = "test-connection-id"
-        mock_auth_session_no_pres_id.multi_use = False
-        mock_auth_session_no_pres_id.expired_timestamp = datetime.now(UTC) + timedelta(
-            seconds=3600
-        )
-        mock_auth_session_no_pres_id.ver_config_id = "test-ver-config-id"
-        mock_auth_session_no_pres_id.model_dump = MagicMock(
-            return_value={
-                "id": "test-session-id",
-                "pres_exch_id": None,
-                "connection_id": "test-connection-id",
-                "ver_config_id": "test-ver-config-id",
-                "request_parameters": {"test": "params"},
-                "pyop_auth_code": "test-auth-code",
-                "response_url": "http://test.com/callback",
-                "presentation_exchange": {},
-                "multi_use": False,
-            }
+        mock_auth_session_no_pres_id = AuthSession(
+            _id=PyObjectId(SESSION_ID),
+            connection_id="test-connection-id",
+            ver_config_id="test-ver-config-id",
+            request_parameters={"test": "params"},
+            pyop_auth_code="test-auth-code",
+            response_url="http://test.com/callback",
         )
 
         mock_auth_session_crud.return_value.get_by_pres_exch_id = AsyncMock(
@@ -821,9 +788,12 @@ class TestConnectionBasedVerificationIntegration:
 
         # Verify auth session was set to failed
         assert result == {}
-        assert mock_auth_session.proof_status == AuthSessionState.FAILED
+        assert (
+            _saved_session(mock_auth_session_crud).proof_status
+            == AuthSessionState.FAILED
+        )
         mock_auth_session_crud.return_value.patch.assert_called()
-        mock_notify.assert_awaited_once_with("test-session-id", "failed")
+        mock_notify.assert_awaited_once_with(SESSION_ID, "failed")
 
 
 class TestProverRoleWebhooks:
@@ -1179,9 +1149,10 @@ class TestMiscWebhookCoverage:
         result = await post_topic(mock_request, "connections", mock_db)
 
         assert result == {}
-        assert mock_auth_session.pres_exch_id == "new-pres-ex-id"
-        assert mock_auth_session.connection_id == "test-connection-id"
         mock_auth_session_crud.return_value.patch.assert_called_once()
+        saved = _saved_session(mock_auth_session_crud)
+        assert saved.pres_exch_id == "new-pres-ex-id"
+        assert saved.connection_id == "test-connection-id"
 
 
 # ===================================================================

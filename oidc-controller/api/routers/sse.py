@@ -38,6 +38,7 @@ from ..adapters.redis_utils import parse_host_port_pairs
 from ..authSessions.crud import AuthSessionCRUD
 from ..authSessions.models import AuthSession, AuthSessionPatch, AuthSessionState
 from ..config import RedisMode, settings
+from ..core.auth_session import Expired, apply
 from ..db.session import get_db
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
@@ -227,7 +228,7 @@ async def _expire_if_needed(
             is_expired=expired_time < now,
         )
         if expired_time < now:
-            auth_session.proof_status = AuthSessionState.EXPIRED
+            auth_session = apply(auth_session, Expired())
             await AuthSessionCRUD(db).patch(
                 pid, AuthSessionPatch(**auth_session.model_dump())
             )
