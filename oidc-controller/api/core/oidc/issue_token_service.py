@@ -10,7 +10,7 @@ from pydantic import ValidationError
 from ...authSessions.models import AuthSession
 from ...core.models import FrozenModel
 from ...verificationConfigs.models import VerificationConfig
-from ..acapy.presentation import ByFormat
+from ..acapy.presentation import ByFormat, ProofFormat
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
 
@@ -34,7 +34,7 @@ class Token(FrozenModel):
         cls,
         auth_session: AuthSession,
         ver_config: VerificationConfig,
-        proof_format: str,
+        proof_format: ProofFormat,
     ) -> dict[str, str]:
         """Converts vc presentation values to oidc claims"""
         oidc_claims: list[Claim] = [

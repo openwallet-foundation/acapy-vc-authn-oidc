@@ -4,9 +4,13 @@ Only the indy and anoncreds formats are read. Other formats and any fields not
 listed here are ignored, and the stored record is left as ACA-Py sent it.
 """
 
+from typing import Literal
+
 from pydantic import Field
 
 from ..models import FrozenModel
+
+type ProofFormat = Literal["indy", "anoncreds"]
 
 
 class RequestedAttribute(FrozenModel):
@@ -85,22 +89,23 @@ class ByFormat(FrozenModel):
     pres: Presentations = Field(default_factory=Presentations)
 
     def select(
-        self, preferred: str
-    ) -> tuple[str, PresentationRequest, Presentation] | None:
+        self, preferred: ProofFormat
+    ) -> tuple[ProofFormat, PresentationRequest, Presentation] | None:
         """Return the request and presentation for the preferred format.
 
         Falls back to indy, then anoncreds, when the record has no data for the
         preferred format, for example when the setting changed mid-session.
         """
-        for proof_format in (preferred, "indy", "anoncreds"):
+        fallbacks: tuple[ProofFormat, ...] = (preferred, "indy", "anoncreds")
+        for proof_format in fallbacks:
             match proof_format:
                 case "indy":
-                    pair = (self.pres_request.indy, self.pres.indy)
+                    request, presentation = self.pres_request.indy, self.pres.indy
                 case "anoncreds":
-                    pair = (self.pres_request.anoncreds, self.pres.anoncreds)
-                case _:
-                    continue
-            request, presentation = pair
+                    request, presentation = (
+                        self.pres_request.anoncreds,
+                        self.pres.anoncreds,
+                    )
             if request is not None and presentation is not None:
                 return proof_format, request, presentation
         return None
