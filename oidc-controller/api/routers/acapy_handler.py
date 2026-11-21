@@ -1,6 +1,5 @@
 import time
 from datetime import UTC, datetime
-from typing import Any
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -38,24 +37,20 @@ logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
 router = APIRouter()
 
 
-def _presentations(presentation_data: dict[str, Any]) -> Presentations:
-    by_format = presentation_data.get("by_format")
+def _audit_presentations(by_format: object) -> Presentations:
+    """Credential identifiers for the audit log. Schema names and issuer DIDs
+    are public metadata, not PII. Never raises, so a bad record can't fail a
+    login that ACA-Py already verified."""
     pres = by_format.get("pres") if isinstance(by_format, dict) else None
     try:
         return Presentations.model_validate(pres or {})
     except ValidationError as e:
-        logger.debug(f"Failed to read identifiers from presentation data: {e}")
+        # The error count only: the errors themselves can echo credential values.
+        logger.warning(
+            "Could not read credential identifiers for the audit log",
+            error_count=e.error_count(),
+        )
         return Presentations()
-
-
-def _extract_credential_schemas(presentation_data: dict[str, Any]) -> list[str]:
-    """Schema names from a presentation. Safe to log: public metadata, not PII."""
-    return _presentations(presentation_data).schema_names()
-
-
-def _extract_issuer_dids(presentation_data: dict[str, Any]) -> list[str]:
-    """Issuer DIDs from a presentation. Safe to log: public identifiers, not PII."""
-    return _presentations(presentation_data).issuer_dids()
 
 
 async def _send_problem_report_safely(
@@ -330,10 +325,9 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
 
                     # SIEM Audit: Log successful verification (metadata only, no PII)
                     # Extract schema names from presentation for audit
-                    credential_schemas = _extract_credential_schemas(
-                        {"by_format": by_format}
-                    )
-                    issuer_dids = _extract_issuer_dids({"by_format": by_format})
+                    presentations = _audit_presentations(by_format)
+                    credential_schemas = presentations.schema_names()
+                    issuer_dids = presentations.issuer_dids()
 
                     audit_proof_verified(
                         session_id=str(auth_session.id),

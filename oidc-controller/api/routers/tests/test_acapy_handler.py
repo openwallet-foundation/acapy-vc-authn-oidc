@@ -14,8 +14,7 @@ from api.config import settings
 from api.core.models import PyObjectId
 from api.core.oidc.tests.__mocks__ import presentation as mock_presentation
 from api.routers.acapy_handler import (
-    _extract_credential_schemas,
-    _extract_issuer_dids,
+    _audit_presentations,
     post_topic,
 )
 
@@ -1184,7 +1183,7 @@ class TestMiscWebhookCoverage:
 
 
 # ===================================================================
-# Tests for _extract_credential_schemas / _extract_issuer_dids
+# Tests for _audit_presentations
 # ===================================================================
 
 
@@ -1193,32 +1192,49 @@ def _make_presentation_data(identifiers, format_key="indy"):
     return {"by_format": {"pres": {format_key: {"identifiers": identifiers}}}}
 
 
+def _schemas(data):
+    return _audit_presentations(data.get("by_format")).schema_names()
+
+
+def _issuers(data):
+    return _audit_presentations(data.get("by_format")).issuer_dids()
+
+
+@patch("api.routers.acapy_handler.logger")
+def test_unreadable_identifiers_warn_without_values(mock_logger):
+    data = _make_presentation_data([{"schema_id": ["secret-value"]}])
+
+    assert _schemas(data) == []
+    mock_logger.warning.assert_called_once()
+    assert "secret-value" not in str(mock_logger.warning.call_args)
+
+
 class TestExtractCredentialSchemas:
-    """Tests for _extract_credential_schemas from presentation data."""
+    """Schema names for the audit log."""
 
     def test_empty_data(self):
-        assert _extract_credential_schemas({}) == []
+        assert _schemas({}) == []
 
     def test_unqualified_did_schema_id(self):
         """Legacy unqualified DID: DXzMEuV1efR3RbU8vSkMbN:2:Person:1.0"""
         data = _make_presentation_data(
             [{"schema_id": "DXzMEuV1efR3RbU8vSkMbN:2:Person:1.0"}]
         )
-        assert _extract_credential_schemas(data) == ["Person"]
+        assert _schemas(data) == ["Person"]
 
     def test_qualified_did_schema_id(self):
         """Fully-qualified DID: did:sov:DXzMEuV1efR3RbU8vSkMbN:2:Person:1.0"""
         data = _make_presentation_data(
             [{"schema_id": "did:sov:DXzMEuV1efR3RbU8vSkMbN:2:Person:1.0"}]
         )
-        assert _extract_credential_schemas(data) == ["Person"]
+        assert _schemas(data) == ["Person"]
 
     def test_qualified_did_indy_schema_id(self):
         """did:indy:sovrin:ABC123:2:HealthCard:2.1"""
         data = _make_presentation_data(
             [{"schema_id": "did:indy:sovrin:ABC123:2:HealthCard:2.1"}]
         )
-        assert _extract_credential_schemas(data) == ["HealthCard"]
+        assert _schemas(data) == ["HealthCard"]
 
     def test_multiple_schemas_deduped_and_sorted(self):
         data = _make_presentation_data(
@@ -1228,71 +1244,71 @@ class TestExtractCredentialSchemas:
                 {"schema_id": "IssuerC:2:Zebra:1.0"},
             ]
         )
-        assert _extract_credential_schemas(data) == ["Alpha", "Zebra"]
+        assert _schemas(data) == ["Alpha", "Zebra"]
 
     def test_anoncreds_format(self):
         data = _make_presentation_data(
             [{"schema_id": "IssuerA:2:Person:1.0"}], format_key="anoncreds"
         )
-        assert _extract_credential_schemas(data) == ["Person"]
+        assert _schemas(data) == ["Person"]
 
     def test_no_marker_falls_back_to_raw(self):
         """When schema_id has no :2: marker, return the raw value."""
         data = _make_presentation_data([{"schema_id": "some-opaque-id"}])
-        assert _extract_credential_schemas(data) == ["some-opaque-id"]
+        assert _schemas(data) == ["some-opaque-id"]
 
     def test_missing_identifiers_key(self):
         data = {"by_format": {"pres": {"indy": {}}}}
-        assert _extract_credential_schemas(data) == []
+        assert _schemas(data) == []
 
     def test_missing_schema_id_key(self):
         data = _make_presentation_data([{"cred_def_id": "something"}])
-        assert _extract_credential_schemas(data) == []
+        assert _schemas(data) == []
 
     def test_malformed_by_format(self):
-        assert _extract_credential_schemas({"by_format": "bad"}) == []
+        assert _schemas({"by_format": "bad"}) == []
 
     def test_real_acapy_record(self):
         """by_format nests the format under "pres", as ACA-Py sends it."""
-        assert _extract_credential_schemas(mock_presentation) == ["Person"]
+        assert _schemas(mock_presentation) == ["Person"]
 
     def test_schema_name_only_after_marker(self):
         """schema_id with only one part after :2: (no version)."""
         data = _make_presentation_data([{"schema_id": "DID:2:SchemaOnly"}])
-        assert _extract_credential_schemas(data) == ["SchemaOnly"]
+        assert _schemas(data) == ["SchemaOnly"]
 
     def test_exception_in_extraction_returns_empty(self):
         """When the by_format value is not dict-like, the exception is caught."""
         data = {"by_format": {"pres": {"indy": "not-a-dict"}}}
-        assert _extract_credential_schemas(data) == []
+        assert _schemas(data) == []
 
 
 class TestExtractIssuerDids:
-    """Tests for _extract_issuer_dids from presentation data."""
+    """Issuer DIDs for the audit log."""
 
     def test_empty_data(self):
-        assert _extract_issuer_dids({}) == []
+        assert _issuers({}) == []
 
     def test_unqualified_did(self):
         """Legacy unqualified DID: DXzMEuV1efR3RbU8vSkMbN:3:CL:123:default"""
         data = _make_presentation_data(
             [{"cred_def_id": "DXzMEuV1efR3RbU8vSkMbN:3:CL:123:default"}]
         )
-        assert _extract_issuer_dids(data) == ["DXzMEuV1efR3RbU8vSkMbN"]
+        assert _issuers(data) == ["DXzMEuV1efR3RbU8vSkMbN"]
 
     def test_qualified_did_sov(self):
         """Fully-qualified DID: did:sov:DXzMEuV1efR3RbU8vSkMbN:3:CL:123:default"""
         data = _make_presentation_data(
             [{"cred_def_id": "did:sov:DXzMEuV1efR3RbU8vSkMbN:3:CL:123:default"}]
         )
-        assert _extract_issuer_dids(data) == ["did:sov:DXzMEuV1efR3RbU8vSkMbN"]
+        assert _issuers(data) == ["did:sov:DXzMEuV1efR3RbU8vSkMbN"]
 
     def test_qualified_did_indy(self):
         """did:indy:sovrin:ABC123:3:CL:456:latest"""
         data = _make_presentation_data(
             [{"cred_def_id": "did:indy:sovrin:ABC123:3:CL:456:latest"}]
         )
-        assert _extract_issuer_dids(data) == ["did:indy:sovrin:ABC123"]
+        assert _issuers(data) == ["did:indy:sovrin:ABC123"]
 
     def test_multiple_issuers_deduped_and_sorted(self):
         data = _make_presentation_data(
@@ -1302,32 +1318,32 @@ class TestExtractIssuerDids:
                 {"cred_def_id": "did:sov:ZZZ:3:CL:3:other"},
             ]
         )
-        assert _extract_issuer_dids(data) == ["did:sov:AAA", "did:sov:ZZZ"]
+        assert _issuers(data) == ["did:sov:AAA", "did:sov:ZZZ"]
 
     def test_anoncreds_format(self):
         data = _make_presentation_data(
             [{"cred_def_id": "IssuerA:3:CL:99:default"}], format_key="anoncreds"
         )
-        assert _extract_issuer_dids(data) == ["IssuerA"]
+        assert _issuers(data) == ["IssuerA"]
 
     def test_no_marker_falls_back_to_raw(self):
         """When cred_def_id has no :3:CL: marker, return the raw value."""
         data = _make_presentation_data([{"cred_def_id": "some-opaque-id"}])
-        assert _extract_issuer_dids(data) == ["some-opaque-id"]
+        assert _issuers(data) == ["some-opaque-id"]
 
     def test_missing_identifiers_key(self):
         data = {"by_format": {"pres": {"indy": {}}}}
-        assert _extract_issuer_dids(data) == []
+        assert _issuers(data) == []
 
     def test_missing_cred_def_id_key(self):
         data = _make_presentation_data([{"schema_id": "something"}])
-        assert _extract_issuer_dids(data) == []
+        assert _issuers(data) == []
 
     def test_malformed_by_format(self):
-        assert _extract_issuer_dids({"by_format": "bad"}) == []
+        assert _issuers({"by_format": "bad"}) == []
 
     def test_real_acapy_record(self):
-        assert _extract_issuer_dids(mock_presentation) == ["QEquAHkM35w4XVT3Ku5yat"]
+        assert _issuers(mock_presentation) == ["QEquAHkM35w4XVT3Ku5yat"]
 
     def test_both_formats_combined(self):
         """Identifiers present under both indy and anoncreds."""
@@ -1341,12 +1357,12 @@ class TestExtractIssuerDids:
                 }
             }
         }
-        assert _extract_issuer_dids(data) == ["did:sov:A", "did:sov:B"]
+        assert _issuers(data) == ["did:sov:A", "did:sov:B"]
 
     def test_exception_in_extraction_returns_empty(self):
         """When the by_format value is not dict-like, the exception is caught."""
         data = {"by_format": {"pres": {"indy": "not-a-dict"}}}
-        assert _extract_issuer_dids(data) == []
+        assert _issuers(data) == []
 
 
 class TestMalformedWebhookBodies:
