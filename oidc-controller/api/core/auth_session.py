@@ -2,6 +2,11 @@
 
 Routers load a session, describe what happened as an event, and save the
 session that apply returns. apply never modifies its argument.
+
+A session moves from NOT_STARTED (or PENDING once the wallet has fetched the
+request) to exactly one final state: VERIFIED, FAILED, ABANDONED or EXPIRED.
+apply returns Rejected for any event that would leave a final state, so a late
+or repeated webhook cannot overwrite the outcome.
 """
 
 from dataclasses import dataclass
@@ -44,33 +49,53 @@ class Abandoned:
 
 @dataclass(frozen=True)
 class Expired:
-    """The session timed out before the wallet responded."""
+    """The session's deadline passed before the wallet responded."""
+
+    now: datetime
 
 
 Event = Scanned | RequestSent | Verified | Failed | Abandoned | Expired
 
 
-def apply(session: AuthSession, event: Event) -> AuthSession:
+@dataclass(frozen=True)
+class Rejected:
+    """The event is not legal for a session in this state."""
+
+    status: AuthSessionState
+    event: Event
+
+
+OPEN_STATES = frozenset({AuthSessionState.NOT_STARTED, AuthSessionState.PENDING})
+
+
+def apply(session: AuthSession, event: Event) -> AuthSession | Rejected:
+    status = session.proof_status
     match event:
-        case Scanned():
+        case Scanned() if status is AuthSessionState.NOT_STARTED:
             update = {"proof_status": AuthSessionState.PENDING}
-        case RequestSent(pres_exch_id, presentation_exchange, connection_id):
+        case RequestSent(pres_exch_id, presentation_exchange, connection_id) if (
+            status in OPEN_STATES
+        ):
             update = {
                 "pres_exch_id": pres_exch_id,
                 "presentation_exchange": presentation_exchange,
                 "connection_id": connection_id,
             }
-        case Verified(presentation):
+        case Verified(presentation) if status in OPEN_STATES:
             update = {
                 "proof_status": AuthSessionState.VERIFIED,
                 "presentation_exchange": presentation,
             }
-        case Failed():
+        case Failed() if status in OPEN_STATES:
             update = {"proof_status": AuthSessionState.FAILED}
-        case Abandoned():
+        case Abandoned() if status in OPEN_STATES:
             update = {"proof_status": AuthSessionState.ABANDONED}
-        case Expired():
+        case Expired(now) if has_expired(session, now):
             update = {"proof_status": AuthSessionState.EXPIRED}
+        case (
+            Scanned() | RequestSent() | Verified() | Failed() | Abandoned() | Expired()
+        ):
+            return Rejected(status, event)
         case _:
             assert_never(event)
     return session.model_copy(update=update)

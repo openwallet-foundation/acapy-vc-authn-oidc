@@ -574,18 +574,16 @@ def test_oob_full_pipeline(integration_client, oob_mode):
 class TestWebhookIdempotency:
     """ACA-Py can deliver the same webhook twice.
 
-    The terminal DB state must survive duplicate delivery. These tests also
-    document the current lack of idempotency guards: audit functions fire once
-    per delivery, so duplicate webhooks produce duplicate audit events. If that
-    becomes a problem, add a guard in acapy_handler.py and update call_count
-    assertions below to == 1.
+    The terminal DB state must survive duplicate delivery, and the duplicate
+    must not repeat the audit event, since a final state rejects further
+    events.
     """
 
     def test_duplicate_verified_webhook_does_not_corrupt_state(
         self, integration_client, oob_mode
     ):
-        """Delivering the same verified webhook twice leaves session VERIFIED.
-        Currently audit_proof_verified is called once per delivery (no guard)."""
+        """Delivering the same verified webhook twice leaves session VERIFIED
+        and audits it once."""
         from api.authSessions.models import AuthSessionState
         from api.db.collections import COLLECTION_NAMES
 
@@ -614,12 +612,10 @@ class TestWebhookIdempotency:
             {"pres_exch_id": FAKE_PRES_EX_ID}
         )
         assert session["proof_status"] == AuthSessionState.VERIFIED
-        # No idempotency guard: audit fires once per delivery
-        assert mock_audit.call_count == 2
+        assert mock_audit.call_count == 1
 
     def test_duplicate_failed_webhook_stays_failed(self, integration_client, oob_mode):
-        """Delivering failed webhook twice keeps session FAILED.
-        Currently audit_proof_verification_failed is called once per delivery."""
+        """Delivering failed webhook twice keeps session FAILED and audits it once."""
         from api.authSessions.models import AuthSessionState
         from api.db.collections import COLLECTION_NAMES
 
@@ -649,13 +645,13 @@ class TestWebhookIdempotency:
             {"pres_exch_id": FAKE_PRES_EX_ID}
         )
         assert session["proof_status"] == AuthSessionState.FAILED
-        assert mock_audit.call_count == 2
+        assert mock_audit.call_count == 1
 
     def test_duplicate_abandoned_webhook_stays_abandoned(
         self, integration_client, oob_mode
     ):
-        """Delivering abandoned webhook twice keeps session ABANDONED.
-        Currently audit_session_abandoned is called once per delivery."""
+        """Delivering abandoned webhook twice keeps session ABANDONED and audits it
+        once."""
         from api.authSessions.models import AuthSessionState
         from api.db.collections import COLLECTION_NAMES
 
@@ -683,7 +679,7 @@ class TestWebhookIdempotency:
             {"pres_exch_id": FAKE_PRES_EX_ID}
         )
         assert session["proof_status"] == AuthSessionState.ABANDONED
-        assert mock_audit.call_count == 2
+        assert mock_audit.call_count == 1
 
 
 # ---------------------------------------------------------------------------

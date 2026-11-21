@@ -7,6 +7,7 @@ from api.core.auth_session import (
     Event,
     Expired,
     Failed,
+    Rejected,
     RequestSent,
     Scanned,
     Verified,
@@ -27,21 +28,44 @@ def _session(**fields: object) -> AuthSession:
     )
 
 
+PAST = NOW - timedelta(minutes=1)
+FINAL_STATES = [
+    AuthSessionState.VERIFIED,
+    AuthSessionState.FAILED,
+    AuthSessionState.ABANDONED,
+    AuthSessionState.EXPIRED,
+]
+ALL_EVENTS: list[Event] = [
+    Scanned(),
+    RequestSent("pres-ex-1", {}, "conn-1"),
+    Verified({}),
+    Failed(),
+    Abandoned(),
+    Expired(NOW),
+]
+
+
+def _applied(session: AuthSession, event: Event) -> AuthSession:
+    result = apply(session, event)
+    assert isinstance(result, AuthSession)
+    return result
+
+
 @pytest.mark.parametrize(
     ("event", "status"),
     [
         (Scanned(), AuthSessionState.PENDING),
         (Failed(), AuthSessionState.FAILED),
         (Abandoned(), AuthSessionState.ABANDONED),
-        (Expired(), AuthSessionState.EXPIRED),
+        (Expired(NOW), AuthSessionState.EXPIRED),
     ],
 )
 def test_apply_sets_status_without_changing_the_input(
     event: Event, status: AuthSessionState
 ):
-    session = _session()
+    session = _session(expired_timestamp=PAST)
 
-    result = apply(session, event)
+    result = _applied(session, event)
 
     assert result.proof_status is status
     assert session.proof_status is AuthSessionState.NOT_STARTED
@@ -51,21 +75,54 @@ def test_apply_sets_status_without_changing_the_input(
 def test_verified_stores_the_presentation():
     presentation = {"pres": {"indy": {}}}
 
-    result = apply(_session(), Verified(presentation))
+    result = _applied(_session(), Verified(presentation))
 
     assert result.proof_status is AuthSessionState.VERIFIED
     assert result.presentation_exchange == presentation
 
 
-def test_request_sent_records_the_exchange_and_keeps_the_status():
-    session = apply(_session(), Scanned())
+@pytest.mark.parametrize("event", [Verified({}), Failed(), Abandoned()])
+def test_pending_sessions_can_finish(event: Event):
+    pending = _applied(_session(), Scanned())
 
-    result = apply(session, RequestSent("pres-ex-1", {"state": "x"}, "conn-1"))
+    assert isinstance(apply(pending, event), AuthSession)
+
+
+def test_request_sent_records_the_exchange_and_keeps_the_status():
+    session = _applied(_session(), Scanned())
+
+    result = _applied(session, RequestSent("pres-ex-1", {"state": "x"}, "conn-1"))
 
     assert result.pres_exch_id == "pres-ex-1"
     assert result.presentation_exchange == {"state": "x"}
     assert result.connection_id == "conn-1"
     assert result.proof_status is AuthSessionState.PENDING
+
+
+@pytest.mark.parametrize("status", FINAL_STATES)
+@pytest.mark.parametrize("event", ALL_EVENTS)
+def test_final_states_reject_every_event(status: AuthSessionState, event: Event):
+    session = _session(proof_status=status, expired_timestamp=PAST)
+
+    assert apply(session, event) == Rejected(status, event)
+
+
+def test_a_second_scan_is_rejected():
+    pending = _applied(_session(), Scanned())
+
+    assert apply(pending, Scanned()) == Rejected(AuthSessionState.PENDING, Scanned())
+
+
+def test_expired_is_rejected_before_the_deadline():
+    session = _session(expired_timestamp=NOW + timedelta(minutes=1))
+
+    assert isinstance(apply(session, Expired(NOW)), Rejected)
+
+
+def test_pending_sessions_do_not_expire():
+    pending = _applied(_session(expired_timestamp=PAST), Scanned())
+
+    assert isinstance(apply(pending, Expired(NOW)), Rejected)
 
 
 def test_naive_deadlines_are_read_as_utc():
@@ -76,8 +133,7 @@ def test_naive_deadlines_are_read_as_utc():
 
 
 def test_only_sessions_the_wallet_has_not_started_expire():
-    past = NOW - timedelta(minutes=1)
-    pending = apply(_session(expired_timestamp=past), Scanned())
+    pending = _applied(_session(expired_timestamp=PAST), Scanned())
 
     assert not has_expired(pending, NOW)
 

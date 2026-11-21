@@ -2,6 +2,7 @@
 
 from unittest.mock import MagicMock
 
+import mongomock
 import pytest
 from bson import ObjectId
 from fastapi import HTTPException
@@ -16,6 +17,7 @@ from api.authSessions.models import (
     AuthSessionPatch,
     AuthSessionState,
 )
+from api.core.auth_session import Failed, Scanned
 from api.core.models import PyObjectId
 from api.db.session import COLLECTION_NAMES
 
@@ -524,3 +526,67 @@ class TestAuthSessionCRUD:
 
         assert exc_info.value.status_code == http_status.HTTP_400_BAD_REQUEST
         assert "Invalid id: invalid-id" in str(exc_info.value.detail)
+
+
+class TestAdvance:
+    @pytest.fixture
+    def collection(self):
+        return mongomock.MongoClient().db.get_collection(COLLECTION_NAMES.AUTH_SESSION)
+
+    @pytest.fixture
+    def crud(self, collection):
+        return AuthSessionCRUD(collection.database)
+
+    @pytest.fixture
+    def stored(self, collection, sample_auth_session_data):
+        collection.insert_one(dict(sample_auth_session_data))
+        return AuthSession.model_validate(sample_auth_session_data)
+
+    @pytest.mark.asyncio
+    async def test_saves_the_transition(self, crud, collection, stored):
+        result = await crud.advance(stored, Scanned())
+
+        assert result is not None
+        assert result.proof_status is AuthSessionState.PENDING
+        assert collection.find_one()["proof_status"] == AuthSessionState.PENDING
+
+    @pytest.mark.asyncio
+    async def test_loses_to_a_concurrent_writer(self, crud, collection, stored):
+        collection.update_one(
+            {"_id": stored.id}, {"$set": {"proof_status": AuthSessionState.VERIFIED}}
+        )
+
+        assert await crud.advance(stored, Failed()) is None
+        assert collection.find_one()["proof_status"] == AuthSessionState.VERIFIED
+
+    @pytest.mark.asyncio
+    async def test_writes_only_the_changed_fields(self, crud, collection, stored):
+        collection.update_one({"_id": stored.id}, {"$set": {"code_redeemed": True}})
+
+        await crud.advance(stored, Scanned())
+
+        assert collection.find_one()["code_redeemed"] is True
+
+    @pytest.mark.asyncio
+    async def test_matches_records_without_a_status(
+        self, crud, collection, sample_auth_session_data
+    ):
+        legacy = {
+            k: v for k, v in sample_auth_session_data.items() if k != "proof_status"
+        }
+        collection.insert_one(legacy)
+
+        result = await crud.advance(AuthSession.model_validate(legacy), Scanned())
+
+        assert result is not None
+        assert collection.find_one()["proof_status"] == AuthSessionState.PENDING
+
+    @pytest.mark.asyncio
+    async def test_rejected_events_are_not_written(self, crud, collection, stored):
+        verified = stored.model_copy(update={"proof_status": AuthSessionState.VERIFIED})
+        collection.update_one(
+            {"_id": stored.id}, {"$set": {"proof_status": AuthSessionState.VERIFIED}}
+        )
+
+        assert await crud.advance(verified, Failed()) is None
+        assert collection.find_one()["proof_status"] == AuthSessionState.VERIFIED

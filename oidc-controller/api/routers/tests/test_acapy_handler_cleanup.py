@@ -9,6 +9,7 @@ from fastapi import Request
 
 from api.authSessions.models import AuthSession, AuthSessionState
 from api.routers.acapy_handler import post_topic
+from api.routers.tests.fakes import fake_advance, saved_session
 
 
 class TestAcapyHandlerCleanup:
@@ -77,7 +78,7 @@ class TestAcapyHandlerCleanup:
         mock_crud_instance.get_by_pres_exch_id = AsyncMock(
             return_value=mock_auth_session
         )
-        mock_crud_instance.patch = AsyncMock()
+        mock_crud_instance.advance = fake_advance()
 
         mock_client_instance = mock_acapy_client.return_value
 
@@ -94,7 +95,7 @@ class TestAcapyHandlerCleanup:
         mock_client_instance.delete_presentation_record.assert_not_called()
 
         # Verify auth session was marked as failed
-        saved = mock_crud_instance.patch.call_args.args[1]
+        saved = saved_session(mock_crud_instance.advance)
         assert saved.proof_status == AuthSessionState.FAILED
 
         # Verify SSE notification was sent for failure

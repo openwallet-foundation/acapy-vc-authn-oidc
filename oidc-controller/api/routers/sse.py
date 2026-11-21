@@ -36,9 +36,9 @@ from starlette.responses import StreamingResponse
 
 from ..adapters.redis_utils import parse_host_port_pairs
 from ..authSessions.crud import AuthSessionCRUD
-from ..authSessions.models import AuthSession, AuthSessionPatch, AuthSessionState
+from ..authSessions.models import AuthSession, AuthSessionState
 from ..config import RedisMode, settings
-from ..core.auth_session import Expired, apply, as_utc, has_expired
+from ..core.auth_session import Expired, as_utc, has_expired
 from ..db.session import get_db
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
@@ -226,11 +226,11 @@ async def _expire_if_needed(
             now=str(now),
             is_expired=expired,
         )
-        if expired:
-            auth_session = apply(auth_session, Expired())
-            await AuthSessionCRUD(db).patch(
-                pid, AuthSessionPatch(**auth_session.model_dump())
-            )
+        if (
+            expired
+            and await AuthSessionCRUD(db).advance(auth_session, Expired(now))
+            is not None
+        ):
             logger.info("SSE detected expired session", pid=pid)
             return True
     except Exception:

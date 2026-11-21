@@ -6,6 +6,7 @@ from pymongo.database import Database
 
 from api.db.session import COLLECTION_NAMES
 
+from ..core.auth_session import Event, Rejected, apply
 from ..core.models import PyObjectId
 from .models import AuthSession, AuthSessionCreate, AuthSessionPatch, AuthSessionState
 
@@ -58,6 +59,55 @@ class AuthSessionCRUD:
         )
 
         return AuthSession.model_validate(auth_sess) if auth_sess else None
+
+    async def advance(self, session: AuthSession, event: Event) -> AuthSession | None:
+        """Apply EVENT to SESSION and save the result.
+
+        The write only goes through if the stored status is still the one
+        SESSION was loaded with, so of two concurrent events only the first is
+        saved. Only the fields the event changed are written. Returns None if
+        the event is not legal in the current state or another writer got
+        there first; the caller should then skip the event's side effects.
+        """
+        after = apply(session, event)
+        if isinstance(after, Rejected):
+            # Usually a repeated webhook or a second scan of the QR code.
+            logger.info(
+                "Ignoring auth session event",
+                auth_session_id=str(session.id),
+                proof_status=after.status,
+                event_type=type(event).__name__,
+            )
+            return None
+
+        before_fields = session.model_dump()
+        changes = {
+            key: value
+            for key, value in after.model_dump().items()
+            if value != before_fields[key]
+        }
+        expected: object = session.proof_status
+        if session.proof_status is AuthSessionState.NOT_STARTED:
+            # Records created before proof_status existed have no field;
+            # AuthSession reads them as NOT_STARTED.
+            expected = {"$in": [AuthSessionState.NOT_STARTED, None]}
+        query = {"_id": PyObjectId(session.id), "proof_status": expected}
+        col = self._db.get_collection(COLLECTION_NAMES.AUTH_SESSION)
+        saved = (
+            col.find_one_and_update(
+                query, {"$set": changes}, return_document=ReturnDocument.AFTER
+            )
+            if changes
+            else col.find_one(query)
+        )
+        if saved is None:
+            logger.warning(
+                "Auth session changed concurrently, ignoring event",
+                auth_session_id=str(session.id),
+                event_type=type(event).__name__,
+            )
+            return None
+        return AuthSession.model_validate(saved)
 
     async def delete(self, id: str) -> bool:
         if not PyObjectId.is_valid(id):

@@ -15,7 +15,7 @@ from ..adapters.siem_audit import (
     audit_webhook_received,
 )
 from ..authSessions.crud import AuthSessionCRUD
-from ..authSessions.models import AuthSession, AuthSessionPatch
+from ..authSessions.models import AuthSession
 from ..config import settings
 from ..core.acapy.presentation import Presentations
 from ..core.acapy.webhooks import ConnectionWebhook, PresentProofWebhook
@@ -25,7 +25,6 @@ from ..core.auth_session import (
     Failed,
     RequestSent,
     Verified,
-    apply,
     has_expired,
 )
 from ..core.models import FrozenModel
@@ -91,13 +90,6 @@ async def _cleanup__connection(
         logger.warning(
             f"Cleanup failed for presentation record {pres_ex_id} after {context}: {cleanup_error} - will be handled by background cleanup"
         )
-
-
-async def _update_auth_session(db: Database, auth_session: AuthSession) -> None:
-    """Update auth session in database with error handling."""
-    await AuthSessionCRUD(db).patch(
-        str(auth_session.id), AuthSessionPatch(**auth_session.model_dump())
-    )
 
 
 async def _parse_webhook[M: FrozenModel](request: Request, model: type[M]) -> M:
@@ -196,7 +188,7 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                                 )
 
                                 # Update auth session with presentation exchange details and real connection ID
-                                auth_session = apply(
+                                sent = await AuthSessionCRUD(db).advance(
                                     auth_session,
                                     RequestSent(
                                         pres_response.pres_ex_id,
@@ -204,7 +196,7 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                                         connection_id,  # the real connection ID
                                     ),
                                 )
-                                await _update_auth_session(db, auth_session)
+                                auth_session = sent or auth_session
 
                                 logger.info(
                                     f"Presentation request sent successfully: {pres_response.pres_ex_id}"
@@ -213,20 +205,20 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                                 logger.error(
                                     f"Failed to send presentation request: {e}"
                                 )
-                                # Set auth session to failed state
-                                auth_session = apply(auth_session, Failed())
-                                await _update_auth_session(db, auth_session)
+                                failed = await AuthSessionCRUD(db).advance(
+                                    auth_session, Failed()
+                                )
+                                if failed is not None:
+                                    # Send problem report if we have a presentation exchange ID
+                                    if failed.pres_exch_id:
+                                        await _send_problem_report_safely(
+                                            client,
+                                            failed.pres_exch_id,
+                                            f"Failed to send presentation request: {str(e)}",
+                                        )
 
-                                # Send problem report if we have a presentation exchange ID
-                                if auth_session.pres_exch_id:
-                                    await _send_problem_report_safely(
-                                        client,
-                                        auth_session.pres_exch_id,
-                                        f"Failed to send presentation request: {str(e)}",
-                                    )
-
-                                # Emit failure status to frontend
-                                await notify(str(auth_session.id), "failed")
+                                    # Emit failure status to frontend
+                                    await notify(str(failed.id), "failed")
                         else:
                             logger.debug(
                                 f"Auth session found but no proof_request: {auth_session.id}"
@@ -307,9 +299,11 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                             "Ensure ACA-Py is configured with --debug-webhooks.",
                             pres_ex_id=pres_ex_id,
                         )
-                        auth_session = apply(auth_session, Failed())
-                        await _update_auth_session(db, auth_session)
-                        await notify(str(auth_session.id), "failed")
+                        if (
+                            await AuthSessionCRUD(db).advance(auth_session, Failed())
+                            is not None
+                        ):
+                            await notify(str(auth_session.id), "failed")
                         await _cleanup__connection(
                             client,
                             auth_session,
@@ -318,53 +312,51 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                         )
                         return {"status": "missing by_format"}
 
-                    auth_session = apply(auth_session, Verified(by_format))
-                    logger.debug(
-                        f"Retrieved presentation data via API for {pres_ex_id}"
+                    verified = await AuthSessionCRUD(db).advance(
+                        auth_session, Verified(by_format)
                     )
+                    if verified is not None:
+                        auth_session = verified
 
-                    # SIEM Audit: Log successful verification (metadata only, no PII)
-                    # Extract schema names from presentation for audit
-                    presentations = _audit_presentations(by_format)
-                    credential_schemas = presentations.schema_names()
-                    issuer_dids = presentations.issuer_dids()
-
-                    audit_proof_verified(
-                        session_id=str(auth_session.id),
-                        ver_config_id=auth_session.ver_config_id,
-                        credential_schemas=credential_schemas,
-                        issuer_dids=issuer_dids,
-                        duration_ms=duration_ms,
-                        revocation_checked=settings.SET_NON_REVOKED,
-                    )
-
-                    await notify(str(auth_session.id), "verified")
-                else:
-                    logger.info("VERIFICATION FAILED")
-                    auth_session = apply(auth_session, Failed())
-
-                    # SIEM Audit: Log failed verification
-                    audit_proof_verification_failed(
-                        session_id=str(auth_session.id),
-                        ver_config_id=auth_session.ver_config_id,
-                        failure_category="unknown",  # ACA-Py doesn't provide detailed failure reason
-                        duration_ms=duration_ms,
-                    )
-
-                    await notify(str(auth_session.id), "failed")
-
-                    # Send problem report for failed verification in connection-based flow
-                    if (
-                        settings.USE_CONNECTION_BASED_VERIFICATION
-                        and auth_session.pres_exch_id
-                    ):
-                        await _send_problem_report_safely(
-                            client,
-                            auth_session.pres_exch_id,
-                            f"Presentation verification failed: {webhook_body.error_msg or 'Unknown error'}",
+                        # SIEM Audit: Log successful verification (metadata only, no PII)
+                        presentations = _audit_presentations(by_format)
+                        audit_proof_verified(
+                            session_id=str(auth_session.id),
+                            ver_config_id=auth_session.ver_config_id,
+                            credential_schemas=presentations.schema_names(),
+                            issuer_dids=presentations.issuer_dids(),
+                            duration_ms=duration_ms,
+                            revocation_checked=settings.SET_NON_REVOKED,
                         )
 
-                await _update_auth_session(db, auth_session)
+                        await notify(str(auth_session.id), "verified")
+                else:
+                    logger.info("VERIFICATION FAILED")
+                    failed = await AuthSessionCRUD(db).advance(auth_session, Failed())
+                    if failed is not None:
+                        auth_session = failed
+
+                        # SIEM Audit: Log failed verification
+                        audit_proof_verification_failed(
+                            session_id=str(auth_session.id),
+                            ver_config_id=auth_session.ver_config_id,
+                            failure_category="unknown",  # ACA-Py doesn't provide detailed failure reason
+                            duration_ms=duration_ms,
+                        )
+
+                        await notify(str(auth_session.id), "failed")
+
+                        # Send problem report for failed verification in connection-based flow
+                        if (
+                            settings.USE_CONNECTION_BASED_VERIFICATION
+                            and auth_session.pres_exch_id
+                        ):
+                            await _send_problem_report_safely(
+                                client,
+                                auth_session.pres_exch_id,
+                                f"Presentation verification failed: {webhook_body.error_msg or 'Unknown error'}",
+                            )
+
                 await _cleanup__connection(
                     client, auth_session, pres_ex_id, "connection has been verified"
                 )
@@ -376,38 +368,48 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                 logger.debug(
                     f"Abandonment reason: {webhook_body.error_msg or 'No reason provided'}"
                 )
-                auth_session = apply(auth_session, Abandoned())
+                abandoned = await AuthSessionCRUD(db).advance(auth_session, Abandoned())
+                if abandoned is not None:
+                    auth_session = abandoned
 
-                # SIEM Audit: Log session abandonment
-                duration_ms = int((time.time() - webhook_start_time) * 1000)
-                audit_session_abandoned(
-                    session_id=str(auth_session.id),
-                    ver_config_id=auth_session.ver_config_id,
-                    phase="wallet_response",
-                    duration_ms=duration_ms,
-                )
-
-                await notify(str(auth_session.id), "abandoned")
-
-                # Send problem report for abandoned presentation in connection-based flow
-                if (
-                    settings.USE_CONNECTION_BASED_VERIFICATION
-                    and auth_session.pres_exch_id
-                ):
-                    await _send_problem_report_safely(
-                        client,
-                        auth_session.pres_exch_id,
-                        f"Presentation abandoned: {webhook_body.error_msg or 'Unknown error'}",
+                    # SIEM Audit: Log session abandonment
+                    duration_ms = int((time.time() - webhook_start_time) * 1000)
+                    audit_session_abandoned(
+                        session_id=str(auth_session.id),
+                        ver_config_id=auth_session.ver_config_id,
+                        phase="wallet_response",
+                        duration_ms=duration_ms,
                     )
-                await _update_auth_session(db, auth_session)
+
+                    await notify(str(auth_session.id), "abandoned")
+
+                    # Send problem report for abandoned presentation in connection-based flow
+                    if (
+                        settings.USE_CONNECTION_BASED_VERIFICATION
+                        and auth_session.pres_exch_id
+                    ):
+                        await _send_problem_report_safely(
+                            client,
+                            auth_session.pres_exch_id,
+                            f"Presentation abandoned: {webhook_body.error_msg or 'Unknown error'}",
+                        )
                 await _cleanup__connection(
                     client, auth_session, pres_ex_id, "abandonment"
                 )
 
             # Check if expired. But only if the proof has not been started.
-            if has_expired(auth_session, datetime.now(UTC)):
+            now = datetime.now(UTC)
+            if (
+                has_expired(auth_session, now)
+                and (
+                    expired := await AuthSessionCRUD(db).advance(
+                        auth_session, Expired(now)
+                    )
+                )
+                is not None
+            ):
                 logger.info("EXPIRED")
-                auth_session = apply(auth_session, Expired())
+                auth_session = expired
 
                 # SIEM Audit: Log session expiration
                 audit_session_expired(
@@ -430,7 +432,6 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                         f"Presentation expired: timeout after {settings.CONTROLLER_PRESENTATION_EXPIRE_TIME} seconds",
                     )
 
-                await _update_auth_session(db, auth_session)
                 await _cleanup__connection(
                     client, auth_session, pres_ex_id, "expiration"
                 )
