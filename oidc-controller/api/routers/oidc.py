@@ -34,7 +34,7 @@ from ..authSessions.crud import AuthSessionCreate, AuthSessionCRUD
 from ..authSessions.models import AuthSession, AuthSessionPatch, AuthSessionState
 from ..clientConfigurations.crud import ClientConfigurationCRUD
 from ..config import settings
-from ..core.auth_session import Expired, apply
+from ..core.auth_session import Expired, apply, has_expired
 from ..core.oidc.issue_token_service import Token
 from ..db.session import get_db
 from ..routers.sse import notify
@@ -71,15 +71,7 @@ async def poll_pres_exch_complete(pid: str, db: Database = Depends(get_db)):
      Check if proof is expired. But only if the proof has not been started.
      NOTE: This should eventually be moved to a background task.
     """
-    # Handle comparison between timezone-aware and naive datetimes
-    now = datetime.now()
-    expired_time = auth_session.expired_timestamp
-
-    # If expired_time is timezone-aware, convert now to UTC for comparison
-    if expired_time.tzinfo is not None:
-        now = datetime.now(UTC)
-
-    if expired_time < now and auth_session.proof_status == AuthSessionState.NOT_STARTED:
+    if has_expired(auth_session, datetime.now(UTC)):
         logger.warning("PROOF EXPIRED")
         auth_session = apply(auth_session, Expired())
         await AuthSessionCRUD(db).patch(

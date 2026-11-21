@@ -1,3 +1,5 @@
+from datetime import UTC, datetime, timedelta
+
 import pytest
 from api.authSessions.models import AuthSession, AuthSessionState
 from api.core.auth_session import (
@@ -9,11 +11,15 @@ from api.core.auth_session import (
     Scanned,
     Verified,
     apply,
+    has_expired,
 )
 
+NOW = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
 
-def _session() -> AuthSession:
+
+def _session(**fields: object) -> AuthSession:
     return AuthSession(
+        **fields,
         ver_config_id="test-config",
         request_parameters={},
         pyop_auth_code="test-code",
@@ -60,3 +66,21 @@ def test_request_sent_records_the_exchange_and_keeps_the_status():
     assert result.presentation_exchange == {"state": "x"}
     assert result.connection_id == "conn-1"
     assert result.proof_status is AuthSessionState.PENDING
+
+
+def test_naive_deadlines_are_read_as_utc():
+    # MongoDB returns naive UTC datetimes, whatever the server's local timezone
+    deadline = (NOW - timedelta(minutes=1)).replace(tzinfo=None)
+
+    assert has_expired(_session(expired_timestamp=deadline), NOW)
+
+
+def test_only_sessions_the_wallet_has_not_started_expire():
+    past = NOW - timedelta(minutes=1)
+    pending = apply(_session(expired_timestamp=past), Scanned())
+
+    assert not has_expired(pending, NOW)
+
+
+def test_sessions_before_their_deadline_have_not_expired():
+    assert not has_expired(_session(expired_timestamp=NOW + timedelta(minutes=1)), NOW)

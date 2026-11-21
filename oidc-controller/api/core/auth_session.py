@@ -5,6 +5,7 @@ session that apply returns. apply never modifies its argument.
 """
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
 
 from api.authSessions.models import AuthSession, AuthSessionState
@@ -71,3 +72,16 @@ def apply(session: AuthSession, event: Event) -> AuthSession:
         case Expired():
             update = {"proof_status": AuthSessionState.EXPIRED}
     return session.model_copy(update=update)
+
+
+def as_utc(timestamp: datetime) -> datetime:
+    """MongoDB returns naive datetimes, which are in UTC."""
+    return timestamp if timestamp.tzinfo else timestamp.replace(tzinfo=UTC)
+
+
+def has_expired(session: AuthSession, now: datetime) -> bool:
+    """Whether the wallet never responded before the session's deadline."""
+    return (
+        session.proof_status is AuthSessionState.NOT_STARTED
+        and as_utc(session.expired_timestamp) < now
+    )

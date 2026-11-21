@@ -17,9 +17,17 @@ from ..adapters.siem_audit import (
     audit_webhook_received,
 )
 from ..authSessions.crud import AuthSessionCRUD
-from ..authSessions.models import AuthSession, AuthSessionPatch, AuthSessionState
+from ..authSessions.models import AuthSession, AuthSessionPatch
 from ..config import settings
-from ..core.auth_session import Abandoned, Expired, Failed, RequestSent, Verified, apply
+from ..core.auth_session import (
+    Abandoned,
+    Expired,
+    Failed,
+    RequestSent,
+    Verified,
+    apply,
+    has_expired,
+)
 from ..db.session import get_db
 from ..routers.sse import notify
 
@@ -447,16 +455,7 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                 )
 
             # Check if expired. But only if the proof has not been started.
-            # Handle comparison between timezone-aware and naive datetimes
-            expired_time = auth_session.expired_timestamp
-            now_time = (
-                datetime.now(UTC) if expired_time.tzinfo is not None else datetime.now()
-            )
-
-            if (
-                expired_time < now_time
-                and auth_session.proof_status == AuthSessionState.NOT_STARTED
-            ):
+            if has_expired(auth_session, datetime.now(UTC)):
                 logger.info("EXPIRED")
                 auth_session = apply(auth_session, Expired())
 

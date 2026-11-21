@@ -639,8 +639,8 @@ class TestSecondsUntilExpiry:
         far_future = datetime.now(UTC) + timedelta(seconds=300)
         assert _seconds_until_expiry(far_future) == 30.0
 
-    def test_handles_naive_datetime(self):
-        future = datetime.now() + timedelta(seconds=15)
+    def test_reads_naive_datetime_as_utc(self):
+        future = datetime.now(UTC).replace(tzinfo=None) + timedelta(seconds=15)
         result = _seconds_until_expiry(future)
         assert 13.0 < result <= 15.0
 
