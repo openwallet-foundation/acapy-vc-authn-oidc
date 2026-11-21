@@ -4,7 +4,7 @@ from typing import Required, TypedDict, dataclass_transform
 import structlog
 from bson import ObjectId
 from pydantic import (
-    BaseModel,  # noqa: TID251 - base of FrozenModel and UUIDModel
+    BaseModel,  # noqa: TID251 - base of FrozenModel
     ConfigDict,
     Field,
     PrivateAttr,
@@ -62,10 +62,8 @@ class StatusMessage(FrozenModel):
     message: str
 
 
-class UUIDModel(BaseModel):
+class UUIDModel(FrozenModel):
     id: PyObjectId = Field(default_factory=PyObjectId, alias="_id")
-
-    model_config = ConfigDict()
 
     @field_serializer("id")
     def serialize_id(self, value: PyObjectId) -> str:

@@ -227,7 +227,7 @@ class TestConnectionBasedVerificationWebhooks:
         mock_request.body.return_value = json.dumps(webhook_body).encode("ascii")
 
         # Configure auth session as multi-use
-        mock_auth_session.multi_use = True
+        mock_auth_session = mock_auth_session.model_copy(update={"multi_use": True})
 
         mock_auth_session_crud.return_value.get_by_pres_exch_id = AsyncMock(
             return_value=mock_auth_session
@@ -322,8 +322,12 @@ class TestConnectionBasedVerificationWebhooks:
 
         mock_request.body.return_value = json.dumps(webhook_body).encode("ascii")
 
-        mock_auth_session.proof_status = AuthSessionState.NOT_STARTED
-        mock_auth_session.expired_timestamp = datetime.now(UTC) - timedelta(seconds=60)
+        mock_auth_session = mock_auth_session.model_copy(
+            update={
+                "proof_status": AuthSessionState.NOT_STARTED,
+                "expired_timestamp": datetime.now(UTC) - timedelta(seconds=60),
+            }
+        )
         mock_auth_session_crud.return_value.get_by_pres_exch_id = AsyncMock(
             return_value=mock_auth_session
         )
@@ -374,7 +378,7 @@ class TestConnectionBasedVerificationWebhooks:
         }
         mock_request.body.return_value = json.dumps(webhook_body).encode("ascii")
 
-        mock_auth_session.multi_use = False
+        mock_auth_session = mock_auth_session.model_copy(update={"multi_use": False})
         mock_auth_session_crud.return_value.get_by_pres_exch_id = AsyncMock(
             return_value=mock_auth_session
         )

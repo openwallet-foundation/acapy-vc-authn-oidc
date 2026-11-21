@@ -39,7 +39,7 @@ def _make_app() -> FastAPI:
 
 
 def _make_auth_session(
-    status: AuthSessionState = AuthSessionState.NOT_STARTED,
+    status: AuthSessionState = AuthSessionState.NOT_STARTED, **fields: object
 ) -> AuthSession:
     """Create a minimal AuthSession for mocking."""
     return AuthSession(
@@ -49,6 +49,7 @@ def _make_auth_session(
         pyop_auth_code="test-code",
         response_url="http://test.com/callback",
         proof_status=status,
+        **fields,
     )
 
 
@@ -655,8 +656,10 @@ class TestExpireIfNeeded:
     async def test_returns_true_and_patches_db_when_expired(self):
         mock_db = MagicMock()
         mock_crud = MagicMock()
-        session = _make_auth_session(AuthSessionState.NOT_STARTED)
-        session.expired_timestamp = datetime.now(UTC) - timedelta(seconds=30)
+        session = _make_auth_session(
+            AuthSessionState.NOT_STARTED,
+            expired_timestamp=datetime.now(UTC) - timedelta(seconds=30),
+        )
         mock_crud.get = AsyncMock(return_value=session)
         mock_crud.patch = AsyncMock()
 
@@ -672,8 +675,10 @@ class TestExpireIfNeeded:
     async def test_returns_false_when_not_yet_expired(self):
         mock_db = MagicMock()
         mock_crud = MagicMock()
-        session = _make_auth_session(AuthSessionState.NOT_STARTED)
-        session.expired_timestamp = datetime.now(UTC) + timedelta(seconds=300)
+        session = _make_auth_session(
+            AuthSessionState.NOT_STARTED,
+            expired_timestamp=datetime.now(UTC) + timedelta(seconds=300),
+        )
         mock_crud.get = AsyncMock(return_value=session)
         mock_crud.patch = AsyncMock()
 
@@ -693,8 +698,9 @@ class TestExpireIfNeeded:
             AuthSessionState.FAILED,
             AuthSessionState.EXPIRED,
         ]:
-            session = _make_auth_session(status)
-            session.expired_timestamp = datetime.now(UTC) - timedelta(seconds=30)
+            session = _make_auth_session(
+                status, expired_timestamp=datetime.now(UTC) - timedelta(seconds=30)
+            )
             mock_crud.get = AsyncMock(return_value=session)
             mock_crud.patch = AsyncMock()
 
@@ -734,8 +740,10 @@ class TestSinglePodStreamExpiry:
     def test_stream_emits_expired_immediately_when_session_already_expired(self):
         """If the session deadline has already passed on connect, emit expired and close."""
         app = _make_app()
-        session = _make_auth_session(AuthSessionState.NOT_STARTED)
-        session.expired_timestamp = datetime.now(UTC) - timedelta(seconds=30)
+        session = _make_auth_session(
+            AuthSessionState.NOT_STARTED,
+            expired_timestamp=datetime.now(UTC) - timedelta(seconds=30),
+        )
 
         mock_crud = MagicMock()
         mock_crud.get = AsyncMock(return_value=session)
@@ -761,10 +769,14 @@ class TestSinglePodStreamExpiry:
 
         # Session not yet expired on connect (so connect-time check passes)
         # then expired when the timeout handler calls _expire_if_needed.
-        future_session = _make_auth_session(AuthSessionState.NOT_STARTED)
-        future_session.expired_timestamp = datetime.now(UTC) + timedelta(seconds=300)
-        expired_session = _make_auth_session(AuthSessionState.NOT_STARTED)
-        expired_session.expired_timestamp = datetime.now(UTC) - timedelta(seconds=1)
+        future_session = _make_auth_session(
+            AuthSessionState.NOT_STARTED,
+            expired_timestamp=datetime.now(UTC) + timedelta(seconds=300),
+        )
+        expired_session = _make_auth_session(
+            AuthSessionState.NOT_STARTED,
+            expired_timestamp=datetime.now(UTC) - timedelta(seconds=1),
+        )
 
         mock_crud = MagicMock()
         # _get_initial_state, connect-time _expire_if_needed, then loop _expire_if_needed
@@ -802,8 +814,10 @@ class TestSinglePodStreamExpiry:
         mock_db = MagicMock()
         mock_request = MagicMock()
 
-        session = _make_auth_session(AuthSessionState.NOT_STARTED)
-        session.expired_timestamp = datetime.now(UTC) + timedelta(seconds=300)
+        session = _make_auth_session(
+            AuthSessionState.NOT_STARTED,
+            expired_timestamp=datetime.now(UTC) + timedelta(seconds=300),
+        )
         mock_crud = MagicMock()
         mock_crud.get = AsyncMock(return_value=session)
 
@@ -850,8 +864,10 @@ class TestMultiPodStreamExpiry:
     def test_multi_pod_stream_emits_expired_on_connect(self):
         """Multi-pod: already-expired session on connect → emit expired and close."""
         app = _make_app()
-        session = _make_auth_session(AuthSessionState.NOT_STARTED)
-        session.expired_timestamp = datetime.now(UTC) - timedelta(seconds=30)
+        session = _make_auth_session(
+            AuthSessionState.NOT_STARTED,
+            expired_timestamp=datetime.now(UTC) - timedelta(seconds=30),
+        )
 
         mock_crud = MagicMock()
         mock_crud.get = AsyncMock(return_value=session)
@@ -907,8 +923,10 @@ class TestSinglePodDoubleSubscribeWarning:
 
         # Use NOT_STARTED with a future timestamp so the stream reaches the
         # _signals assignment (VERIFIED would return early as terminal).
-        session = _make_auth_session(AuthSessionState.NOT_STARTED)
-        session.expired_timestamp = datetime.now(UTC) + timedelta(seconds=300)
+        session = _make_auth_session(
+            AuthSessionState.NOT_STARTED,
+            expired_timestamp=datetime.now(UTC) + timedelta(seconds=300),
+        )
         mock_crud = MagicMock()
         mock_crud.get = AsyncMock(return_value=session)
 
@@ -956,8 +974,10 @@ class TestSseOnlyExpiry:
         """_expire_if_needed marks the session EXPIRED in DB and signals expiry."""
         mock_db = MagicMock()
         mock_crud = MagicMock()
-        session = _make_auth_session(AuthSessionState.NOT_STARTED)
-        session.expired_timestamp = datetime.now(UTC) - timedelta(seconds=60)
+        session = _make_auth_session(
+            AuthSessionState.NOT_STARTED,
+            expired_timestamp=datetime.now(UTC) - timedelta(seconds=60),
+        )
         mock_crud.get = AsyncMock(return_value=session)
         mock_crud.patch = AsyncMock()
 
@@ -972,8 +992,10 @@ class TestSseOnlyExpiry:
     def test_sse_stream_emits_expired_event_without_polling(self):
         """The SSE stream emits an 'expired' event server-side; no client polling needed."""
         app = _make_app()
-        session = _make_auth_session(AuthSessionState.NOT_STARTED)
-        session.expired_timestamp = datetime.now(UTC) - timedelta(seconds=60)
+        session = _make_auth_session(
+            AuthSessionState.NOT_STARTED,
+            expired_timestamp=datetime.now(UTC) - timedelta(seconds=60),
+        )
 
         mock_crud = MagicMock()
         mock_crud.get = AsyncMock(return_value=session)
