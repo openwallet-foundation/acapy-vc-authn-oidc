@@ -61,10 +61,14 @@ class Token(FrozenModel):
                 auth_session.presentation_exchange or {}, proof_format
             )
         except ValidationError as err:
+            # The error count only: the errors themselves can echo credential values.
             logger.error(
-                f"Presentation exchange does not match the expected shape: {err}"
+                "Presentation exchange does not match the expected shape",
+                error_count=err.error_count(),
             )
-            raise RuntimeError(err) from err
+            raise RuntimeError(
+                "Presentation exchange does not match the expected shape"
+            ) from None
         if selected is None:
             raise ValueError("No valid proof format found in presentation exchange")
         selected_format, pres_request, presentation = selected
