@@ -4,7 +4,8 @@ Only the indy and anoncreds formats are read. Other formats and any fields not
 listed here are ignored, and the stored record is left as ACA-Py sent it.
 """
 
-from typing import Literal
+from collections.abc import Mapping
+from typing import Literal, cast
 
 from pydantic import Field
 
@@ -39,13 +40,15 @@ class Identifier(FrozenModel):
 
 
 class Presentation(FrozenModel):
+    """The part of a presentation the token claims are read from."""
+
     requested_proof: RequestedProof = Field(default_factory=RequestedProof)
+
+
+class PresentationIdentifiers(FrozenModel):
+    """The part of a presentation the audit log reads."""
+
     identifiers: list[Identifier] = Field(default_factory=list)
-
-
-class PresentationRequests(FrozenModel):
-    indy: PresentationRequest | None = None
-    anoncreds: PresentationRequest | None = None
 
 
 def _schema_name(schema_id: str) -> str:
@@ -62,8 +65,8 @@ def _issuer_did(cred_def_id: str) -> str:
 
 
 class Presentations(FrozenModel):
-    indy: Presentation | None = None
-    anoncreds: Presentation | None = None
+    indy: PresentationIdentifiers | None = None
+    anoncreds: PresentationIdentifiers | None = None
 
     def identifiers(self) -> list[Identifier]:
         return [
@@ -84,28 +87,32 @@ class Presentations(FrozenModel):
         )
 
 
-class ByFormat(FrozenModel):
-    pres_request: PresentationRequests = Field(default_factory=PresentationRequests)
-    pres: Presentations = Field(default_factory=Presentations)
-
-    def select(
-        self, preferred: ProofFormat
-    ) -> tuple[ProofFormat, PresentationRequest, Presentation] | None:
-        """Return the request and presentation for the preferred format.
-
-        Falls back to indy, then anoncreds, when the record has no data for the
-        preferred format, for example when the setting changed mid-session.
-        """
-        fallbacks: tuple[ProofFormat, ...] = (preferred, "indy", "anoncreds")
-        for proof_format in fallbacks:
-            match proof_format:
-                case "indy":
-                    request, presentation = self.pres_request.indy, self.pres.indy
-                case "anoncreds":
-                    request, presentation = (
-                        self.pres_request.anoncreds,
-                        self.pres.anoncreds,
-                    )
-            if request is not None and presentation is not None:
-                return proof_format, request, presentation
+def _entry(by_format: Mapping[str, object], section: str, key: str) -> object:
+    entries = by_format.get(section)
+    if not isinstance(entries, dict):
         return None
+    return cast(dict[str, object], entries).get(key)
+
+
+def select_format(
+    by_format: Mapping[str, object], preferred: ProofFormat
+) -> tuple[ProofFormat, PresentationRequest, Presentation] | None:
+    """Return the request and presentation for the preferred format.
+
+    Falls back to indy, then anoncreds, when the record has no data for the
+    preferred format, for example when the setting changed mid-session. Only
+    the selected format is parsed, so a malformed identifier or an unused
+    format can't block the claims. Raises ValidationError if the selected
+    format doesn't have the expected shape.
+    """
+    fallbacks: tuple[ProofFormat, ...] = (preferred, "indy", "anoncreds")
+    for proof_format in fallbacks:
+        request = _entry(by_format, "pres_request", proof_format)
+        presentation = _entry(by_format, "pres", proof_format)
+        if request is not None and presentation is not None:
+            return (
+                proof_format,
+                PresentationRequest.model_validate(request),
+                Presentation.model_validate(presentation),
+            )
+    return None

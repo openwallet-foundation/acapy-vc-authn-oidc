@@ -10,7 +10,7 @@ from pydantic import ValidationError
 from ...authSessions.models import AuthSession
 from ...core.models import FrozenModel
 from ...verificationConfigs.models import VerificationConfig
-from ..acapy.presentation import ByFormat, ProofFormat
+from ..acapy.presentation import ProofFormat, select_format
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
 
@@ -54,19 +54,17 @@ class Token(FrozenModel):
 
         presentation_claims: dict[str, Claim] = {}
 
+        # Falls back to another format when the record has no data for the
+        # configured one, e.g. for sessions in flight during a config change.
         try:
-            by_format = ByFormat.model_validate(
-                auth_session.presentation_exchange or {}
+            selected = select_format(
+                auth_session.presentation_exchange or {}, proof_format
             )
         except ValidationError as err:
             logger.error(
                 f"Presentation exchange does not match the expected shape: {err}"
             )
             raise RuntimeError(err) from err
-
-        # Falls back to another format when the record has no data for the
-        # configured one, e.g. for sessions in flight during a config change.
-        selected = by_format.select(proof_format)
         if selected is None:
             raise ValueError("No valid proof format found in presentation exchange")
         selected_format, pres_request, presentation = selected
