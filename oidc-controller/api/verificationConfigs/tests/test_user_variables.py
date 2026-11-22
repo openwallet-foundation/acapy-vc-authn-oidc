@@ -38,3 +38,21 @@ def test_names_from_the_old_module_are_still_available(tmp_path):
 def test_missing_file_is_ignored(tmp_path):
     apply_user_variables(str(tmp_path / "missing.py"))
     assert variable_substitution_map.user_static_map == {}
+
+
+def test_files_can_define_dataclasses_with_postponed_annotations(tmp_path):
+    # dataclasses resolves string annotations through sys.modules[__name__].
+    path = tmp_path / "vars.py"
+    path.write_text(
+        "from __future__ import annotations\n"
+        "import dataclasses\n"
+        "@dataclasses.dataclass\n"
+        "class Offset:\n"
+        "    days: int\n"
+        "    label: dataclasses.InitVar[str] = ''\n"
+        "def f(days):\n"
+        "    return Offset(int(days)).days\n"
+        'variable_substitution_map.add_variable_substitution(r"\\$offset_(\\d+)", f)\n'
+    )
+    apply_user_variables(str(path))
+    assert variable_substitution_map.resolve("$offset_3", NOW) == 3

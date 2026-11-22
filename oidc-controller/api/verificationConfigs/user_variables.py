@@ -2,7 +2,9 @@
 
 import copy
 import re
+import sys
 import time
+import types
 from collections.abc import Callable
 from datetime import datetime, timedelta
 
@@ -15,24 +17,30 @@ from .variableSubstitutions import variable_substitution_map
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
 
 
-def _user_namespace() -> dict[str, object]:
+USER_MODULE_NAME = "user_variable_substitutions"
+
+
+def _user_module() -> types.ModuleType:
+    module = types.ModuleType(USER_MODULE_NAME)
     # Override files used to run inside variableSubstitutions.py and could use
     # its imports without importing them, so keep those names available.
-    return {
-        "__name__": "user_variable_substitutions",
-        "copy": copy,
-        "re": re,
-        "time": time,
-        "Callable": Callable,
-        "datetime": datetime,
-        "timedelta": timedelta,
-        "structlog": structlog,
-        "settings": settings,
-        "logger": logger,
-        "SubstitutionFunction": variableSubstitutions.SubstitutionFunction,
-        "VariableSubstitutionMap": variableSubstitutions.VariableSubstitutionMap,
-        "variable_substitution_map": variable_substitution_map,
-    }
+    module.__dict__.update(
+        {
+            "copy": copy,
+            "re": re,
+            "time": time,
+            "Callable": Callable,
+            "datetime": datetime,
+            "timedelta": timedelta,
+            "structlog": structlog,
+            "settings": settings,
+            "logger": logger,
+            "SubstitutionFunction": variableSubstitutions.SubstitutionFunction,
+            "VariableSubstitutionMap": variableSubstitutions.VariableSubstitutionMap,
+            "variable_substitution_map": variable_substitution_map,
+        }
+    )
+    return module
 
 
 def apply_user_variables(path: str | None) -> None:
@@ -47,9 +55,13 @@ def apply_user_variables(path: str | None) -> None:
         return
 
     og_substitution_map = copy.copy(variable_substitution_map.user_static_map)
+    module = _user_module()
+    # Registered so code that looks the module up by name works, for example
+    # dataclasses resolving postponed annotations.
+    sys.modules[USER_MODULE_NAME] = module
     # One dict for globals and locals, so functions in the file can see the
     # file's own imports.
-    exec(code, _user_namespace())
+    exec(code, module.__dict__)
     if not variable_substitution_map.user_static_map:
         logger.info("No new user created variable substitution where found")
 
