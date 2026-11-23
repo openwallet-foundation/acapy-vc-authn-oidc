@@ -94,7 +94,11 @@ class AuthSessionCRUD:
             after = apply(session, event)
             if isinstance(after, Rejected):
                 # Usually a repeated webhook or a second scan of the QR code.
-                log.info("Ignoring auth session event", proof_status=after.status)
+                log.info(
+                    "Ignoring auth session event",
+                    proof_status=session.proof_status,
+                    reason=after.reason,
+                )
                 return None
 
             saved = self._save_if_status_unchanged(session, after)

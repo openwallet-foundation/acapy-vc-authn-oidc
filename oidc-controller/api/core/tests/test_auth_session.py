@@ -105,25 +105,25 @@ def test_request_sent_records_the_exchange_and_keeps_the_status():
 def test_final_states_reject_every_event(status: AuthSessionState, event: Event):
     session = _session(proof_status=status, expired_timestamp=PAST)
 
-    assert apply(session, event) == Rejected(status, event)
+    assert apply(session, event) == Rejected(f"session is already {status}")
 
 
 def test_a_second_scan_is_rejected():
     pending = _applied(_session(), Scanned())
 
-    assert apply(pending, Scanned()) == Rejected(AuthSessionState.PENDING, Scanned())
+    assert apply(pending, Scanned()) == Rejected("already scanned")
 
 
 def test_expired_is_rejected_before_the_deadline():
     session = _session(expired_timestamp=NOW + timedelta(minutes=1))
 
-    assert isinstance(apply(session, Expired(NOW)), Rejected)
+    assert apply(session, Expired(NOW)) == Rejected("session has not expired")
 
 
 def test_pending_sessions_do_not_expire():
     pending = _applied(_session(expired_timestamp=PAST), Scanned())
 
-    assert isinstance(apply(pending, Expired(NOW)), Rejected)
+    assert apply(pending, Expired(NOW)) == Rejected("session has not expired")
 
 
 def test_apply_validates_the_new_session():

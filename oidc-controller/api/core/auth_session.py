@@ -61,8 +61,7 @@ Event = Scanned | RequestSent | Verified | Failed | Abandoned | Expired
 class Rejected:
     """The event is not legal for a session in this state."""
 
-    status: AuthSessionState
-    event: Event
+    reason: str
 
 
 OPEN_STATES = frozenset({AuthSessionState.NOT_STARTED, AuthSessionState.PENDING})
@@ -70,33 +69,33 @@ OPEN_STATES = frozenset({AuthSessionState.NOT_STARTED, AuthSessionState.PENDING}
 
 def apply(session: AuthSession, event: Event) -> AuthSession | Rejected:
     status = session.proof_status
+    if status not in OPEN_STATES:
+        return Rejected(f"session is already {status}")
     update: dict[str, Any]
     match event:
         case Scanned() if status is AuthSessionState.NOT_STARTED:
             update = {"proof_status": AuthSessionState.PENDING}
-        case RequestSent(pres_exch_id, presentation_exchange, connection_id) if (
-            status in OPEN_STATES
-        ):
+        case Scanned():
+            return Rejected("already scanned")
+        case RequestSent(pres_exch_id, presentation_exchange, connection_id):
             update = {
                 "pres_exch_id": pres_exch_id,
                 "presentation_exchange": presentation_exchange,
                 "connection_id": connection_id,
             }
-        case Verified(presentation) if status in OPEN_STATES:
+        case Verified(presentation):
             update = {
                 "proof_status": AuthSessionState.VERIFIED,
                 "presentation_exchange": presentation,
             }
-        case Failed() if status in OPEN_STATES:
+        case Failed():
             update = {"proof_status": AuthSessionState.FAILED}
-        case Abandoned() if status in OPEN_STATES:
+        case Abandoned():
             update = {"proof_status": AuthSessionState.ABANDONED}
         case Expired(now) if has_expired(session, now):
             update = {"proof_status": AuthSessionState.EXPIRED}
-        case (
-            Scanned() | RequestSent() | Verified() | Failed() | Abandoned() | Expired()
-        ):
-            return Rejected(status, event)
+        case Expired():
+            return Rejected("session has not expired")
         case _:
             assert_never(event)
     return _updated(session, update)
