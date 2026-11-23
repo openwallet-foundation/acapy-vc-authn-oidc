@@ -63,35 +63,62 @@ class AuthSessionCRUD:
     async def advance(self, session: AuthSession, event: Event) -> AuthSession | None:
         """Apply EVENT to SESSION and save the result.
 
-        The write only goes through if the stored status is still the one
-        SESSION was loaded with, so of two concurrent events only the first is
-        saved. Only the fields the event changed are written. Returns None if
-        the event is not legal in the current state or another writer got
-        there first; the caller should then skip the event's side effects.
+        The write only goes through if the stored status is still the one the
+        event was applied to. If another writer changed it first, the event is
+        applied again to the stored session, so a webhook that loaded the
+        session just before a scan marked it pending is still saved. Only the
+        fields the event changed are written. Returns None if the event is not
+        legal in the stored state or the session is gone; the caller should
+        then skip the event's side effects.
         """
-        after = apply(session, event)
-        if isinstance(after, Rejected):
-            # Usually a repeated webhook or a second scan of the QR code.
+        col = self._db.get_collection(COLLECTION_NAMES.AUTH_SESSION)
+        # The status only moves forward, NOT_STARTED to PENDING to a final
+        # state, so it can change under us at most twice.
+        for _ in range(3):
+            after = apply(session, event)
+            if isinstance(after, Rejected):
+                # Usually a repeated webhook or a second scan of the QR code.
+                logger.info(
+                    "Ignoring auth session event",
+                    auth_session_id=str(session.id),
+                    proof_status=after.status,
+                    event_type=type(event).__name__,
+                )
+                return None
+            saved = self._save_if_status_unchanged(session, after)
+            if saved is not None:
+                return saved
             logger.info(
-                "Ignoring auth session event",
+                "Auth session changed concurrently, reapplying event",
                 auth_session_id=str(session.id),
-                proof_status=after.status,
                 event_type=type(event).__name__,
             )
-            return None
+            stored = col.find_one({"_id": PyObjectId(session.id)})
+            if stored is None:
+                return None
+            session = AuthSession.model_validate(stored)
+        logger.warning(
+            "Auth session kept changing, ignoring event",
+            auth_session_id=str(session.id),
+            event_type=type(event).__name__,
+        )
+        return None
 
-        before_fields = session.model_dump()
+    def _save_if_status_unchanged(
+        self, before: AuthSession, after: AuthSession
+    ) -> AuthSession | None:
+        before_fields = before.model_dump()
         changes = {
             key: value
             for key, value in after.model_dump().items()
             if value != before_fields[key]
         }
-        expected: object = session.proof_status
-        if session.proof_status is AuthSessionState.NOT_STARTED:
+        expected: object = before.proof_status
+        if before.proof_status is AuthSessionState.NOT_STARTED:
             # Records created before proof_status existed have no field;
             # AuthSession reads them as NOT_STARTED.
             expected = {"$in": [AuthSessionState.NOT_STARTED, None]}
-        query = {"_id": PyObjectId(session.id), "proof_status": expected}
+        query = {"_id": PyObjectId(before.id), "proof_status": expected}
         col = self._db.get_collection(COLLECTION_NAMES.AUTH_SESSION)
         saved = (
             col.find_one_and_update(
@@ -100,14 +127,7 @@ class AuthSessionCRUD:
             if changes
             else col.find_one(query)
         )
-        if saved is None:
-            logger.warning(
-                "Auth session changed concurrently, ignoring event",
-                auth_session_id=str(session.id),
-                event_type=type(event).__name__,
-            )
-            return None
-        return AuthSession.model_validate(saved)
+        return AuthSession.model_validate(saved) if saved is not None else None
 
     async def delete(self, id: str) -> bool:
         if not PyObjectId.is_valid(id):

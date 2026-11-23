@@ -17,7 +17,7 @@ from api.authSessions.models import (
     AuthSessionPatch,
     AuthSessionState,
 )
-from api.core.auth_session import Failed, Scanned
+from api.core.auth_session import Failed, Scanned, Verified
 from api.core.models import PyObjectId
 from api.db.session import COLLECTION_NAMES
 
@@ -551,7 +551,28 @@ class TestAdvance:
         assert collection.find_one()["proof_status"] == AuthSessionState.PENDING
 
     @pytest.mark.asyncio
-    async def test_loses_to_a_concurrent_writer(self, crud, collection, stored):
+    async def test_reapplies_the_event_after_a_concurrent_scan(
+        self, crud, collection, stored
+    ):
+        # The webhook loaded the session before the wallet's scan saved PENDING.
+        collection.update_one(
+            {"_id": stored.id}, {"$set": {"proof_status": AuthSessionState.PENDING}}
+        )
+
+        result = await crud.advance(stored, Verified({"pres": {}}))
+
+        assert result is not None
+        assert result.proof_status is AuthSessionState.VERIFIED
+        assert collection.find_one()["proof_status"] == AuthSessionState.VERIFIED
+
+    @pytest.mark.asyncio
+    async def test_returns_none_if_the_session_is_gone(self, crud, collection, stored):
+        collection.delete_one({"_id": stored.id})
+
+        assert await crud.advance(stored, Scanned()) is None
+
+    @pytest.mark.asyncio
+    async def test_loses_to_a_concurrent_final_state(self, crud, collection, stored):
         collection.update_one(
             {"_id": stored.id}, {"$set": {"proof_status": AuthSessionState.VERIFIED}}
         )
