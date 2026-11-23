@@ -664,12 +664,33 @@ class TestExpireIfNeeded:
         mock_crud.get = AsyncMock(return_value=session)
         mock_crud.advance = fake_advance()
 
-        with patch("api.routers.sse.AuthSessionCRUD", return_value=mock_crud):
+        with (
+            patch("api.routers.sse.AuthSessionCRUD", return_value=mock_crud),
+            patch("api.routers.sse.notify", new_callable=AsyncMock) as mock_notify,
+        ):
             result = await _expire_if_needed(str(session.id), mock_db)
 
         assert result is True
         mock_crud.advance.assert_awaited_once()
         assert saved_session(mock_crud.advance).proof_status == AuthSessionState.EXPIRED
+        mock_notify.assert_awaited_once_with(str(session.id), "expired")
+
+    @pytest.mark.asyncio
+    async def test_returns_true_when_another_stream_expired_the_session(self):
+        mock_db = MagicMock()
+        mock_crud = MagicMock()
+        session = _make_auth_session(
+            AuthSessionState.EXPIRED,
+            expired_timestamp=datetime.now(UTC) - timedelta(seconds=30),
+        )
+        mock_crud.get = AsyncMock(return_value=session)
+        mock_crud.advance = fake_advance()
+
+        with patch("api.routers.sse.AuthSessionCRUD", return_value=mock_crud):
+            result = await _expire_if_needed(str(session.id), mock_db)
+
+        assert result is True
+        mock_crud.advance.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_returns_false_when_not_yet_expired(self):
@@ -689,14 +710,13 @@ class TestExpireIfNeeded:
         mock_crud.advance.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_returns_false_for_non_not_started_status(self):
+    async def test_returns_false_for_other_statuses(self):
         mock_db = MagicMock()
         mock_crud = MagicMock()
         for status in [
             AuthSessionState.PENDING,
             AuthSessionState.VERIFIED,
             AuthSessionState.FAILED,
-            AuthSessionState.EXPIRED,
         ]:
             session = _make_auth_session(
                 status, expired_timestamp=datetime.now(UTC) - timedelta(seconds=30)

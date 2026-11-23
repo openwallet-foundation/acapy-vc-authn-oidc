@@ -205,11 +205,14 @@ async def _expire_if_needed(
 
     Called on connect (passing the auth_session from _get_initial_state to avoid
     a second DB read) and on every keepalive tick (auth_session=None, re-fetches).
-    Returns True if the session was just expired, False otherwise.
+    Returns True if the session is now expired, whether this stream expired it
+    or another stream or pod did, False otherwise.
     """
     try:
         if auth_session is None:
             auth_session = await AuthSessionCRUD(db).get(pid)
+        if auth_session.proof_status is AuthSessionState.EXPIRED:
+            return True
         if auth_session.proof_status != AuthSessionState.NOT_STARTED:
             logger.debug(
                 "SSE expiry check: status is not NOT_STARTED, skipping",
@@ -232,6 +235,9 @@ async def _expire_if_needed(
             is not None
         ):
             logger.info("SSE detected expired session", pid=pid)
+            # Other streams for this session, possibly on other pods, would
+            # otherwise only see it on their next expiry check.
+            await notify(pid, "expired")
             return True
     except Exception:
         logger.exception("SSE expiry check failed", pid=pid)
