@@ -17,7 +17,7 @@ from api.authSessions.models import (
     AuthSessionPatch,
     AuthSessionState,
 )
-from api.core.auth_session import Failed, Scanned, Verified
+from api.core.auth_session import Failed, RequestSent, Scanned, Verified
 from api.core.models import PyObjectId
 from api.db.session import COLLECTION_NAMES
 
@@ -587,6 +587,35 @@ class TestAdvance:
         await crud.advance(stored, Scanned())
 
         assert collection.find_one()["code_redeemed"] is True
+
+    @pytest.mark.asyncio
+    async def test_event_with_nothing_to_write_returns_the_stored_session(
+        self, crud, collection, stored
+    ):
+        sent = RequestSent("pres-1", {"state": "request-sent"}, "conn-1")
+        stored = await crud.advance(stored, sent)
+        assert stored is not None
+
+        result = await crud.advance(stored, sent)
+
+        assert result is not None
+        assert result.id == stored.id
+        assert result.proof_status is AuthSessionState.NOT_STARTED
+        assert (result.pres_exch_id, result.connection_id) == ("pres-1", "conn-1")
+
+    @pytest.mark.asyncio
+    async def test_event_with_nothing_to_write_still_checks_the_status(
+        self, crud, collection, stored
+    ):
+        sent = RequestSent("pres-1", {"state": "request-sent"}, "conn-1")
+        stored = await crud.advance(stored, sent)
+        assert stored is not None
+        collection.update_one(
+            {"_id": stored.id}, {"$set": {"proof_status": AuthSessionState.VERIFIED}}
+        )
+
+        assert await crud.advance(stored, sent) is None
+        assert collection.find_one()["proof_status"] == AuthSessionState.VERIFIED
 
     @pytest.mark.asyncio
     async def test_matches_records_without_a_status(

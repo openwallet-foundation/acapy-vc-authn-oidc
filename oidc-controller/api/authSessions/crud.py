@@ -126,14 +126,10 @@ class AuthSessionCRUD:
             expected = {"$in": [AuthSessionState.NOT_STARTED, None]}
         query = {"_id": PyObjectId(before.id), "proof_status": expected}
         col = self._db.get_collection(COLLECTION_NAMES.AUTH_SESSION)
-        # With no changes there is nothing to write, but the status check
-        # still applies.
-        saved = (
-            col.find_one_and_update(
-                query, {"$set": changes}, return_document=ReturnDocument.AFTER
-            )
-            if changes
-            else col.find_one(query)
+        # An empty $set is a no-op on MongoDB 5.0 and later, but the status
+        # check still applies.
+        saved = col.find_one_and_update(
+            query, {"$set": changes}, return_document=ReturnDocument.AFTER
         )
         return AuthSession.model_validate(saved) if saved is not None else None
 
