@@ -24,8 +24,11 @@ router = APIRouter()
 async def toggle_pending(db, auth_session: AuthSession):
     # We need to set this to pending now
     auth_session = apply(auth_session, Scanned())
+    # A scan doesn't change the exchange, and stored sessions can have a null
+    # one that AuthSessionPatch rejects.
     await AuthSessionCRUD(db).patch(
-        auth_session.id, AuthSessionPatch(**auth_session.model_dump())
+        auth_session.id,
+        AuthSessionPatch(**auth_session.model_dump(exclude={"presentation_exchange"})),
     )
     await notify(str(auth_session.id), "pending")
 
