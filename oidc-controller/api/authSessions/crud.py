@@ -1,3 +1,5 @@
+from typing import Any
+
 import structlog
 from fastapi import HTTPException
 from fastapi import status as http_status
@@ -11,6 +13,19 @@ from ..core.models import PyObjectId
 from .models import AuthSession, AuthSessionCreate, AuthSessionPatch, AuthSessionState
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
+
+# The status only moves forward (NOT_STARTED -> PENDING -> a final state), so
+# it can change under us at most twice: one initial attempt plus two retries.
+MAX_ADVANCE_ATTEMPTS = 3
+
+
+def _changed_fields(before: AuthSession, after: AuthSession) -> dict[str, Any]:
+    before_fields = before.model_dump()
+    return {
+        key: value
+        for key, value in after.model_dump().items()
+        if value != before_fields[key]
+    }
 
 
 class AuthSessionCRUD:
@@ -72,47 +87,38 @@ class AuthSessionCRUD:
         then skip the event's side effects.
         """
         col = self._db.get_collection(COLLECTION_NAMES.AUTH_SESSION)
-        # The status only moves forward, NOT_STARTED to PENDING to a final
-        # state, so it can change under us at most twice.
-        for _ in range(3):
+        log = logger.bind(
+            auth_session_id=str(session.id), event_type=type(event).__name__
+        )
+        for _ in range(MAX_ADVANCE_ATTEMPTS):
             after = apply(session, event)
             if isinstance(after, Rejected):
                 # Usually a repeated webhook or a second scan of the QR code.
-                logger.info(
-                    "Ignoring auth session event",
-                    auth_session_id=str(session.id),
-                    proof_status=after.status,
-                    event_type=type(event).__name__,
-                )
+                log.info("Ignoring auth session event", proof_status=after.status)
                 return None
+
             saved = self._save_if_status_unchanged(session, after)
             if saved is not None:
                 return saved
-            logger.info(
-                "Auth session changed concurrently, reapplying event",
-                auth_session_id=str(session.id),
-                event_type=type(event).__name__,
-            )
-            stored = col.find_one({"_id": PyObjectId(session.id)})
-            if stored is None:
+
+            log.info("Auth session changed concurrently, reapplying event")
+            if (stored := col.find_one({"_id": PyObjectId(session.id)})) is None:
                 return None
             session = AuthSession.model_validate(stored)
-        logger.warning(
-            "Auth session kept changing, ignoring event",
-            auth_session_id=str(session.id),
-            event_type=type(event).__name__,
-        )
+
+        log.warning("Auth session kept changing, ignoring event")
         return None
 
     def _save_if_status_unchanged(
         self, before: AuthSession, after: AuthSession
     ) -> AuthSession | None:
-        before_fields = before.model_dump()
-        changes = {
-            key: value
-            for key, value in after.model_dump().items()
-            if value != before_fields[key]
-        }
+        """Write the fields that differ between BEFORE and AFTER, but only if
+        the stored proof_status still equals BEFORE's.
+
+        Returns the stored session, or None if the status has changed or the
+        session is gone.
+        """
+        changes = _changed_fields(before, after)
         expected: object = before.proof_status
         if before.proof_status is AuthSessionState.NOT_STARTED:
             # Records created before proof_status existed have no field;
@@ -120,6 +126,8 @@ class AuthSessionCRUD:
             expected = {"$in": [AuthSessionState.NOT_STARTED, None]}
         query = {"_id": PyObjectId(before.id), "proof_status": expected}
         col = self._db.get_collection(COLLECTION_NAMES.AUTH_SESSION)
+        # With no changes there is nothing to write, but the status check
+        # still applies.
         saved = (
             col.find_one_and_update(
                 query, {"$set": changes}, return_document=ReturnDocument.AFTER
