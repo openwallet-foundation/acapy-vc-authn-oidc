@@ -70,6 +70,7 @@ OPEN_STATES = frozenset({AuthSessionState.NOT_STARTED, AuthSessionState.PENDING}
 
 def apply(session: AuthSession, event: Event) -> AuthSession | Rejected:
     status = session.proof_status
+    update: dict[str, Any]
     match event:
         case Scanned() if status is AuthSessionState.NOT_STARTED:
             update = {"proof_status": AuthSessionState.PENDING}
@@ -98,7 +99,19 @@ def apply(session: AuthSession, event: Event) -> AuthSession | Rejected:
             return Rejected(status, event)
         case _:
             assert_never(event)
-    return session.model_copy(update=update)
+    return _updated(session, update)
+
+
+def _updated(session: AuthSession, update: dict[str, Any]) -> AuthSession:
+    """Copy SESSION with UPDATE applied, validating the result.
+
+    model_copy(update=...) skips validation and accepts unknown keys, so a
+    typo would be silently dropped and a wrong type would reach the database.
+    """
+    unknown = update.keys() - AuthSession.model_fields.keys()
+    if unknown:
+        raise ValueError(f"Unknown AuthSession fields: {sorted(unknown)}")
+    return AuthSession.model_validate({**dict(session), **update})
 
 
 def as_utc(timestamp: datetime) -> datetime:

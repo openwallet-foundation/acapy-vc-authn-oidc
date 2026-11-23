@@ -11,6 +11,7 @@ from api.core.auth_session import (
     RequestSent,
     Scanned,
     Verified,
+    _updated,
     apply,
     has_expired,
 )
@@ -123,6 +124,20 @@ def test_pending_sessions_do_not_expire():
     pending = _applied(_session(expired_timestamp=PAST), Scanned())
 
     assert isinstance(apply(pending, Expired(NOW)), Rejected)
+
+
+def test_apply_validates_the_new_session():
+    # Event fields are only checked by the type checker, so a bad value must
+    # fail here rather than reach the database.
+    session = _session(pres_exch_id="before")
+
+    with pytest.raises(ValueError):
+        apply(session, RequestSent(123, {}, "conn-1"))  # type: ignore[arg-type]
+
+
+def test_misspelled_fields_are_not_silently_dropped():
+    with pytest.raises(ValueError, match="proof_statu"):
+        _updated(_session(), {"proof_statu": AuthSessionState.PENDING})
 
 
 def test_naive_deadlines_are_read_as_utc():
