@@ -4,7 +4,7 @@ Fields not listed here are ignored. ACA-Py may add states over time, so state
 and role stay plain strings rather than enums.
 """
 
-from typing import Any
+from typing import Any, Literal
 
 from ..models import FrozenModel
 
@@ -26,7 +26,7 @@ class PresentProofWebhook(FrozenModel):
     role: str | None = None
     connection_id: str | None = None
     # ACA-Py sends "true" or "false" as strings.
-    verified: str | bool | None = None
+    verified: Literal["true", "false"] | None = None
     error_msg: str | None = None
     # Stored on the session as sent, so it stays a plain dict here.
     by_format: dict[str, Any] | None = None

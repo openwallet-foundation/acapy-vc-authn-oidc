@@ -1374,6 +1374,7 @@ class TestMalformedWebhookBodies:
         [
             {"state": "done", "verified": "true"},
             {"pres_ex_id": "pex-1", "state": "done", "by_format": "secret-value"},
+            {"pres_ex_id": "pex-1", "state": "done", "verified": True},
         ],
     )
     async def test_rejected_with_422_without_echoing_input(
