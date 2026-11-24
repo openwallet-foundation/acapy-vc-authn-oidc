@@ -33,6 +33,7 @@ from .conftest import (
     authorize_params,
     basic_auth_header,
     called_paths,
+    make_connections_webhook,
     make_proof_webhook,
     parse_auth_code_from_url,
     parse_pid_from_html,
@@ -40,20 +41,6 @@ from .conftest import (
 )
 
 pytestmark = pytest.mark.integration
-
-
-def _connections_webhook(
-    connection_id: str = TEST_CONNECTION_ID,
-    invi_msg_id: str = FAKE_INVI_MSG_ID,
-    state: str = "active",
-) -> dict:
-    """Build a connections webhook body (emitted by AcaPy when a connection is established)."""
-    return {
-        "connection_id": connection_id,
-        "state": state,
-        "invitation_msg_id": invi_msg_id,
-        "invi_msg_id": invi_msg_id,
-    }
 
 
 # ---------------------------------------------------------------------------
@@ -119,7 +106,7 @@ class TestConnectionsWebhook:
 
             wh_resp = client.post(
                 "/webhooks/topic/connections/",
-                json=_connections_webhook(
+                json=make_connections_webhook(
                     connection_id=TEST_CONNECTION_ID,
                     invi_msg_id=FAKE_INVI_MSG_ID,
                 ),
@@ -148,7 +135,7 @@ class TestConnectionsWebhook:
             client.get("/authorize", params=authorize_params())
             resp = client.post(
                 "/webhooks/topic/connections/",
-                json=_connections_webhook(state="request"),
+                json=make_connections_webhook(state="request"),
             )
         assert resp.status_code == 200
 
@@ -184,7 +171,7 @@ def test_connection_flow_full_pipeline(integration_client, connection_mode):
         # Step 2: Connection established webhook
         wh1_resp = client.post(
             "/webhooks/topic/connections/",
-            json=_connections_webhook(
+            json=make_connections_webhook(
                 connection_id=TEST_CONNECTION_ID,
                 invi_msg_id=FAKE_INVI_MSG_ID,
             ),
