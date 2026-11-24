@@ -5,11 +5,14 @@ Tests scenarios where verification does not complete successfully:
   - Invalid auth code (token endpoint rejects unknown codes)
   - Unknown verification config (authorize returns 4xx)
 
-Note: Testing real abandonment/rejection requires the holder to intentionally
-decline the proof request, which is not supported by ACAPY_AUTO_RESPOND_PRESENTATION_REQUEST.
-Those paths are covered at the integration-test layer (test_failure_paths.py).
+  - Abandonment (holder cannot satisfy the proof request)
+
+Not covered here: FAILED (verification returns verified=false). The test holder's
+credential has no revocation support and auto-responds with valid proofs, so this
+path is covered only at the integration-test layer.
 """
 
+import asyncio
 import base64
 from urllib.parse import parse_qs, urlparse
 
@@ -152,4 +155,72 @@ async def test_authorize_unknown_ver_config_returns_404(oidc_client):
         )
     assert r.status_code == 404, (
         f"Expected 404 for unknown ver config, got {r.status_code}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Holder-side decline (ABANDONED)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_unsatisfiable_proof_request_emits_sse_abandoned(
+    oidc_client, holder_admin, sse_client, e2e_unsatisfiable_ver_config_id
+):
+    """A holder that cannot satisfy the request reports a problem; the session
+    becomes ABANDONED and SSE emits 'abandoned'."""
+    pid, invitation = await oidc_client.authorize(
+        pres_req_conf_id=e2e_unsatisfiable_ver_config_id
+    )
+
+    sse_task = asyncio.create_task(
+        sse_client.wait_for_status(pid, expected="abandoned", timeout=60)
+    )
+    await asyncio.sleep(0.5)
+    await holder_admin.receive_invitation(invitation)
+
+    status = await sse_task
+    assert status == "abandoned", f"Expected 'abandoned', got {status!r}"
+
+
+@pytest.mark.asyncio
+async def test_abandoned_session_code_is_not_exchangeable(
+    oidc_client, holder_admin, sse_client, e2e_unsatisfiable_ver_config_id
+):
+    """An abandoned session must never yield tokens."""
+    pid, invitation = await oidc_client.authorize(
+        pres_req_conf_id=e2e_unsatisfiable_ver_config_id
+    )
+    sse_task = asyncio.create_task(
+        sse_client.wait_for_status(pid, expected="abandoned", timeout=60)
+    )
+    await asyncio.sleep(0.5)
+    await holder_admin.receive_invitation(invitation)
+    assert await sse_task == "abandoned"
+
+    async with httpx.AsyncClient(timeout=10, follow_redirects=False) as client:
+        r = await client.get(f"{oidc_client._url}/callback", params={"pid": pid})
+    if r.status_code >= 400:
+        return
+    code = parse_qs(urlparse(r.headers.get("location", "")).query).get("code", [None])[
+        0
+    ]
+    if not code:
+        return
+
+    creds = base64.b64encode(
+        f"{oidc_client._client_id}:{oidc_client._client_secret}".encode()
+    ).decode()
+    async with httpx.AsyncClient(timeout=10) as token_client:
+        tr = await token_client.post(
+            f"{oidc_client._url}/token",
+            data={
+                "grant_type": "authorization_code",
+                "code": code,
+                "redirect_uri": oidc_client._redirect_uri,
+            },
+            headers={"Authorization": f"Basic {creds}"},
+        )
+    assert tr.status_code >= 400, (
+        f"Token endpoint must reject code from abandoned session, got {tr.status_code}"
     )
