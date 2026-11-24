@@ -5,7 +5,7 @@ from uuid import UUID
 import httpx
 import pytest
 import respx
-from api.adapters.acapy.client import AcapyClient
+from api.adapters.acapy.client import AcapyClient, AcapyError
 from api.config import settings
 
 
@@ -35,7 +35,7 @@ class TestAcapyClientCleanup:
 
         result = await acapy_client.delete_presentation_record(pres_ex_id)
 
-        assert result is True
+        assert result is None
 
     @respx.mock
     @pytest.mark.asyncio
@@ -47,7 +47,7 @@ class TestAcapyClientCleanup:
 
         result = await acapy_client.delete_presentation_record(pres_ex_id)
 
-        assert result is False
+        assert isinstance(result, AcapyError)
 
     @respx.mock
     @pytest.mark.asyncio
@@ -61,7 +61,7 @@ class TestAcapyClientCleanup:
 
         result = await acapy_client.delete_presentation_record(pres_ex_id)
 
-        assert result is True
+        assert result is None
 
     @respx.mock
     @pytest.mark.asyncio
@@ -73,7 +73,7 @@ class TestAcapyClientCleanup:
 
         result = await acapy_client.delete_presentation_record(pres_ex_id)
 
-        assert result is False
+        assert isinstance(result, AcapyError)
 
     @respx.mock
     @pytest.mark.asyncio
@@ -85,7 +85,7 @@ class TestAcapyClientCleanup:
 
         result = await acapy_client.delete_presentation_record(pres_ex_id)
 
-        assert result is True
+        assert result is None
 
     @respx.mock
     @pytest.mark.asyncio
@@ -119,138 +119,29 @@ class TestAcapyClientCleanup:
 
     @respx.mock
     @pytest.mark.asyncio
-    async def test_get_presentation_records_page_http_error_raises(self, acapy_client):
+    async def test_get_presentation_records_page_http_error_returns_error(
+        self, acapy_client
+    ):
         respx.get(f"{BASE_URL}/present-proof-2.0/records").mock(
             return_value=httpx.Response(500, content=b"Internal server error")
         )
 
-        with pytest.raises(httpx.HTTPStatusError):
-            await acapy_client.get_presentation_records_page(limit=10)
+        assert isinstance(
+            await acapy_client.get_presentation_records_page(limit=10), AcapyError
+        )
 
     @respx.mock
     @pytest.mark.asyncio
-    async def test_get_presentation_records_page_network_error_raises(
+    async def test_get_presentation_records_page_network_error_returns_error(
         self, acapy_client
     ):
         respx.get(f"{BASE_URL}/present-proof-2.0/records").mock(
             side_effect=httpx.ConnectError("Network error")
         )
 
-        with pytest.raises(httpx.ConnectError):
-            await acapy_client.get_presentation_records_page(limit=10)
-
-    @respx.mock
-    @pytest.mark.asyncio
-    async def test_delete_presentation_record_and_connection_both_success(
-        self, acapy_client
-    ):
-        pres_ex_id = "test-pres-ex-id"
-        connection_id = "test-connection-id"
-        respx.delete(f"{BASE_URL}/present-proof-2.0/records/{pres_ex_id}").mock(
-            return_value=httpx.Response(200)
+        assert isinstance(
+            await acapy_client.get_presentation_records_page(limit=10), AcapyError
         )
-        respx.delete(f"{BASE_URL}/connections/{connection_id}").mock(
-            return_value=httpx.Response(200)
-        )
-
-        (
-            presentation_deleted,
-            connection_deleted,
-            errors,
-        ) = await acapy_client.delete_presentation_record_and_connection(
-            pres_ex_id, connection_id
-        )
-
-        assert presentation_deleted is True
-        assert connection_deleted is True
-        assert errors == []
-
-    @respx.mock
-    @pytest.mark.asyncio
-    async def test_delete_presentation_record_and_connection_presentation_only(
-        self, acapy_client
-    ):
-        pres_ex_id = "test-pres-ex-id"
-        respx.delete(f"{BASE_URL}/present-proof-2.0/records/{pres_ex_id}").mock(
-            return_value=httpx.Response(200)
-        )
-
-        (
-            presentation_deleted,
-            connection_deleted,
-            errors,
-        ) = await acapy_client.delete_presentation_record_and_connection(
-            pres_ex_id, None
-        )
-
-        assert presentation_deleted is True
-        assert connection_deleted is False
-        assert errors == []
-
-    @respx.mock
-    @pytest.mark.asyncio
-    async def test_delete_presentation_record_and_connection_mixed_results(
-        self, acapy_client
-    ):
-        pres_ex_id = "test-pres-ex-id"
-        connection_id = "test-connection-id"
-        respx.delete(f"{BASE_URL}/present-proof-2.0/records/{pres_ex_id}").mock(
-            return_value=httpx.Response(200)
-        )
-        respx.delete(f"{BASE_URL}/connections/{connection_id}").mock(
-            return_value=httpx.Response(500)
-        )
-
-        (
-            presentation_deleted,
-            connection_deleted,
-            errors,
-        ) = await acapy_client.delete_presentation_record_and_connection(
-            pres_ex_id, connection_id
-        )
-
-        assert presentation_deleted is True
-        assert connection_deleted is False
-        assert len(errors) == 1
-        assert "Failed to delete connection" in errors[0]
-
-    @respx.mock
-    @pytest.mark.asyncio
-    async def test_delete_presentation_record_and_connection_both_fail(
-        self, acapy_client
-    ):
-        pres_ex_id = "test-pres-ex-id"
-        connection_id = "test-connection-id"
-        respx.delete(f"{BASE_URL}/present-proof-2.0/records/{pres_ex_id}").mock(
-            return_value=httpx.Response(500)
-        )
-        respx.delete(f"{BASE_URL}/connections/{connection_id}").mock(
-            return_value=httpx.Response(500)
-        )
-
-        (
-            presentation_deleted,
-            connection_deleted,
-            errors,
-        ) = await acapy_client.delete_presentation_record_and_connection(
-            pres_ex_id, connection_id
-        )
-
-        assert presentation_deleted is False
-        assert connection_deleted is False
-        assert len(errors) == 2
-
-    @pytest.mark.asyncio
-    async def test_delete_presentation_record_and_connection_no_ids(self, acapy_client):
-        (
-            presentation_deleted,
-            connection_deleted,
-            errors,
-        ) = await acapy_client.delete_presentation_record_and_connection(None, None)
-
-        assert presentation_deleted is False
-        assert connection_deleted is False
-        assert errors == []
 
 
 class TestDeleteConnection:
@@ -258,27 +149,27 @@ class TestDeleteConnection:
 
     @respx.mock
     @pytest.mark.asyncio
-    async def test_delete_connection_network_error_returns_false(self, acapy_client):
-        """delete_connection catches ConnectError and returns False."""
+    async def test_delete_connection_network_error_returns_error(self, acapy_client):
+        """An unreachable ACA-Py is an AcapyError."""
         respx.delete(f"{BASE_URL}/connections/conn-1").mock(
             side_effect=httpx.ConnectError("ACA-Py unreachable")
         )
 
         result = await acapy_client.delete_connection("conn-1")
 
-        assert result is False
+        assert isinstance(result, AcapyError)
 
     @respx.mock
     @pytest.mark.asyncio
-    async def test_delete_connection_timeout_returns_false(self, acapy_client):
-        """delete_connection catches ReadTimeout and returns False."""
+    async def test_delete_connection_timeout_returns_error(self, acapy_client):
+        """A timeout is an AcapyError."""
         respx.delete(f"{BASE_URL}/connections/conn-1").mock(
             side_effect=httpx.ReadTimeout("timed out")
         )
 
         result = await acapy_client.delete_connection("conn-1")
 
-        assert result is False
+        assert isinstance(result, AcapyError)
 
 
 class TestPagedListing:
@@ -302,13 +193,14 @@ class TestPagedListing:
 
     @respx.mock
     @pytest.mark.asyncio
-    async def test_get_connections_page_http_error_raises(self, acapy_client):
+    async def test_get_connections_page_http_error_returns_error(self, acapy_client):
         respx.get(f"{BASE_URL}/connections").mock(
             return_value=httpx.Response(500, content=b"Internal Server Error")
         )
 
-        with pytest.raises(httpx.HTTPStatusError):
-            await acapy_client.get_connections_page(limit=100)
+        assert isinstance(
+            await acapy_client.get_connections_page(limit=100), AcapyError
+        )
 
     @respx.mock
     @pytest.mark.asyncio
@@ -336,7 +228,7 @@ class TestDeleteOobInvitation:
             return_value=httpx.Response(200, json={})
         )
 
-        assert await acapy_client.delete_oob_invitation("invi-1") is True
+        assert await acapy_client.delete_oob_invitation("invi-1") is None
 
     @respx.mock
     @pytest.mark.asyncio
@@ -345,67 +237,70 @@ class TestDeleteOobInvitation:
             return_value=httpx.Response(404)
         )
 
-        assert await acapy_client.delete_oob_invitation("invi-1") is True
+        assert await acapy_client.delete_oob_invitation("invi-1") is None
 
     @respx.mock
     @pytest.mark.asyncio
-    async def test_server_error_returns_false(self, acapy_client):
+    async def test_server_error_returns_error(self, acapy_client):
         respx.delete(f"{BASE_URL}/out-of-band/invitations/invi-1").mock(
             return_value=httpx.Response(500)
         )
 
-        assert await acapy_client.delete_oob_invitation("invi-1") is False
+        assert isinstance(
+            await acapy_client.delete_oob_invitation("invi-1"), AcapyError
+        )
 
     @respx.mock
     @pytest.mark.asyncio
-    async def test_network_error_returns_false(self, acapy_client):
+    async def test_network_error_returns_error(self, acapy_client):
         respx.delete(f"{BASE_URL}/out-of-band/invitations/invi-1").mock(
             side_effect=httpx.ConnectError("ACA-Py unreachable")
         )
 
-        assert await acapy_client.delete_oob_invitation("invi-1") is False
+        assert isinstance(
+            await acapy_client.delete_oob_invitation("invi-1"), AcapyError
+        )
 
 
 class TestTimeoutBehaviour:
-    """Documents how AcapyClient methods behave when httpx raises a timeout.
-
-    Methods that use assert-on-status (create_presentation_request, get_wallet_did,
-    create_connection_invitation, get_presentation_request) have no internal
-    exception handling, so timeouts propagate to the caller unchanged.
-    Methods with explicit try/except (delete_connection, delete_presentation_record,
-    send_problem_report) swallow the error and return a safe default.
-    """
+    """A timeout is a transport error, so every method returns AcapyError."""
 
     @respx.mock
     @pytest.mark.asyncio
-    async def test_delete_connection_timeout_returns_false(self, acapy_client):
+    async def test_delete_connection_timeout_returns_error(self, acapy_client):
         respx.delete(f"{BASE_URL}/connections/conn-1").mock(
             side_effect=httpx.ReadTimeout("timed out")
         )
-        assert await acapy_client.delete_connection("conn-1") is False
+        assert isinstance(await acapy_client.delete_connection("conn-1"), AcapyError)
 
     @respx.mock
     @pytest.mark.asyncio
-    async def test_delete_presentation_record_timeout_returns_false(self, acapy_client):
+    async def test_delete_presentation_record_timeout_returns_error(self, acapy_client):
         respx.delete(f"{BASE_URL}/present-proof-2.0/records/rec-1").mock(
             side_effect=httpx.ReadTimeout("timed out")
         )
-        assert await acapy_client.delete_presentation_record("rec-1") is False
+        assert isinstance(
+            await acapy_client.delete_presentation_record("rec-1"), AcapyError
+        )
 
     @respx.mock
     @pytest.mark.asyncio
-    async def test_send_problem_report_timeout_returns_false(self, acapy_client):
+    async def test_send_problem_report_timeout_returns_error(self, acapy_client):
         respx.post(f"{BASE_URL}/present-proof-2.0/records/rec-1/problem-report").mock(
             side_effect=httpx.ReadTimeout("timed out")
         )
-        assert await acapy_client.send_problem_report("rec-1", "desc") is False
+        assert isinstance(
+            await acapy_client.send_problem_report("rec-1", "desc"), AcapyError
+        )
 
     @respx.mock
     @pytest.mark.asyncio
-    async def test_create_presentation_request_timeout_propagates(self, acapy_client):
-        """Methods without try/except let timeouts surface — callers must handle them."""
+    async def test_create_presentation_request_timeout_returns_error(
+        self, acapy_client
+    ):
         respx.post(f"{BASE_URL}/present-proof-2.0/create-request").mock(
             side_effect=httpx.ReadTimeout("timed out")
         )
-        with pytest.raises(httpx.ReadTimeout):
-            await acapy_client.create_presentation_request({})
+        assert isinstance(
+            await acapy_client.create_presentation_request({}), AcapyError
+        )

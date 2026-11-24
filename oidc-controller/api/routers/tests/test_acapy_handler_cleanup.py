@@ -59,7 +59,7 @@ class TestAcapyHandlerCleanup:
         request.app = MagicMock()
         return request
 
-    @patch("api.routers.acapy_handler.AcapyClient")
+    @patch("api.routers.acapy_handler.AcapyClient", autospec=True)
     @patch("api.routers.acapy_handler.AuthSessionCRUD")
     @patch("api.routers.acapy_handler.notify")
     @pytest.mark.asyncio
@@ -88,9 +88,6 @@ class TestAcapyHandlerCleanup:
         )
 
         # Assert
-        # Verify presentation data was NOT retrieved for failed verification
-        mock_client_instance.get_presentation_request.assert_not_called()
-
         # Verify cleanup was NOT attempted
         mock_client_instance.delete_presentation_record.assert_not_called()
 

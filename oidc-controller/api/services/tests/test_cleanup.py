@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from api.adapters.acapy.client import AcapyError
 from api.services import cleanup as cleanup_module
 from api.services.cleanup import (
     MAX_REPORTED_ERRORS,
@@ -105,7 +106,7 @@ class FakeAcapy:
     async def _page(self, kind, limit, offset):
         self.page_calls += 1
         if kind in self.failing_phases:
-            raise RuntimeError(f"{kind} listing unavailable")
+            return AcapyError(f"{kind} listing unavailable")
         await asyncio.sleep(self.fetch_delay)
         return list(self.store[kind][offset : offset + limit])
 
@@ -115,10 +116,10 @@ class FakeAcapy:
         try:
             await asyncio.sleep(self.delete_delay)
             if record_id in self.fail_ids:
-                return False
+                return AcapyError(f"could not delete {record_id}")
             self.store[kind] = [r for r in self.store[kind] if r[key] != record_id]
             self.deleted[kind].append(record_id)
-            return True
+            return None
         finally:
             self.in_flight -= 1
 

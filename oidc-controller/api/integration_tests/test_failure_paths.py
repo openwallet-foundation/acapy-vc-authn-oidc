@@ -7,6 +7,7 @@ Covers the sad-path scenarios identified in the plan:
   - POST /token with invalid auth code → error response
   - GET /authorize with unknown pres_req_conf_id → 404
   - GET /authorize with invalid client_id → 400
+  - GET /authorize when ACA-Py fails → 502
   - Prover-role webhook is ignored (no state change)
 """
 
@@ -14,8 +15,10 @@ from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
 import pytest
+from httpx import Response
 
 from .conftest import (
+    ACAPY_BASE,
     FAKE_INVI_MSG_ID,
     FAKE_PRES_EX_ID,
     TEST_CLIENT_ID,
@@ -346,6 +349,19 @@ class TestAuthorizeErrors:
             )
         assert resp.status_code == 404
 
+    def test_authorize_returns_502_when_acapy_fails(self, integration_client, oob_mode):
+        """An ACA-Py error is a 502, and its reason stays out of the response."""
+        client, _ = integration_client
+
+        with acapy_oob_mock() as router:
+            router.post(f"{ACAPY_BASE}/present-proof-2.0/create-request").mock(
+                return_value=Response(500, text="wallet storage secret")
+            )
+            resp = client.get("/authorize", params=authorize_params())
+
+        assert resp.status_code == 502
+        assert "wallet storage secret" not in resp.text
+
     def test_authorize_unknown_client_returns_400(self, integration_client):
         """Unknown client_id → 400 Bad Request (pyop rejects the auth request)."""
         client, _ = integration_client
@@ -433,7 +449,7 @@ class TestConnectionBasedFailures:
     """Failure paths under USE_CONNECTION_BASED_VERIFICATION=True.
 
     These differ from OOB failures because the handler calls
-    _send_problem_report_safely on failed/abandoned webhooks, which makes an
+    client.send_problem_report on failed/abandoned webhooks, which makes an
     extra POST to AcaPy. None of the OOB failure tests exercise that path.
     """
 
@@ -485,7 +501,7 @@ class TestConnectionBasedFailures:
     ):
         """verified=false in connection mode sends a problem-report to AcaPy.
 
-        This is the key difference from OOB mode: _send_problem_report_safely
+        This is the key difference from OOB mode: client.send_problem_report
         is called so the wallet is notified of the rejection.
         """
         client, _ = integration_client
