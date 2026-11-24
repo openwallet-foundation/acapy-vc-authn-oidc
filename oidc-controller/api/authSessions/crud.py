@@ -145,17 +145,19 @@ class AuthSessionCRUD:
         auth_sess = col.find_one_and_delete({"_id": PyObjectId(id)})
         return bool(auth_sess)
 
-    async def get_by_pres_exch_id(self, pres_exch_id: str) -> AuthSession:
+    async def find_by_pres_exch_id(self, pres_exch_id: str) -> AuthSession | None:
         col = self._db.get_collection(COLLECTION_NAMES.AUTH_SESSION)
         auth_sess = col.find_one({"pres_exch_id": pres_exch_id})
+        return AuthSession(**auth_sess) if auth_sess else None
 
+    async def get_by_pres_exch_id(self, pres_exch_id: str) -> AuthSession:
+        auth_sess = await self.find_by_pres_exch_id(pres_exch_id)
         if auth_sess is None:
             raise HTTPException(
                 status_code=http_status.HTTP_404_NOT_FOUND,
                 detail="The auth_session hasn't been found with that pres_exch_id!",
             )
-
-        return AuthSession(**auth_sess)
+        return auth_sess
 
     async def get_by_pyop_auth_code(self, code: str) -> AuthSession:
         col = self._db.get_collection(COLLECTION_NAMES.AUTH_SESSION)

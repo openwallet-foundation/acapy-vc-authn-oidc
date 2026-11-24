@@ -183,7 +183,7 @@ class TestConnectionBasedVerificationWebhooks:
 
         mock_request.body.return_value = json.dumps(webhook_body).encode("ascii")
 
-        mock_auth_session_crud.return_value.get_by_pres_exch_id = AsyncMock(
+        mock_auth_session_crud.return_value.find_by_pres_exch_id = AsyncMock(
             return_value=mock_auth_session
         )
         mock_auth_session_crud.return_value.advance = fake_advance()
@@ -225,7 +225,7 @@ class TestConnectionBasedVerificationWebhooks:
         verified = mock_auth_session.model_copy(
             update={"proof_status": AuthSessionState.VERIFIED}
         )
-        mock_auth_session_crud.return_value.get_by_pres_exch_id = AsyncMock(
+        mock_auth_session_crud.return_value.find_by_pres_exch_id = AsyncMock(
             return_value=verified
         )
         advance = fake_advance()
@@ -268,7 +268,7 @@ class TestConnectionBasedVerificationWebhooks:
         # Configure auth session as multi-use
         mock_auth_session = mock_auth_session.model_copy(update={"multi_use": True})
 
-        mock_auth_session_crud.return_value.get_by_pres_exch_id = AsyncMock(
+        mock_auth_session_crud.return_value.find_by_pres_exch_id = AsyncMock(
             return_value=mock_auth_session
         )
         mock_auth_session_crud.return_value.advance = fake_advance()
@@ -315,7 +315,7 @@ class TestConnectionBasedVerificationWebhooks:
 
         mock_request.body.return_value = json.dumps(webhook_body).encode("ascii")
 
-        mock_auth_session_crud.return_value.get_by_pres_exch_id = AsyncMock(
+        mock_auth_session_crud.return_value.find_by_pres_exch_id = AsyncMock(
             return_value=mock_auth_session
         )
         mock_auth_session_crud.return_value.advance = fake_advance()
@@ -367,7 +367,7 @@ class TestConnectionBasedVerificationWebhooks:
                 "expired_timestamp": datetime.now(UTC) - timedelta(seconds=60),
             }
         )
-        mock_auth_session_crud.return_value.get_by_pres_exch_id = AsyncMock(
+        mock_auth_session_crud.return_value.find_by_pres_exch_id = AsyncMock(
             return_value=mock_auth_session
         )
         mock_auth_session_crud.return_value.advance = fake_advance()
@@ -418,7 +418,7 @@ class TestConnectionBasedVerificationWebhooks:
         mock_request.body.return_value = json.dumps(webhook_body).encode("ascii")
 
         mock_auth_session = mock_auth_session.model_copy(update={"multi_use": False})
-        mock_auth_session_crud.return_value.get_by_pres_exch_id = AsyncMock(
+        mock_auth_session_crud.return_value.find_by_pres_exch_id = AsyncMock(
             return_value=mock_auth_session
         )
         mock_auth_session_crud.return_value.advance = fake_advance()
@@ -459,7 +459,7 @@ class TestConnectionBasedVerificationWebhooks:
         }
         mock_request.body.return_value = json.dumps(webhook_body).encode("ascii")
 
-        mock_auth_session_crud.return_value.get_by_pres_exch_id = AsyncMock(
+        mock_auth_session_crud.return_value.find_by_pres_exch_id = AsyncMock(
             return_value=mock_auth_session
         )
         mock_auth_session_crud.return_value.advance = fake_advance()
@@ -499,7 +499,7 @@ class TestConnectionBasedVerificationWebhooks:
 
         mock_request.body.return_value = json.dumps(webhook_body).encode("ascii")
 
-        mock_auth_session_crud.return_value.get_by_pres_exch_id = AsyncMock(
+        mock_auth_session_crud.return_value.find_by_pres_exch_id = AsyncMock(
             return_value=mock_auth_session
         )
         mock_auth_session_crud.return_value.advance = fake_advance()
@@ -542,7 +542,7 @@ class TestConnectionBasedVerificationWebhooks:
             response_url="http://test.com/callback",
         )
 
-        mock_auth_session_crud.return_value.get_by_pres_exch_id = AsyncMock(
+        mock_auth_session_crud.return_value.find_by_pres_exch_id = AsyncMock(
             return_value=mock_auth_session_no_pres_id
         )
         mock_auth_session_crud.return_value.advance = fake_advance()
@@ -670,7 +670,7 @@ class TestConnectionBasedVerificationIntegration:
 
         # First two calls return None, third call (by pres_exch_id) returns auth_session
         mock_crud_instance.get_by_connection_id.side_effect = [None, None]
-        mock_crud_instance.get_by_pres_exch_id.return_value = mock_auth_session
+        mock_crud_instance.find_by_pres_exch_id.return_value = mock_auth_session
 
         # Execute
         result = await post_topic(mock_request, "connections", mock_db)
@@ -679,7 +679,7 @@ class TestConnectionBasedVerificationIntegration:
         assert result == {}
         # Should try both connection lookups and pres_exch_id lookup
         assert mock_crud_instance.get_by_connection_id.call_count == 2
-        mock_crud_instance.get_by_pres_exch_id.assert_called_once_with(
+        mock_crud_instance.find_by_pres_exch_id.assert_called_once_with(
             "test-invitation-id"
         )
 
@@ -706,16 +706,14 @@ class TestConnectionBasedVerificationIntegration:
 
         # All lookups fail
         mock_crud_instance.get_by_connection_id.side_effect = [None, None]
-        mock_crud_instance.get_by_pres_exch_id.side_effect = HTTPException(
-            status_code=404
-        )
+        mock_crud_instance.find_by_pres_exch_id.return_value = None
 
         # Execute - should not raise exception
         result = await post_topic(mock_request, "connections", mock_db)
 
         # Verify
         assert result == {}
-        mock_crud_instance.get_by_pres_exch_id.assert_called_once_with(
+        mock_crud_instance.find_by_pres_exch_id.assert_called_once_with(
             "test-invitation-id"
         )
 
@@ -735,7 +733,7 @@ class TestConnectionBasedVerificationIntegration:
         mock_crud_instance = AsyncMock()
         mock_auth_session_crud.return_value = mock_crud_instance
         mock_crud_instance.get_by_connection_id.side_effect = [None, None]
-        mock_crud_instance.get_by_pres_exch_id.side_effect = RuntimeError("db down")
+        mock_crud_instance.find_by_pres_exch_id.side_effect = RuntimeError("db down")
 
         with pytest.raises(RuntimeError, match="db down"):
             await post_topic(mock_request, "connections", mock_db)
@@ -763,7 +761,7 @@ class TestConnectionBasedVerificationIntegration:
 
         # All lookups return None
         mock_crud_instance.get_by_connection_id.side_effect = [None, None]
-        mock_crud_instance.get_by_pres_exch_id.return_value = None
+        mock_crud_instance.find_by_pres_exch_id.return_value = None
 
         # Execute
         result = await post_topic(mock_request, "connections", mock_db)
@@ -947,7 +945,7 @@ class TestProverRoleWebhooks:
 
         mock_request.body.return_value = json.dumps(webhook_body).encode("ascii")
 
-        mock_auth_session_crud.return_value.get_by_pres_exch_id = AsyncMock(
+        mock_auth_session_crud.return_value.find_by_pres_exch_id = AsyncMock(
             return_value=mock_auth_session
         )
         mock_auth_session_crud.return_value.advance = fake_advance()
@@ -966,7 +964,7 @@ class TestProverRoleWebhooks:
 
         # Verify that normal verifier logic was triggered (NOT early return)
         assert result == {}  # Not the prover-role response
-        mock_auth_session_crud.return_value.get_by_pres_exch_id.assert_called_once_with(
+        mock_auth_session_crud.return_value.find_by_pres_exch_id.assert_called_once_with(
             "test-pres-ex-id"
         )
 
@@ -1033,7 +1031,7 @@ class TestProverRoleWebhooks:
 
         mock_request.body.return_value = json.dumps(webhook_body).encode("ascii")
 
-        mock_auth_session_crud.return_value.get_by_pres_exch_id = AsyncMock(
+        mock_auth_session_crud.return_value.find_by_pres_exch_id = AsyncMock(
             return_value=mock_auth_session
         )
         mock_auth_session_crud.return_value.advance = fake_advance()
@@ -1051,7 +1049,7 @@ class TestProverRoleWebhooks:
         await post_topic(mock_request, "present_proof_v2_0", mock_db)
 
         # Verify that verifier logic was triggered (NOT early return)
-        mock_auth_session_crud.return_value.get_by_pres_exch_id.assert_called_once_with(
+        mock_auth_session_crud.return_value.find_by_pres_exch_id.assert_called_once_with(
             "test-pres-ex-id"
         )
 
@@ -1139,8 +1137,8 @@ class TestRecordRemovalWebhooks:
     ):
         webhook_body = {"pres_ex_id": "gone-pres-ex-id", "state": "abandoned"}
         mock_request.body.return_value = json.dumps(webhook_body).encode("ascii")
-        mock_auth_session_crud.return_value.get_by_pres_exch_id = AsyncMock(
-            side_effect=HTTPException(status_code=404, detail="not found")
+        mock_auth_session_crud.return_value.find_by_pres_exch_id = AsyncMock(
+            return_value=None
         )
 
         result = await post_topic(mock_request, "present_proof_v2_0", mock_db)
@@ -1156,13 +1154,12 @@ class TestRecordRemovalWebhooks:
     ):
         webhook_body = {"pres_ex_id": "test-pres-ex-id", "state": "done"}
         mock_request.body.return_value = json.dumps(webhook_body).encode("ascii")
-        mock_auth_session_crud.return_value.get_by_pres_exch_id = AsyncMock(
-            side_effect=HTTPException(status_code=400, detail="bad")
+        mock_auth_session_crud.return_value.find_by_pres_exch_id = AsyncMock(
+            side_effect=RuntimeError("db down")
         )
 
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(RuntimeError, match="db down"):
             await post_topic(mock_request, "present_proof_v2_0", mock_db)
-        assert exc_info.value.status_code == 400
 
 
 class TestMiscWebhookCoverage:

@@ -75,7 +75,7 @@ class TestAcapyHandlerCleanup:
         """Test that cleanup is not attempted for failed verifications."""
         # Arrange
         mock_crud_instance = mock_auth_session_crud.return_value
-        mock_crud_instance.get_by_pres_exch_id = AsyncMock(
+        mock_crud_instance.find_by_pres_exch_id = AsyncMock(
             return_value=mock_auth_session
         )
         mock_crud_instance.advance = fake_advance()

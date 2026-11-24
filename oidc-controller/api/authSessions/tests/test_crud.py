@@ -407,6 +407,15 @@ class TestAuthSessionCRUD:
         )
 
     @pytest.mark.asyncio
+    async def test_find_by_pres_exch_id_not_found(
+        self, auth_session_crud, mock_database, mock_collection
+    ):
+        mock_database.get_collection.return_value = mock_collection
+        mock_collection.find_one.return_value = None
+
+        assert await auth_session_crud.find_by_pres_exch_id("missing") is None
+
+    @pytest.mark.asyncio
     async def test_get_by_pyop_auth_code_success(
         self,
         auth_session_crud,

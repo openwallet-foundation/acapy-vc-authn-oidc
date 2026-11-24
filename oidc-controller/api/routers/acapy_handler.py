@@ -124,13 +124,7 @@ async def _find_connection_session(
     if not search_id:
         return None
     logger.info(f"Trying to find auth session by pres_exch_id pattern: {search_id}")
-    try:
-        return await crud.get_by_pres_exch_id(search_id)
-    except HTTPException as e:
-        # Not found is expected; anything else is a real failure.
-        if e.status_code != 404:
-            raise
-        return None
+    return await crud.find_by_pres_exch_id(search_id)
 
 
 @router.post("/topic/{topic}/")
@@ -272,13 +266,10 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                 return {"status": "prover-role event logged"}
 
             # Existing verifier-role code continues below...
-            try:
-                auth_session: Final = await AuthSessionCRUD(db).get_by_pres_exch_id(
-                    pres_ex_id
-                )
-            except HTTPException as e:
-                if e.status_code != 404:
-                    raise
+            auth_session: Final = await AuthSessionCRUD(db).find_by_pres_exch_id(
+                pres_ex_id
+            )
+            if auth_session is None:
                 # Acknowledge so ACA-Py does not retry for a session that no longer exists
                 logger.info(
                     "No auth session for presentation exchange, ignoring webhook",
