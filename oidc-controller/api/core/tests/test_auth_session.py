@@ -14,6 +14,8 @@ from api.core.auth_session import (
     _updated,
     apply,
 )
+from hypothesis import given
+from hypothesis import strategies as st
 
 NOW = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
 
@@ -146,3 +148,59 @@ def test_naive_deadlines_are_read_as_utc():
     result = _applied(_session(expired_timestamp=deadline), Expired(NOW))
 
     assert result.proof_status is AuthSessionState.EXPIRED
+
+
+# Property tests: random event sequences instead of hand-picked cases.
+
+_FINISHES = {
+    Verified: AuthSessionState.VERIFIED,
+    Failed: AuthSessionState.FAILED,
+    Abandoned: AuthSessionState.ABANDONED,
+    Expired: AuthSessionState.EXPIRED,
+}
+_RANK = {AuthSessionState.NOT_STARTED: 0, AuthSessionState.PENDING: 1} | dict.fromkeys(
+    FINAL_STATES, 2
+)
+_offsets = st.timedeltas(min_value=timedelta(hours=-1), max_value=timedelta(hours=1))
+_events: st.SearchStrategy[Event] = st.one_of(
+    st.just(Scanned()),
+    st.builds(RequestSent, st.text(max_size=5), st.just({}), st.text(max_size=5)),
+    st.just(Verified({})),
+    st.just(Failed()),
+    st.just(Abandoned()),
+    _offsets.map(lambda offset: Expired(NOW + offset)),
+)
+_sessions = st.builds(
+    lambda status, offset: _session(
+        proof_status=status, expired_timestamp=NOW + offset
+    ),
+    st.sampled_from([AuthSessionState.NOT_STARTED, AuthSessionState.PENDING]),
+    _offsets,
+)
+
+
+@given(_sessions, st.lists(_events, max_size=12))
+def test_event_sequences_finish_at_most_once(session: AuthSession, events: list[Event]):
+    finished = 0
+    for event in events:
+        before = session.model_dump()
+        result = apply(session, event)
+
+        assert session.model_dump() == before
+        if isinstance(result, Rejected):
+            continue
+        assert session.proof_status not in FINAL_STATES
+        assert _RANK[result.proof_status] >= _RANK[session.proof_status]
+        if (finish := _FINISHES.get(type(event))) is not None:
+            assert result.proof_status is finish
+            finished += 1
+        session = result
+
+    assert finished <= 1
+
+
+@given(st.sampled_from(FINAL_STATES), st.lists(_events, max_size=12))
+def test_final_states_are_absorbing(status: AuthSessionState, events: list[Event]):
+    session = _session(proof_status=status, expired_timestamp=NOW)
+
+    assert all(isinstance(apply(session, event), Rejected) for event in events)
