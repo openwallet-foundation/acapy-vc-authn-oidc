@@ -15,7 +15,7 @@ import structlog
 from redis.cluster import ClusterNode, RedisCluster
 from redis.sentinel import Sentinel
 
-from api.core.config import settings
+from api.core.config import RedisMode, settings
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
 
@@ -41,33 +41,35 @@ def parse_host_port_pairs(hosts_string: str) -> list[tuple[str, int]]:
     return nodes
 
 
-def build_redis_url() -> str | None:
+def build_redis_url() -> str:
     """Build Redis connection URL from settings based on REDIS_MODE.
 
     REDIS_HOST is always in host:port format (validated at startup).
 
     Returns:
-        str | None: Redis URL for single/sentinel modes, None for cluster mode
-                    (cluster uses parse_host_port_pairs directly)
+        str: Redis URL for single/sentinel modes
+
+    Raises:
+        ValueError: for other modes (cluster uses parse_host_port_pairs directly)
 
     URL Formats:
         - single: redis://[:password@]host:port/db
         - sentinel: redis+sentinel://[:password@]host1:port1,host2:port2/db/master_name
-        - cluster: Returns None (uses parse_host_port_pairs instead)
+        - cluster: not supported (uses parse_host_port_pairs instead)
 
     Note: For Sentinel URLs, the /db/service_name order is required,
     not /service_name/db, for compatibility with Redis Sentinel URL parsing.
     """
-    mode = settings.REDIS_MODE.lower()
+    mode = settings.REDIS_MODE
 
-    if mode == "single":
+    if mode == RedisMode.SINGLE:
         # REDIS_HOST is already host:port after validation
         host_port = settings.REDIS_HOST
         if settings.REDIS_PASSWORD:
             return f"redis://:{settings.REDIS_PASSWORD}@{host_port}/{settings.REDIS_DB}"
         return f"redis://{host_port}/{settings.REDIS_DB}"
 
-    elif mode == "sentinel":
+    elif mode == RedisMode.SENTINEL:
         nodes = settings.REDIS_HOST
         master = settings.REDIS_SENTINEL_MASTER_NAME
         # redis-py Sentinel URL format requires /db/service_name (not /service_name/db)
@@ -75,8 +77,7 @@ def build_redis_url() -> str | None:
             return f"redis+sentinel://:{settings.REDIS_PASSWORD}@{nodes}/{settings.REDIS_DB}/{master}"
         return f"redis+sentinel://{nodes}/{settings.REDIS_DB}/{master}"
 
-    # Cluster and other modes don't use URL format
-    return None
+    raise ValueError(f"No Redis URL for REDIS_MODE={mode}")
 
 
 # --- Redis client helpers ---
@@ -109,8 +110,7 @@ def _get_cluster_client():
 
 def _get_single_redis_client():
     """Get a single Redis client connection."""
-    redis_url = build_redis_url()
-    return redis.from_url(redis_url)
+    return redis.from_url(build_redis_url())
 
 
 # --- Redis storage wrappers for PyOP ---
@@ -441,17 +441,12 @@ def can_we_reach_cluster(startup_nodes: list[tuple[str, int]]) -> bool:
         return False
 
 
-def extract_storage_class(redis_mode: str) -> type[BaseRedisWrapperWithPack]:
+def extract_storage_class(redis_mode: RedisMode) -> type[BaseRedisWrapperWithPack]:
     """Return the storage wrapper class for the given Redis mode."""
     match redis_mode:
-        case "sentinel":
+        case RedisMode.SENTINEL:
             return SentinelRedisWrapperWithPack
-        case "cluster":
+        case RedisMode.CLUSTER:
             return ClusterRedisWrapperWithPack
-        case "single":
-            return SingleRedisWrapperWithPack
-        case _:
-            logger.warning(
-                f"Unrecognised REDIS_MODE '{redis_mode}', falling back to single Redis storage"
-            )
+        case RedisMode.SINGLE | RedisMode.NONE:
             return SingleRedisWrapperWithPack

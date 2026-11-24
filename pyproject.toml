@@ -40,6 +40,8 @@ pytest-cov = "^7.1.0"
 pytest = "^9.2.0"
 respx = "^0.23.1"
 httpx2 = "^2.16.2"
+basedpyright = "^1.40.2"
+import-linter = "^2.17"
 
 [tool.pytest.ini_options]
 testpaths = ["oidc-controller"]
@@ -67,13 +69,92 @@ target-version = "py313"
 extend-exclude = ["docker/"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "W"]
+select = ["E", "F", "I", "W", "B", "C4", "SIM", "UP", "PLW0603"]
 ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+# Nested patch() blocks read fine in tests.
+"**/{tests,integration_tests}/*" = ["SIM117"]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI dependency markers are meant to be called in argument defaults.
+extend-immutable-calls = [
+    "fastapi.Depends",
+    "fastapi.Header",
+    "fastapi.Query",
+    "fastapi.Security",
+]
 
 [tool.ruff.format]
 
-[tool.pyright]
+[tool.basedpyright]
 pythonVersion = "3.13"
+typeCheckingMode = "standard"
+include = ["oidc-controller/api"]
+exclude = ["**/tests", "**/integration_tests", "**/__pycache__"]
+extraPaths = ["oidc-controller"]
+reportMatchNotExhaustive = "error"
+# Modules that pass strict mode. Add a module here once it is clean.
+strict = [
+    "oidc-controller/api/clientConfigurations/examples.py",
+    "oidc-controller/api/clientConfigurations/models.py",
+    "oidc-controller/api/core/acapy/config.py",
+    "oidc-controller/api/core/acapy/models.py",
+    "oidc-controller/api/core/acapy/out_of_band.py",
+    "oidc-controller/api/core/acapy/present_proof_attachment.py",
+    "oidc-controller/api/core/acapy/present_proof_presentation.py",
+    "oidc-controller/api/core/acapy/service_decorator.py",
+    "oidc-controller/api/core/auth.py",
+    "oidc-controller/api/core/config.py",
+    "oidc-controller/api/core/http_exception_util.py",
+    "oidc-controller/api/db/collections.py",
+    "oidc-controller/api/routers/cleanup.py",
+    "oidc-controller/api/verificationConfigs/examples.py",
+    "oidc-controller/api/verificationConfigs/variableSubstitutions.py",
+]
+
+# Keep the pure modules free of I/O. They may use settings, which are frozen,
+# but must not reach the database, Redis, HTTP or the web framework, directly
+# or through another module. Add a module to source_modules once it is pure.
+[tool.importlinter]
+root_package = "api"
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "Pure modules do no I/O"
+type = "forbidden"
+source_modules = [
+    "api.authSessions.models",
+    "api.clientConfigurations.models",
+    "api.core.acapy.models",
+    "api.core.acapy.out_of_band",
+    "api.core.acapy.present_proof_attachment",
+    "api.core.acapy.present_proof_presentation",
+    "api.core.acapy.service_decorator",
+    "api.core.models",
+    "api.core.oidc.issue_token_service",
+    "api.verificationConfigs.helpers",
+    "api.verificationConfigs.models",
+    "api.verificationConfigs.variableSubstitutions",
+]
+forbidden_modules = [
+    "fastapi",
+    "httpx",
+    "pymongo",
+    "redis",
+    "socketio",
+    "starlette",
+    "api.authSessions.crud",
+    "api.clientConfigurations.crud",
+    "api.core.acapy.client",
+    "api.core.oidc.provider",
+    "api.core.redis_utils",
+    "api.core.webhook_utils",
+    "api.db",
+    "api.routers",
+    "api.services",
+    "api.verificationConfigs.crud",
+]
 
 [build-system]
 requires = ["poetry-core>=2.0"]

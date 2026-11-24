@@ -98,8 +98,11 @@ class VerificationConfigRead(VerificationConfigBase):
     ver_config_id: str = Field()
 
 
-class VerificationConfigPatch(VerificationConfigBase):
+class VerificationConfigPatch(BaseModel):
     subject_identifier: str | None = Field(None)
     proof_request: VerificationProofRequest | None = Field(None)
+    generate_consistent_identifier: bool | None = Field(default=False)
+    include_v1_attributes: bool | None = Field(default=False)
+    metadata: dict[str, MetaData] | None = Field(default=None)
 
-    pass
+    model_config = VerificationConfigBase.model_config

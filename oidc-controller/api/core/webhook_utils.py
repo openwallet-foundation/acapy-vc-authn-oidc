@@ -1,5 +1,5 @@
 import asyncio
-from typing import Awaitable, Callable
+from collections.abc import Awaitable, Callable
 
 import httpx
 import structlog
@@ -8,8 +8,8 @@ logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
 
 
 async def register_tenant_webhook(
-    wallet_id: str,
-    webhook_url: str,
+    wallet_id: str | None,
+    webhook_url: str | None,
     admin_url: str,
     api_key: str | None,
     admin_api_key: str | None,

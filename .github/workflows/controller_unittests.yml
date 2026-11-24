@@ -32,6 +32,13 @@ jobs:
       - name: Format with ruff
         run: |
           poetry run ruff format --check oidc-controller
+      - name: Type check with basedpyright
+        run: |
+          poetry run basedpyright
+      - name: Check import contracts
+        working-directory: ./oidc-controller
+        run: |
+          poetry run lint-imports ../pyproject.toml
       - name: Unit tests
         run: |
           poetry run pytest -m "not e2e and not integration" --log-cli-level=INFO --cov --cov-report lcov

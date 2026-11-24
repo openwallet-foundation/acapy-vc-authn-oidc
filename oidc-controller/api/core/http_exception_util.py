@@ -1,3 +1,5 @@
+from typing import NoReturn
+
 import structlog
 from fastapi import HTTPException
 from fastapi import status as http_status
@@ -11,9 +13,9 @@ UNKNOWN_DEFAULT_MSG = "The server was unable to process the request"
 
 
 def raise_appropriate_http_exception(
-    err: WriteError, exists_msg: str = CONFLICT_DEFAULT_MSG
-):
-    if err.code == 11000:
+    err: Exception, exists_msg: str = CONFLICT_DEFAULT_MSG
+) -> NoReturn:
+    if isinstance(err, WriteError) and err.code == 11000:
         raise HTTPException(
             status_code=http_status.HTTP_409_CONFLICT,
             detail=exists_msg,
@@ -26,9 +28,12 @@ def raise_appropriate_http_exception(
         )
 
 
-def check_and_raise_not_found_http_exception(resp, detail: str = NOT_FOUND_DEFAULT_MSG):
+def check_and_raise_not_found_http_exception[T](
+    resp: T | None, detail: str = NOT_FOUND_DEFAULT_MSG
+) -> T:
     if resp is None:
         raise HTTPException(
             status_code=http_status.HTTP_404_NOT_FOUND,
             detail=detail,
         )
+    return resp

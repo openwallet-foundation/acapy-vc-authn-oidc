@@ -25,8 +25,8 @@ Sentinel failover: If a Sentinel failover occurs mid-session, the pub/sub
 
 import asyncio
 import json
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from datetime import UTC, datetime
-from typing import AsyncGenerator, Awaitable, Callable
 
 import redis.asyncio as async_redis
 import structlog
@@ -35,8 +35,8 @@ from pymongo.database import Database
 from starlette.responses import StreamingResponse
 
 from ..authSessions.crud import AuthSessionCRUD
-from ..authSessions.models import AuthSessionPatch, AuthSessionState
-from ..core.config import settings
+from ..authSessions.models import AuthSession, AuthSessionPatch, AuthSessionState
+from ..core.config import RedisMode, settings
 from ..core.redis_utils import parse_host_port_pairs
 from ..db.session import get_db
 
@@ -68,7 +68,7 @@ def set_redis_client(client: async_redis.Redis) -> None:
     Called from the FastAPI startup event in main.py.
     Must be called after the event loop is running (not at module import time).
     """
-    global _redis_client
+    global _redis_client  # noqa: PLW0603 - set once at startup
     _redis_client = client
 
 
@@ -78,19 +78,19 @@ async def build_async_redis_client() -> async_redis.Redis:
     For cluster mode, connects to the first node since PUBLISH broadcasts
     to all nodes in a Redis Cluster.
     """
-    mode = settings.REDIS_MODE.lower()
+    mode = settings.REDIS_MODE
 
-    if mode == "single":
+    if mode == RedisMode.SINGLE:
         hosts = parse_host_port_pairs(settings.REDIS_HOST)
         host, port = hosts[0]
         return async_redis.Redis(
             host=host,
             port=port,
-            password=settings.REDIS_PASSWORD or None,
+            password=settings.REDIS_PASSWORD,
             db=settings.REDIS_DB,
         )
 
-    elif mode == "sentinel":
+    elif mode == RedisMode.SENTINEL:
         from redis.asyncio.sentinel import Sentinel
 
         sentinel_hosts = parse_host_port_pairs(settings.REDIS_HOST)
@@ -100,17 +100,17 @@ async def build_async_redis_client() -> async_redis.Redis:
         sentinel = Sentinel(sentinel_hosts, sentinel_kwargs=sentinel_kwargs)
         return sentinel.master_for(
             settings.REDIS_SENTINEL_MASTER_NAME,
-            password=settings.REDIS_PASSWORD or None,
+            password=settings.REDIS_PASSWORD,
         )
 
-    elif mode == "cluster":
+    elif mode == RedisMode.CLUSTER:
         # Connect to the first node; PUBLISH broadcasts to all cluster nodes
         hosts = parse_host_port_pairs(settings.REDIS_HOST)
         host, port = hosts[0]
         return async_redis.Redis(
             host=host,
             port=port,
-            password=settings.REDIS_PASSWORD or None,
+            password=settings.REDIS_PASSWORD,
         )
 
     else:
@@ -123,7 +123,7 @@ async def notify(pid: str, status: str) -> None:
     Single-pod mode: sets an in-process asyncio.Event.
     Multi-pod mode: publishes to Redis channel sse:{pid}.
     """
-    if settings.REDIS_MODE == "none":
+    if settings.REDIS_MODE == RedisMode.NONE:
         # Only cache if a subscriber is currently connected; otherwise the initial
         # DB state emit on connect handles any status changes that fired before
         # the browser connected, so storing here would only leak memory.
@@ -164,7 +164,7 @@ def _format_event(data: dict, event: str = "status", id: str | None = None) -> s
 
 async def _get_initial_state(
     pid: str, db: Database
-) -> tuple[str | None, bool, datetime | None, object]:
+) -> tuple[AuthSessionState | None, bool, datetime | None, AuthSession | None]:
     """Fetch current proof_status from DB for the initial SSE event on connect.
 
     Returns (status, is_terminal, expired_timestamp, auth_session). Returns
@@ -198,7 +198,9 @@ def _seconds_until_expiry(expired_timestamp: datetime | None) -> float:
     return min(30.0, max(1.0, remaining))
 
 
-async def _expire_if_needed(pid: str, db: Database, auth_session=None) -> bool:
+async def _expire_if_needed(
+    pid: str, db: Database, auth_session: AuthSession | None = None
+) -> bool:
     """Transition a NOT_STARTED session to EXPIRED if its deadline has passed.
 
     Called on connect (passing the auth_session from _get_initial_state to avoid
@@ -241,7 +243,7 @@ async def _sse_event_loop(
     request: Request,
     db: Database,
     wait_fn: Callable[[float], Awaitable[dict | None]],
-) -> AsyncGenerator[str, None]:
+) -> AsyncGenerator[str]:
     """Core SSE event loop shared by single-pod and multi-pod implementations.
 
     Handles the common logic:
@@ -310,7 +312,7 @@ async def _sse_event_loop(
 
 async def _single_pod_stream(
     pid: str, request: Request, db: Database
-) -> AsyncGenerator[str, None]:
+) -> AsyncGenerator[str]:
     """Generate SSE events for single-pod mode using in-process asyncio.Event."""
     event = asyncio.Event()
     if pid in _signals:
@@ -324,7 +326,7 @@ async def _single_pod_stream(
     async def wait_fn(timeout: float) -> dict | None:
         try:
             await asyncio.wait_for(event.wait(), timeout=timeout)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return None
         event.clear()
         status = _latest.get(pid)
@@ -356,15 +358,15 @@ async def _poll_redis_pubsub(pubsub) -> dict | None:
 
 
 async def _multi_pod_stream(
-    pid: str, request: Request, db: Database
-) -> AsyncGenerator[str, None]:
+    pid: str, request: Request, db: Database, redis_client: async_redis.Redis
+) -> AsyncGenerator[str]:
     """Generate SSE events for multi-pod mode using Redis pub/sub.
 
     Subscribes BEFORE reading DB state to close the race window where a webhook
     fires between the DB check and the subscription setup. Any notification
     published in that window is queued and delivered when get_message() polls.
     """
-    pubsub = _redis_client.pubsub()
+    pubsub = redis_client.pubsub()
     await pubsub.subscribe(f"sse:{pid}")
 
     async def wait_fn(timeout: float) -> dict | None:
@@ -411,10 +413,10 @@ async def sse_status(
     """
     mode = settings.REDIS_MODE
 
-    if mode != "none" and _redis_client is not None:
-        stream = _multi_pod_stream(pid, request, db)
+    if mode != RedisMode.NONE and _redis_client is not None:
+        stream = _multi_pod_stream(pid, request, db, _redis_client)
     else:
-        if mode != "none":
+        if mode != RedisMode.NONE:
             logger.warning(
                 "Redis client not initialized, falling back to single-pod SSE",
                 pid=pid,

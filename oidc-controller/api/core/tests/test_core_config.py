@@ -108,13 +108,30 @@ class TestConfigValidation:
                 importlib.reload(config)
 
 
+class TestSettingsNormalization:
+    """Settings are validated once when built, since they are frozen."""
+
+    def test_controller_url_is_required(self):
+        with patch.dict(os.environ, {}, clear=True):
+            with pytest.raises(ValidationError, match="CONTROLLER_URL"):
+                FactoryConfig(EnvironmentEnum.LOCAL.value)()
+
+    def test_redis_mode_and_empty_password_are_normalized(self):
+        with patch.dict(os.environ, {"REDIS_MODE": " Single ", "REDIS_PASSWORD": ""}):
+            config = FactoryConfig(EnvironmentEnum.LOCAL.value)()
+        assert config.REDIS_MODE == "single"
+        assert config.REDIS_PASSWORD is None
+
+
 class TestOIDCConfig:
     """Tests for OIDC-specific configuration."""
 
     def test_default_token_ttl(self):
         """Test default TTL is 3600 seconds."""
         # Use patch to ensure clean environment
-        with patch.dict(os.environ, {}, clear=True):
+        with patch.dict(
+            os.environ, {"CONTROLLER_URL": "https://controller"}, clear=True
+        ):
             # We need to reload the config module or recreate the config object
             # Since FactoryConfig creates new instances, we can use that
             config = FactoryConfig(EnvironmentEnum.LOCAL.value)()
@@ -223,15 +240,11 @@ class TestValidateRedisConfig:
             validate_redis_config()
         assert "Invalid node:" in str(exc.value)
 
-    @patch("api.core.config.settings")
-    def test_validate_redis_config_invalid_mode(self, mock_settings):
-        """Test validation fails for invalid Redis mode."""
-        mock_settings.REDIS_MODE = "invalid_mode"
-
-        with pytest.raises(ValueError) as exc:
-            validate_redis_config()
-        assert "Invalid REDIS_MODE: 'invalid_mode'" in str(exc.value)
-        assert "Must be one of: none, single, sentinel, cluster" in str(exc.value)
+    def test_invalid_redis_mode_fails_when_settings_load(self):
+        """An unknown REDIS_MODE is rejected when settings are built."""
+        with patch.dict(os.environ, {"REDIS_MODE": "invalid_mode"}):
+            with pytest.raises(ValidationError, match="REDIS_MODE"):
+                FactoryConfig(EnvironmentEnum.LOCAL.value)()
 
     @patch("api.core.config.settings")
     def test_validate_redis_config_sentinel_with_ip_addresses(self, mock_settings):

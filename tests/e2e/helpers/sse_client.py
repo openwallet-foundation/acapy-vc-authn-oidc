@@ -38,7 +38,7 @@ class SSEClient:
             return await asyncio.wait_for(
                 self._stream_until(pid, expected), timeout=deadline
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             raise TimeoutError(
                 f"SSE timed out after {deadline}s waiting for '{expected}' (pid={pid})"
             )
