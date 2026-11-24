@@ -38,21 +38,12 @@ from ..adapters.redis_utils import parse_host_port_pairs
 from ..authSessions.crud import AuthSessionCRUD
 from ..authSessions.models import AuthSession, AuthSessionState
 from ..config import RedisMode, settings
-from ..core.auth_session import Expired, as_utc, has_expired
+from ..core.auth_session import FINAL_STATES, Expired, as_utc, has_expired
 from ..db.session import get_db
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
 
 router = APIRouter()
-
-TERMINAL_STATES = frozenset(
-    {
-        AuthSessionState.VERIFIED,
-        AuthSessionState.FAILED,
-        AuthSessionState.EXPIRED,
-        AuthSessionState.ABANDONED,
-    }
-)
 
 # Single-pod in-process signaling: pid -> asyncio.Event
 # Note: supports only one SSE subscriber per pid (one browser tab per session).
@@ -178,7 +169,7 @@ async def _get_initial_state(
         auth_session = await AuthSessionCRUD(db).get(pid)
         return (
             auth_session.proof_status,
-            auth_session.proof_status in TERMINAL_STATES,
+            auth_session.proof_status in FINAL_STATES,
             auth_session.expired_timestamp,
             auth_session,
         )
@@ -212,27 +203,11 @@ async def _final_status(
     try:
         if auth_session is None:
             auth_session = await AuthSessionCRUD(db).get(pid)
-        status = auth_session.proof_status
-        if status in TERMINAL_STATES:
-            return status
-        if status != AuthSessionState.NOT_STARTED:
-            logger.debug(
-                "SSE expiry check: status is not NOT_STARTED, skipping",
-                pid=pid,
-                proof_status=status,
-            )
-            return None
+        if auth_session.proof_status in FINAL_STATES:
+            return auth_session.proof_status
         now = datetime.now(UTC)
-        expired = has_expired(auth_session, now)
-        logger.debug(
-            "SSE expiry check",
-            pid=pid,
-            expired_time=str(auth_session.expired_timestamp),
-            now=str(now),
-            is_expired=expired,
-        )
         if (
-            expired
+            has_expired(auth_session, now)
             and await AuthSessionCRUD(db).advance(auth_session, Expired(now))
             is not None
         ):
@@ -315,7 +290,7 @@ async def _sse_event_loop(
             continue
         yield _format_event(payload, id=str(seq))
         seq += 1
-        if payload.get("status") in TERMINAL_STATES:
+        if payload.get("status") in FINAL_STATES:
             return
 
 

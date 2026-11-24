@@ -10,10 +10,10 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from api.authSessions.models import AuthSession, AuthSessionState
+from api.core.auth_session import FINAL_STATES
 from api.core.models import PyObjectId
 from api.routers import sse as sse_module
 from api.routers.sse import (
-    TERMINAL_STATES,
     _final_status,
     _format_event,
     _get_initial_state,
@@ -208,7 +208,7 @@ class TestSseEndpoint:
     def test_sse_closes_stream_on_terminal_status_in_db(self):
         """When DB state is already terminal, stream should end after first event."""
         app = _make_app()
-        for terminal_status in TERMINAL_STATES:
+        for terminal_status in FINAL_STATES:
             auth_session = _make_auth_session(terminal_status)
             mock_crud = MagicMock()
             mock_crud.get = AsyncMock(return_value=auth_session)
@@ -220,21 +220,6 @@ class TestSseEndpoint:
                     resp = client.get("/sse/status/507f1f77bcf86cd799439011")
                     assert resp.status_code == 200
                     assert terminal_status.value.encode() in resp.content
-
-
-# ---------------------------------------------------------------------------
-# Unit tests: terminal state set
-# ---------------------------------------------------------------------------
-
-
-class TestTerminalStates:
-    def test_terminal_states_are_correct(self):
-        assert AuthSessionState.VERIFIED in TERMINAL_STATES
-        assert AuthSessionState.FAILED in TERMINAL_STATES
-        assert AuthSessionState.EXPIRED in TERMINAL_STATES
-        assert AuthSessionState.ABANDONED in TERMINAL_STATES
-        assert AuthSessionState.NOT_STARTED not in TERMINAL_STATES
-        assert AuthSessionState.PENDING not in TERMINAL_STATES
 
 
 # ---------------------------------------------------------------------------

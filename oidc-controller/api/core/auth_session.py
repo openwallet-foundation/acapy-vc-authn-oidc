@@ -65,11 +65,12 @@ class Rejected:
 
 
 OPEN_STATES = frozenset({AuthSessionState.NOT_STARTED, AuthSessionState.PENDING})
+FINAL_STATES = frozenset(AuthSessionState) - OPEN_STATES
 
 
 def apply(session: AuthSession, event: Event) -> AuthSession | Rejected:
     status = session.proof_status
-    if status not in OPEN_STATES:
+    if status in FINAL_STATES:
         return Rejected(f"session is already {status}")
     update: dict[str, Any]
     match event:
