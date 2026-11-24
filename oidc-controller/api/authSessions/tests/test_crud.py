@@ -1,8 +1,16 @@
 """Tests for AuthSession CRUD operations."""
 
+import asyncio
+import os
+import random
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
+from uuid import uuid4
 
 import mongomock
+import pymongo
 import pytest
 from bson import ObjectId
 from fastapi import HTTPException
@@ -17,9 +25,37 @@ from api.authSessions.models import (
     AuthSessionPatch,
     AuthSessionState,
 )
-from api.core.auth_session import Failed, Rejected, RequestSent, Scanned, Verified
+from api.core.auth_session import (
+    FINAL_STATES,
+    Abandoned,
+    Event,
+    Expired,
+    Failed,
+    Rejected,
+    RequestSent,
+    Scanned,
+    Verified,
+)
 from api.core.models import PyObjectId
 from api.db.session import COLLECTION_NAMES
+
+MONGO_TEST_URL = os.environ.get("MONGO_TEST_URL")
+
+
+@pytest.fixture
+def auth_session_collection():
+    """An empty auth session collection: mongomock, or a throwaway database on
+    the MongoDB at MONGO_TEST_URL when that is set."""
+    if not MONGO_TEST_URL:
+        yield mongomock.MongoClient().db.get_collection(COLLECTION_NAMES.AUTH_SESSION)
+        return
+    client = pymongo.MongoClient(MONGO_TEST_URL)
+    db = client.get_database(f"test_{uuid4().hex}")
+    try:
+        yield db.get_collection(COLLECTION_NAMES.AUTH_SESSION)
+    finally:
+        client.drop_database(db.name)
+        client.close()
 
 
 @pytest.fixture
@@ -539,8 +575,8 @@ class TestAuthSessionCRUD:
 
 class TestAdvance:
     @pytest.fixture
-    def collection(self):
-        return mongomock.MongoClient().db.get_collection(COLLECTION_NAMES.AUTH_SESSION)
+    def collection(self, auth_session_collection):
+        return auth_session_collection
 
     @pytest.fixture
     def crud(self, collection):
@@ -651,3 +687,73 @@ class TestAdvance:
 
         assert isinstance(await crud.advance(verified, Failed()), Rejected)
         assert collection.find_one()["proof_status"] == AuthSessionState.VERIFIED
+
+
+@pytest.mark.skipif(
+    not MONGO_TEST_URL,
+    reason="needs a real MongoDB: mongomock's updates are not atomic across threads",
+)
+class TestConcurrentAdvance:
+    """Many writers advance one session at once, each from the same snapshot."""
+
+    WRITERS = 16
+    ROUNDS = 25
+
+    @staticmethod
+    def _event(rng: random.Random) -> Event:
+        return rng.choice(
+            [
+                Scanned(),
+                Verified({"pres": {}}),
+                Failed(),
+                Abandoned(),
+                Expired(datetime.now(UTC)),
+            ]
+        )
+
+    @staticmethod
+    def _race(
+        crud: AuthSessionCRUD, snapshot: AuthSession, events: list[Event]
+    ) -> list[AuthSession | Rejected]:
+        """Advance SNAPSHOT with each event on its own thread, all at once."""
+        start = threading.Barrier(len(events))
+
+        def write(event: Event) -> AuthSession | Rejected:
+            start.wait()
+            return asyncio.run(crud.advance(snapshot, event))
+
+        with ThreadPoolExecutor(len(events)) as pool:
+            return list(pool.map(write, events))
+
+    def test_exactly_one_writer_finishes_the_session(
+        self, auth_session_collection, sample_auth_session_data
+    ):
+        crud = AuthSessionCRUD(auth_session_collection.database)
+        rng = random.Random(1155)
+        for _ in range(self.ROUNDS):
+            data = {
+                **sample_auth_session_data,
+                "_id": ObjectId(),
+                "expired_timestamp": datetime.now(UTC) - timedelta(minutes=1),
+            }
+            auth_session_collection.insert_one(data)
+            snapshot = AuthSession.model_validate(data)
+            events = [self._event(rng) for _ in range(self.WRITERS)]
+            results = self._race(crud, snapshot, events)
+
+            finishers = [
+                result
+                for result in results
+                if isinstance(result, AuthSession)
+                and result.proof_status in FINAL_STATES
+            ]
+            scans = [
+                event
+                for event, result in zip(events, results, strict=True)
+                if isinstance(event, Scanned) and isinstance(result, AuthSession)
+            ]
+            stored = auth_session_collection.find_one({"_id": data["_id"]})
+            assert len(finishers) == 1, events
+            assert stored is not None
+            assert stored["proof_status"] == finishers[0].proof_status
+            assert len(scans) <= 1
