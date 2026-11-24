@@ -25,7 +25,6 @@ from ..core.auth_session import (
     Failed,
     RequestSent,
     Verified,
-    has_expired,
 )
 from ..core.models import FrozenModel
 from ..db.session import get_db
@@ -196,7 +195,8 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                                         connection_id,  # the real connection ID
                                     ),
                                 )
-                                auth_session = sent or auth_session
+                                if isinstance(sent, AuthSession):
+                                    auth_session = sent
 
                                 logger.info(
                                     f"Presentation request sent successfully: {pres_response.pres_ex_id}"
@@ -208,7 +208,7 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                                 failed = await AuthSessionCRUD(db).advance(
                                     auth_session, Failed()
                                 )
-                                if failed is not None:
+                                if isinstance(failed, AuthSession):
                                     # Send problem report if we have a presentation exchange ID
                                     if failed.pres_exch_id:
                                         await _send_problem_report_safely(
@@ -299,9 +299,9 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                             "Ensure ACA-Py is configured with --debug-webhooks.",
                             pres_ex_id=pres_ex_id,
                         )
-                        if (
-                            await AuthSessionCRUD(db).advance(auth_session, Failed())
-                            is not None
+                        if isinstance(
+                            await AuthSessionCRUD(db).advance(auth_session, Failed()),
+                            AuthSession,
                         ):
                             await notify(str(auth_session.id), "failed")
                         await _cleanup__connection(
@@ -315,7 +315,7 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                     verified = await AuthSessionCRUD(db).advance(
                         auth_session, Verified(by_format)
                     )
-                    if verified is not None:
+                    if isinstance(verified, AuthSession):
                         auth_session = verified
 
                         # SIEM Audit: Log successful verification (metadata only, no PII)
@@ -333,7 +333,7 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                 else:
                     logger.info("VERIFICATION FAILED")
                     failed = await AuthSessionCRUD(db).advance(auth_session, Failed())
-                    if failed is not None:
+                    if isinstance(failed, AuthSession):
                         auth_session = failed
 
                         # SIEM Audit: Log failed verification
@@ -369,7 +369,7 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                     f"Abandonment reason: {webhook_body.error_msg or 'No reason provided'}"
                 )
                 abandoned = await AuthSessionCRUD(db).advance(auth_session, Abandoned())
-                if abandoned is not None:
+                if isinstance(abandoned, AuthSession):
                     auth_session = abandoned
 
                     # SIEM Audit: Log session abandonment
@@ -397,17 +397,10 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                     client, auth_session, pres_ex_id, "abandonment"
                 )
 
-            # Check if expired. But only if the proof has not been started.
-            now = datetime.now(UTC)
-            if (
-                has_expired(auth_session, now)
-                and (
-                    expired := await AuthSessionCRUD(db).advance(
-                        auth_session, Expired(now)
-                    )
-                )
-                is not None
-            ):
+            expired = await AuthSessionCRUD(db).advance(
+                auth_session, Expired(datetime.now(UTC))
+            )
+            if isinstance(expired, AuthSession):
                 logger.info("EXPIRED")
                 auth_session = expired
 

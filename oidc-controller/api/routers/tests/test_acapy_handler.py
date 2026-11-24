@@ -17,7 +17,7 @@ from api.routers.acapy_handler import (
     _audit_presentations,
     post_topic,
 )
-from api.routers.tests.fakes import fake_advance, saved_session
+from api.routers.tests.fakes import fake_advance, saved_session, saved_sessions
 
 
 @pytest.fixture
@@ -236,7 +236,7 @@ class TestConnectionBasedVerificationWebhooks:
         result = await post_topic(mock_request, "present_proof_v2_0", mock_db)
 
         assert result == {}
-        advance.assert_awaited_once()
+        assert saved_sessions(advance) == []
         mock_notify.assert_not_awaited()
         mock_client_instance.send_problem_report.assert_not_called()
 

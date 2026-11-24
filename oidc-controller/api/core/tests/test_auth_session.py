@@ -13,7 +13,6 @@ from api.core.auth_session import (
     Verified,
     _updated,
     apply,
-    has_expired,
 )
 
 NOW = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
@@ -144,14 +143,6 @@ def test_naive_deadlines_are_read_as_utc():
     # MongoDB returns naive UTC datetimes, whatever the server's local timezone
     deadline = (NOW - timedelta(minutes=1)).replace(tzinfo=None)
 
-    assert has_expired(_session(expired_timestamp=deadline), NOW)
+    result = _applied(_session(expired_timestamp=deadline), Expired(NOW))
 
-
-def test_only_sessions_the_wallet_has_not_started_expire():
-    pending = _applied(_session(expired_timestamp=PAST), Scanned())
-
-    assert not has_expired(pending, NOW)
-
-
-def test_sessions_before_their_deadline_have_not_expired():
-    assert not has_expired(_session(expired_timestamp=NOW + timedelta(minutes=1)), NOW)
+    assert result.proof_status is AuthSessionState.EXPIRED

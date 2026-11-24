@@ -38,7 +38,7 @@ from ..adapters.redis_utils import parse_host_port_pairs
 from ..authSessions.crud import AuthSessionCRUD
 from ..authSessions.models import AuthSession, AuthSessionState
 from ..config import RedisMode, settings
-from ..core.auth_session import FINAL_STATES, Expired, as_utc, has_expired
+from ..core.auth_session import FINAL_STATES, Expired, as_utc
 from ..db.session import get_db
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
@@ -205,12 +205,10 @@ async def _final_status(
             auth_session = await AuthSessionCRUD(db).get(pid)
         if auth_session.proof_status in FINAL_STATES:
             return auth_session.proof_status
-        now = datetime.now(UTC)
-        if (
-            has_expired(auth_session, now)
-            and await AuthSessionCRUD(db).advance(auth_session, Expired(now))
-            is not None
-        ):
+        expired = await AuthSessionCRUD(db).advance(
+            auth_session, Expired(datetime.now(UTC))
+        )
+        if isinstance(expired, AuthSession):
             logger.info("SSE detected expired session", pid=pid)
             # Other streams for this session, possibly on other pods, would
             # otherwise only see it on their next expiry check.

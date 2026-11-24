@@ -93,7 +93,7 @@ def apply(session: AuthSession, event: Event) -> AuthSession | Rejected:
             update = {"proof_status": AuthSessionState.FAILED}
         case Abandoned():
             update = {"proof_status": AuthSessionState.ABANDONED}
-        case Expired(now) if has_expired(session, now):
+        case Expired(now) if _has_expired(session, now):
             update = {"proof_status": AuthSessionState.EXPIRED}
         case Expired():
             return Rejected("session has not expired")
@@ -119,7 +119,7 @@ def as_utc(timestamp: datetime) -> datetime:
     return timestamp if timestamp.tzinfo else timestamp.replace(tzinfo=UTC)
 
 
-def has_expired(session: AuthSession, now: datetime) -> bool:
+def _has_expired(session: AuthSession, now: datetime) -> bool:
     """Whether the wallet never responded before the session's deadline."""
     return (
         session.proof_status is AuthSessionState.NOT_STARTED

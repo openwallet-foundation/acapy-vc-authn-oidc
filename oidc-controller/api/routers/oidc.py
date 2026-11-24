@@ -34,7 +34,7 @@ from ..authSessions.crud import AuthSessionCreate, AuthSessionCRUD
 from ..authSessions.models import AuthSession, AuthSessionState
 from ..clientConfigurations.crud import ClientConfigurationCRUD
 from ..config import settings
-from ..core.auth_session import Expired, has_expired
+from ..core.auth_session import Expired
 from ..core.oidc.issue_token_service import Token
 from ..db.session import get_db
 from ..routers.sse import notify
@@ -67,18 +67,13 @@ async def poll_pres_exch_complete(pid: str, db: Database = Depends(get_db)):
 
     pid = str(auth_session.id)
 
-    """
-     Check if proof is expired. But only if the proof has not been started.
-     NOTE: This should eventually be moved to a background task.
-    """
-    now = datetime.now(UTC)
-    if has_expired(auth_session, now):
+    expired = await AuthSessionCRUD(db).advance(
+        auth_session, Expired(datetime.now(UTC))
+    )
+    if isinstance(expired, AuthSession):
         logger.warning("PROOF EXPIRED")
-        expired = await AuthSessionCRUD(db).advance(auth_session, Expired(now))
-        if expired is not None:
-            await notify(pid, "expired")
-        # Otherwise a webhook finished the session first; report what it saved.
-        auth_session = expired or await AuthSessionCRUD(db).get(pid)
+        await notify(pid, "expired")
+        auth_session = expired
 
     return {"proof_status": auth_session.proof_status}
 

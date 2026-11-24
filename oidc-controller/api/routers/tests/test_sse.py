@@ -25,7 +25,7 @@ from api.routers.sse import (
     notify,
     router,
 )
-from api.routers.tests.fakes import fake_advance, saved_session
+from api.routers.tests.fakes import fake_advance, saved_session, saved_sessions
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -692,7 +692,7 @@ class TestExpireIfNeeded:
             result = await _final_status(str(session.id), mock_db)
 
         assert result is None
-        mock_crud.advance.assert_not_awaited()
+        assert saved_sessions(mock_crud.advance) == []
 
     @pytest.mark.asyncio
     async def test_returns_none_while_pending(self):
@@ -709,7 +709,7 @@ class TestExpireIfNeeded:
             result = await _final_status(str(session.id), mock_db)
 
         assert result is None
-        mock_crud.advance.assert_not_awaited()
+        assert saved_sessions(mock_crud.advance) == []
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(

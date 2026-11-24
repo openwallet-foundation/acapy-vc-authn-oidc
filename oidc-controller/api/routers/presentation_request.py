@@ -22,7 +22,9 @@ router = APIRouter()
 
 
 async def toggle_pending(db, auth_session: AuthSession):
-    if await AuthSessionCRUD(db).advance(auth_session, Scanned()) is not None:
+    if isinstance(
+        await AuthSessionCRUD(db).advance(auth_session, Scanned()), AuthSession
+    ):
         await notify(str(auth_session.id), "pending")
 
 

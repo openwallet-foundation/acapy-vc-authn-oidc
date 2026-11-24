@@ -75,16 +75,20 @@ class AuthSessionCRUD:
 
         return AuthSession.model_validate(auth_sess) if auth_sess else None
 
-    async def advance(self, session: AuthSession, event: Event) -> AuthSession | None:
+    async def advance(
+        self, session: AuthSession, event: Event
+    ) -> AuthSession | Rejected:
         """Apply EVENT to SESSION and save the result.
 
         The write only goes through if the stored status is still the one the
         event was applied to. If another writer changed it first, the event is
         applied again to the stored session, so a webhook that loaded the
         session just before a scan marked it pending is still saved. Only the
-        fields the event changed are written. Returns None if the event is not
-        legal in the stored state or the session is gone; the caller should
-        then skip the event's side effects.
+        fields the event changed are written.
+
+        Returns the saved session, or Rejected if the event is not legal in the
+        stored state or the session is gone; the caller should then skip the
+        event's side effects.
         """
         col = self._db.get_collection(COLLECTION_NAMES.AUTH_SESSION)
         log = logger.bind(
@@ -93,13 +97,8 @@ class AuthSessionCRUD:
         for _ in range(MAX_ADVANCE_ATTEMPTS):
             after = apply(session, event)
             if isinstance(after, Rejected):
-                # Usually a repeated webhook or a second scan of the QR code.
-                log.info(
-                    "Ignoring auth session event",
-                    proof_status=session.proof_status,
-                    reason=after.reason,
-                )
-                return None
+                log.debug("Auth session event rejected", reason=after.reason)
+                return after
 
             saved = self._save_if_status_unchanged(session, after)
             if saved is not None:
@@ -107,11 +106,11 @@ class AuthSessionCRUD:
 
             log.info("Auth session changed concurrently, reapplying event")
             if (stored := col.find_one({"_id": PyObjectId(session.id)})) is None:
-                return None
+                return Rejected("session is gone")
             session = AuthSession.model_validate(stored)
 
         log.warning("Auth session kept changing, ignoring event")
-        return None
+        return Rejected("session kept changing")
 
     def _save_if_status_unchanged(
         self, before: AuthSession, after: AuthSession

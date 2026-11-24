@@ -17,7 +17,7 @@ from api.authSessions.models import (
     AuthSessionPatch,
     AuthSessionState,
 )
-from api.core.auth_session import Failed, RequestSent, Scanned, Verified
+from api.core.auth_session import Failed, Rejected, RequestSent, Scanned, Verified
 from api.core.models import PyObjectId
 from api.db.session import COLLECTION_NAMES
 
@@ -546,7 +546,7 @@ class TestAdvance:
     async def test_saves_the_transition(self, crud, collection, stored):
         result = await crud.advance(stored, Scanned())
 
-        assert result is not None
+        assert isinstance(result, AuthSession)
         assert result.proof_status is AuthSessionState.PENDING
         assert collection.find_one()["proof_status"] == AuthSessionState.PENDING
 
@@ -561,15 +561,17 @@ class TestAdvance:
 
         result = await crud.advance(stored, Verified({"pres": {}}))
 
-        assert result is not None
+        assert isinstance(result, AuthSession)
         assert result.proof_status is AuthSessionState.VERIFIED
         assert collection.find_one()["proof_status"] == AuthSessionState.VERIFIED
 
     @pytest.mark.asyncio
-    async def test_returns_none_if_the_session_is_gone(self, crud, collection, stored):
+    async def test_rejects_the_event_if_the_session_is_gone(
+        self, crud, collection, stored
+    ):
         collection.delete_one({"_id": stored.id})
 
-        assert await crud.advance(stored, Scanned()) is None
+        assert isinstance(await crud.advance(stored, Scanned()), Rejected)
 
     @pytest.mark.asyncio
     async def test_loses_to_a_concurrent_final_state(self, crud, collection, stored):
@@ -577,7 +579,7 @@ class TestAdvance:
             {"_id": stored.id}, {"$set": {"proof_status": AuthSessionState.VERIFIED}}
         )
 
-        assert await crud.advance(stored, Failed()) is None
+        assert isinstance(await crud.advance(stored, Failed()), Rejected)
         assert collection.find_one()["proof_status"] == AuthSessionState.VERIFIED
 
     @pytest.mark.asyncio
@@ -594,11 +596,11 @@ class TestAdvance:
     ):
         sent = RequestSent("pres-1", {"state": "request-sent"}, "conn-1")
         stored = await crud.advance(stored, sent)
-        assert stored is not None
+        assert isinstance(stored, AuthSession)
 
         result = await crud.advance(stored, sent)
 
-        assert result is not None
+        assert isinstance(result, AuthSession)
         assert result.id == stored.id
         assert result.proof_status is AuthSessionState.NOT_STARTED
         assert (result.pres_exch_id, result.connection_id) == ("pres-1", "conn-1")
@@ -609,12 +611,12 @@ class TestAdvance:
     ):
         sent = RequestSent("pres-1", {"state": "request-sent"}, "conn-1")
         stored = await crud.advance(stored, sent)
-        assert stored is not None
+        assert isinstance(stored, AuthSession)
         collection.update_one(
             {"_id": stored.id}, {"$set": {"proof_status": AuthSessionState.VERIFIED}}
         )
 
-        assert await crud.advance(stored, sent) is None
+        assert isinstance(await crud.advance(stored, sent), Rejected)
         assert collection.find_one()["proof_status"] == AuthSessionState.VERIFIED
 
     @pytest.mark.asyncio
@@ -628,7 +630,7 @@ class TestAdvance:
 
         result = await crud.advance(AuthSession.model_validate(legacy), Scanned())
 
-        assert result is not None
+        assert isinstance(result, AuthSession)
         assert collection.find_one()["proof_status"] == AuthSessionState.PENDING
 
     @pytest.mark.asyncio
@@ -638,5 +640,5 @@ class TestAdvance:
             {"_id": stored.id}, {"$set": {"proof_status": AuthSessionState.VERIFIED}}
         )
 
-        assert await crud.advance(verified, Failed()) is None
+        assert isinstance(await crud.advance(verified, Failed()), Rejected)
         assert collection.find_one()["proof_status"] == AuthSessionState.VERIFIED
