@@ -8,6 +8,7 @@ from api.adapters.acapy.client import (
     CONNECTIONS_URI,
     CREATE_PRESENTATION_REQUEST_URL,
     OOB_CREATE_INVITATION,
+    OOB_RECORDS_URI,
     PRESENT_PROOF_PROBLEM_REPORT_URL,
     SEND_PRESENTATION_REQUEST_URL,
     AcapyClient,
@@ -23,7 +24,10 @@ from api.adapters.acapy.tests.__mocks__ import (
     presentation_request_configuration,
 )
 from api.config import settings
-from api.core.acapy.models import CreatePresentationResponse
+from api.core.acapy.models import (
+    CreatePresentationResponse,
+    OobCreateInvitationResponse,
+)
 
 
 @pytest.fixture
@@ -463,3 +467,66 @@ async def test_send_presentation_request_by_connection_uses_configured_proof_for
             request_json = json.loads(route.calls.last.request.content)
             assert "anoncreds" in request_json["presentation_request"]
             assert "indy" not in request_json["presentation_request"]
+
+
+oob_invitation_response = {
+    "invitation_url": "http://example.com/invitation",
+    "invitation": {
+        "@type": "invitation",
+        "@id": "test-invitation-id",
+        "services": ["did:example:123"],
+    },
+    "invi_msg_id": "test-invitation-id",
+    "oob_id": "test-oob-id",
+    "trace": False,
+    "state": "initial",
+}
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_oob_create_invitation_attaches_the_presentation_exchange(http_client):
+    route = respx.post(settings.ACAPY_ADMIN_URL + OOB_CREATE_INVITATION).mock(
+        return_value=httpx.Response(200, json=oob_invitation_response)
+    )
+    client = AcapyClient(http_client)
+    client.agent_config.get_headers = mock.AsyncMock(return_value={"x-api-key": ""})
+
+    result = await client.oob_create_invitation({"pres_ex_id": "pres-1"}, True)
+
+    assert isinstance(result, OobCreateInvitationResponse)
+    assert result.invi_msg_id == "test-invitation-id"
+    payload = json.loads(route.calls.last.request.content)
+    assert payload["use_public_did"] is True
+    assert payload["attachments"][0]["id"] == "pres-1"
+    assert payload["attachments"][0]["data"] == {"json": {"pres_ex_id": "pres-1"}}
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_oob_create_invitation_returns_error_on_non_200(http_client):
+    respx.post(settings.ACAPY_ADMIN_URL + OOB_CREATE_INVITATION).mock(
+        return_value=httpx.Response(500)
+    )
+    client = AcapyClient(http_client)
+    client.agent_config.get_headers = mock.AsyncMock(return_value={"x-api-key": ""})
+
+    result = await client.oob_create_invitation({"pres_ex_id": "pres-1"}, False)
+
+    assert isinstance(result, AcapyError)
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_records_page_with_non_json_reply_is_an_error_not_an_empty_page(
+    http_client,
+):
+    respx.get(settings.ACAPY_ADMIN_URL + OOB_RECORDS_URI).mock(
+        return_value=httpx.Response(200, content=b"<html>proxy error</html>")
+    )
+    client = AcapyClient(http_client)
+    client.agent_config.get_headers = mock.AsyncMock(return_value={"x-api-key": ""})
+
+    result = await client.get_oob_records_page(limit=10)
+
+    assert isinstance(result, AcapyError)
