@@ -11,7 +11,7 @@ or repeated webhook cannot overwrite the outcome.
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any, assert_never
+from typing import Any
 
 from api.authSessions.models import AuthSession, AuthSessionState
 
@@ -72,34 +72,36 @@ def apply(session: AuthSession, event: Event) -> AuthSession | Rejected:
     status = session.proof_status
     if status in FINAL_STATES:
         return Rejected(f"session is already {status}")
-    update: dict[str, Any]
     match event:
         case Scanned() if status is AuthSessionState.NOT_STARTED:
-            update = {"proof_status": AuthSessionState.PENDING}
+            return _updated(session, {"proof_status": AuthSessionState.PENDING})
         case Scanned():
             return Rejected("already scanned")
         case RequestSent(pres_exch_id, presentation_exchange, connection_id):
-            update = {
-                "pres_exch_id": pres_exch_id,
-                "presentation_exchange": presentation_exchange,
-                "connection_id": connection_id,
-            }
+            return _updated(
+                session,
+                {
+                    "pres_exch_id": pres_exch_id,
+                    "presentation_exchange": presentation_exchange,
+                    "connection_id": connection_id,
+                },
+            )
         case Verified(presentation):
-            update = {
-                "proof_status": AuthSessionState.VERIFIED,
-                "presentation_exchange": presentation,
-            }
+            return _updated(
+                session,
+                {
+                    "proof_status": AuthSessionState.VERIFIED,
+                    "presentation_exchange": presentation,
+                },
+            )
         case Failed():
-            update = {"proof_status": AuthSessionState.FAILED}
+            return _updated(session, {"proof_status": AuthSessionState.FAILED})
         case Abandoned():
-            update = {"proof_status": AuthSessionState.ABANDONED}
+            return _updated(session, {"proof_status": AuthSessionState.ABANDONED})
         case Expired(now) if _has_expired(session, now):
-            update = {"proof_status": AuthSessionState.EXPIRED}
+            return _updated(session, {"proof_status": AuthSessionState.EXPIRED})
         case Expired():
             return Rejected("session has not expired")
-        case _:
-            assert_never(event)
-    return _updated(session, update)
 
 
 def _updated(session: AuthSession, update: dict[str, Any]) -> AuthSession:
