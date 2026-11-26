@@ -1,7 +1,6 @@
-import dataclasses
 import hashlib
 import json
-from typing import Any
+from typing import Any, Literal
 
 import canonicaljson
 import structlog
@@ -17,10 +16,36 @@ logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
 PROOF_CLAIMS_ATTRIBUTE_NAME = "vc_presented_attributes"
 
 
-@dataclasses.dataclass(frozen=True)
-class Claim(FrozenModel):
-    type: str
-    value: str
+class Claims(FrozenModel):
+    """OIDC claims for a verified presentation."""
+
+    pres_req_conf_id: str
+    acr: Literal["vc_authn"] = "vc_authn"
+    # Only in the Standard/Implicit flows; optional in the Auth Code flow.
+    nonce: str | None
+    # The presentation's subject, or None to keep the sub PyOP generated.
+    sub: str | None
+    # JSON object of the presented attribute values.
+    vc_presented_attributes: str
+    # The presented attributes again as top-level claims, for v1 clients.
+    # Empty unless the verification config sets include_v1_attributes.
+    # TODO: Remove after full transistion to v2.0
+    v1_attributes: dict[str, str]
+
+    def for_pyop(self) -> dict[str, str]:
+        """The claims for PyOP's userinfo, without sub.
+
+        PyOP reads sub from authz_info; passing it in the claims as well makes
+        IdToken() receive it twice and raise a TypeError. v1 attributes come
+        last, so they win over the standard claims they share a name with.
+        """
+        return {
+            "pres_req_conf_id": self.pres_req_conf_id,
+            "acr": self.acr,
+            **({"nonce": self.nonce} if self.nonce is not None else {}),
+            PROOF_CLAIMS_ATTRIBUTE_NAME: self.vc_presented_attributes,
+            **{k: v for k, v in self.v1_attributes.items() if k != "sub"},
+        }
 
 
 class Token(FrozenModel):
@@ -35,24 +60,10 @@ class Token(FrozenModel):
         auth_session: AuthSession,
         ver_config: VerificationConfig,
         proof_format: ProofFormat,
-    ) -> dict[str, str]:
+    ) -> Claims:
         """Converts vc presentation values to oidc claims"""
-        oidc_claims: list[Claim] = [
-            Claim(
-                type="pres_req_conf_id",
-                value=auth_session.request_parameters["pres_req_conf_id"],
-            ),
-            Claim(type="acr", value="vc_authn"),
-        ]
-        # subject claim
-
-        # Conditionally append nonce as it is optional in Auth Code flow
-        if "nonce" in auth_session.request_parameters:
-            oidc_claims.append(
-                Claim(type="nonce", value=auth_session.request_parameters["nonce"])
-            )
-
-        presentation_claims: dict[str, Claim] = {}
+        params = auth_session.request_parameters
+        pres_req_conf_id = params["pres_req_conf_id"]
 
         # Falls back to another format when the record has no data for the
         # configured one, e.g. for sessions in flight during a config change.
@@ -88,67 +99,48 @@ class Token(FrozenModel):
 
         revealed_attrs = presentation.requested_proof.revealed_attr_groups
         try:
-            for referent, requested_attr in pres_request.requested_attributes.items():
-                logger.debug(
-                    f"Processing referent: {referent}, requested_attr: {requested_attr}"
-                )
-                # loop through each value and put it in token as a claim
-                for attr_name in requested_attr.names:
-                    logger.debug(f"AttrName: {attr_name}")
-                    presentation_claims[attr_name] = Claim(
-                        type=attr_name,
-                        value=revealed_attrs[referent].values[attr_name].raw,
-                    )
-                    logger.debug(f"Compiled presentation_claims: {presentation_claims}")
+            presentation_claims = {
+                attr_name: revealed_attrs[referent].values[attr_name].raw
+                for referent, requested_attr in pres_request.requested_attributes.items()
+                for attr_name in requested_attr.names
+            }
         except Exception as err:
             logger.error(
                 f"An exception occurred while extracting the proof claims: {err}"
             )
             raise RuntimeError(err) from err
 
-        proof_claims = json.dumps(
-            {c.type: c.value for c in presentation_claims.values()}
-        )
-        # look at all presentation_claims for one
-        # matching the configured subject_identifier, if any
-        sub_id_claim = presentation_claims.get(ver_config.subject_identifier)
-
-        pres_req_conf_id_suffix = (
-            f"@{auth_session.request_parameters['pres_req_conf_id']}"
-        )
-
-        if sub_id_claim:
-            # add sub and append presentation_claims
-            oidc_claims.append(
-                Claim(
-                    type="sub",
-                    value=sub_id_claim.value + pres_req_conf_id_suffix,
-                )
+        proof_claims = json.dumps(presentation_claims)
+        v1_attributes = presentation_claims if ver_config.include_v1_attributes else {}
+        # A v1 attribute named "sub" has always replaced the subject.
+        sub = (
+            v1_attributes["sub"]
+            if "sub" in v1_attributes
+            else _subject(
+                presentation_claims, proof_claims, f"@{pres_req_conf_id}", ver_config
             )
+        )
+        return Claims(
+            pres_req_conf_id=pres_req_conf_id,
+            nonce=params.get("nonce"),
+            sub=sub or None,
+            vc_presented_attributes=proof_claims,
+            v1_attributes=v1_attributes,
+        )
 
-        elif ver_config.generate_consistent_identifier:
-            # Do not create a sub based on the proof claims if the
-            # user requests a generated identifier
-            # Generate a SHA256 hash of the canonicaljson encoded proof_claims
-            encoded_json: bytes = canonicaljson.encode_canonical_json(proof_claims)
-            sha256_hash = hashlib.sha256(
-                encoded_json + pres_req_conf_id_suffix.encode()
-            ).hexdigest()
-            oidc_claims.append(
-                Claim(
-                    type="sub",
-                    value=sha256_hash,
-                )
-            )
 
-        result = {c.type: c.value for c in oidc_claims}
-        result[PROOF_CLAIMS_ATTRIBUTE_NAME] = proof_claims
-
-        # TODO: Remove after full transistion to v2.0
-        # Add the presentation claims to the result as keys
-        # for backwards compatibility [v1.0]
-        if ver_config.include_v1_attributes:
-            for key, value in presentation_claims.items():
-                result[key] = value.value
-
-        return result
+def _subject(
+    presentation_claims: dict[str, str],
+    proof_claims: str,
+    suffix: str,
+    ver_config: VerificationConfig,
+) -> str | None:
+    """The sub claim: the configured subject attribute, else a hash if asked for."""
+    if (value := presentation_claims.get(ver_config.subject_identifier)) is not None:
+        return value + suffix
+    if ver_config.generate_consistent_identifier:
+        # SHA256 of the canonical JSON of the proof claims, so the same
+        # credential values give the same sub.
+        encoded_json: bytes = canonicaljson.encode_canonical_json(proof_claims)
+        return hashlib.sha256(encoded_json + suffix.encode()).hexdigest()
+    return None

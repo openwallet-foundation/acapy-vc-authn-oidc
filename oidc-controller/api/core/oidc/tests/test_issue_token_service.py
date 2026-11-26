@@ -183,12 +183,12 @@ async def test_include_v1_attributes_false_does_not_add_the_named_attributes(
         update={"include_v1_attributes": False}
     )
     claims = Token.get_claims(auth_session_fixture, ver_config_fixture, "indy")
-    vc_presented_attributes_obj = eval(claims["vc_presented_attributes"])
+    vc_presented_attributes_obj = eval(claims.vc_presented_attributes)
     assert claims is not None
     assert vc_presented_attributes_obj["email_1"] == "test@email.com"
     assert vc_presented_attributes_obj["age_1"] == "30"
-    assert "email_1" not in claims
-    assert "age_1" not in claims
+    assert "email_1" not in claims.for_pyop()
+    assert "age_1" not in claims.for_pyop()
 
 
 @pytest.mark.asyncio
@@ -208,12 +208,42 @@ async def test_include_v1_attributes_true_adds_the_named_attributes(
         update={"include_v1_attributes": True}
     )
     claims = Token.get_claims(auth_session_fixture, ver_config_fixture, "indy")
-    vc_presented_attributes_obj = eval(claims["vc_presented_attributes"])
+    vc_presented_attributes_obj = eval(claims.vc_presented_attributes)
     assert claims is not None
     assert vc_presented_attributes_obj["email_1"] == "test@email.com"
     assert vc_presented_attributes_obj["age_1"] == "30"
-    assert claims["email_1"] == "test@email.com"
-    assert claims["age_1"] == "30"
+    assert claims.for_pyop()["email_1"] == "test@email.com"
+    assert claims.for_pyop()["age_1"] == "30"
+
+
+def test_v1_attribute_named_sub_replaces_the_subject(
+    auth_session_fixture, presentation_fixture, ver_config_fixture
+):
+    by_format = presentation_fixture["by_format"]
+    by_format["pres_request"]["indy"]["requested_attributes"] = {
+        "req_attr_0": {"names": ["email", "sub"], "restrictions": []}
+    }
+    by_format["pres"]["indy"]["requested_proof"]["revealed_attr_groups"] = {
+        "req_attr_0": {
+            "sub_proof_index": 0,
+            "values": {
+                "email": {"raw": "test@email.com", "encoded": "1"},
+                "sub": {"raw": "legacy-sub", "encoded": "2"},
+            },
+        }
+    }
+    auth_session_fixture = auth_session_fixture.model_copy(
+        update={"presentation_exchange": by_format}
+    )
+    ver_config_fixture = ver_config_fixture.model_copy(
+        update={"include_v1_attributes": True}
+    )
+
+    claims = Token.get_claims(auth_session_fixture, ver_config_fixture, "indy")
+
+    assert claims.sub == "legacy-sub"
+    assert "sub" not in claims.for_pyop()
+    assert claims.for_pyop()["email"] == "test@email.com"
 
 
 @pytest.mark.asyncio
@@ -233,12 +263,12 @@ async def test_include_v1_attributes_none_does_not_add_the_named_attributes(
         update={"include_v1_attributes": None}
     )
     claims = Token.get_claims(auth_session_fixture, ver_config_fixture, "indy")
-    vc_presented_attributes_obj = eval(claims["vc_presented_attributes"])
+    vc_presented_attributes_obj = eval(claims.vc_presented_attributes)
     assert claims is not None
     assert vc_presented_attributes_obj["email_1"] == "test@email.com"
     assert vc_presented_attributes_obj["age_1"] == "30"
-    assert "email_1" not in claims
-    assert "age_1" not in claims
+    assert "email_1" not in claims.for_pyop()
+    assert "age_1" not in claims.for_pyop()
 
 
 @pytest.mark.asyncio
@@ -320,8 +350,7 @@ async def test_valid_presentation_with_matching_subject_identifier_in_claims_sub
         update={"presentation_exchange": presentation_fixture["by_format"]}
     )
     claims = Token.get_claims(auth_session_fixture, ver_config_fixture, "indy")
-    print(claims)
-    assert claims["sub"] == "test@email.com@verified-email"
+    assert claims.sub == "test@email.com@verified-email"
 
 
 @pytest.mark.asyncio
@@ -342,7 +371,7 @@ async def test_valid_pres_with_non_matching_subj_id_gen_consistent_id_missing_no
     )
     claims = Token.get_claims(auth_session_fixture, ver_config_fixture, "indy")
     assert not ver_config_fixture.generate_consistent_identifier
-    assert "sub" not in claims
+    assert claims.sub is None
 
 
 @pytest.mark.asyncio
@@ -365,7 +394,7 @@ async def test_valid_pres_non_matching_subj_id_gen_consistent_id_false_has_no_su
         }
     )
     claims = Token.get_claims(auth_session_fixture, ver_config_fixture, "indy")
-    assert "sub" not in claims
+    assert claims.sub is None
 
 
 @pytest.mark.asyncio
@@ -388,7 +417,7 @@ async def test_valid_pres_non_matching_subj_id_gen_consistent_id_true_has_sub(
         }
     )
     claims = Token.get_claims(auth_session_fixture, ver_config_fixture, "indy")
-    assert "sub" in claims
+    assert claims.sub is not None
 
     # Ensure that this sub is not using the ver_config.subject_identifier
     ver_config_fixture = ver_config_fixture.model_copy(
@@ -397,7 +426,7 @@ async def test_valid_pres_non_matching_subj_id_gen_consistent_id_true_has_sub(
     claims_subject_identifier = Token.get_claims(
         auth_session_fixture, ver_config_fixture, "indy"
     )
-    assert claims["sub"] != claims_subject_identifier["sub"]
+    assert claims.sub != claims_subject_identifier.sub
 
     # Ensure that sub is consistent
     ver_config_fixture = ver_config_fixture.model_copy(
@@ -409,7 +438,7 @@ async def test_valid_pres_non_matching_subj_id_gen_consistent_id_true_has_sub(
     claims_duplicate = Token.get_claims(
         auth_session_fixture, ver_config_fixture, "indy"
     )
-    assert claims["sub"] == claims_duplicate["sub"]
+    assert claims.sub == claims_duplicate.sub
 
 
 # Helper to construct mock data with specific structure keys using local test data
@@ -442,7 +471,7 @@ async def test_get_claims_happy_path_anoncreds(
     claims = Token.get_claims(auth_session_fixture, ver_config_fixture, "anoncreds")
 
     # Assert
-    attributes = json.loads(claims["vc_presented_attributes"])
+    attributes = json.loads(claims.vc_presented_attributes)
     assert attributes["email"] == "test@email.com"
 
 
@@ -464,7 +493,7 @@ async def test_get_claims_fallback_migration_logic(
     claims = Token.get_claims(auth_session_fixture, ver_config_fixture, "anoncreds")
 
     # Assert: Should still find the data under 'indy' key
-    attributes = json.loads(claims["vc_presented_attributes"])
+    attributes = json.loads(claims.vc_presented_attributes)
     assert attributes["email"] == "test@email.com"
 
 
@@ -485,7 +514,7 @@ async def test_get_claims_fallback_reverse_migration_logic(
     claims = Token.get_claims(auth_session_fixture, ver_config_fixture, "indy")
 
     # Assert: Should correctly find the data under 'anoncreds' key
-    attributes = json.loads(claims["vc_presented_attributes"])
+    attributes = json.loads(claims.vc_presented_attributes)
     assert attributes["email"] == "test@email.com"
 
 
@@ -516,9 +545,9 @@ async def test_get_claims_no_nonce_success(
     # Assert
     assert claims is not None
     # Verify nonce is NOT in the returned claims
-    assert "nonce" not in claims
+    assert claims.nonce is None
     # Verify other standard claims are still present
-    assert "pres_req_conf_id" in claims
+    assert claims.pres_req_conf_id
 
 
 @pytest.mark.asyncio
@@ -546,7 +575,7 @@ async def test_get_claims_with_nonce_success(
 
     # Assert
     assert claims is not None
-    assert claims.get("nonce") == expected_nonce
+    assert claims.nonce == expected_nonce
 
 
 @pytest.mark.asyncio

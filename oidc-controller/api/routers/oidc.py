@@ -373,16 +373,6 @@ def _invalid_grant() -> HTTPException:
     )
 
 
-def _split_subject(claims: dict[str, Any]) -> tuple[str | None, dict[str, Any]]:
-    """Separate the presentation's `sub` from the other claims.
-
-    PyOP reads `sub` from authz_info; leaving it in the claims as well makes
-    IdToken() receive it twice and raise a TypeError.
-    """
-    rest = {k: v for k, v in claims.items() if k != "sub"}
-    return claims.get("sub") or None, rest
-
-
 def _with_claims(
     authz_info: dict[str, Any], claims: dict[str, Any], sub: str | None
 ) -> dict[str, Any]:
@@ -461,9 +451,10 @@ async def post_token(request: Request, db: Database = Depends(get_db)):
             raise _invalid_grant()
 
         ver_config = await VerificationConfigCRUD(db).get(auth_session.ver_config_id)
-        sub, claims = _split_subject(
-            Token.get_claims(auth_session, ver_config, settings.ACAPY_PROOF_FORMAT)
+        token_claims = Token.get_claims(
+            auth_session, ver_config, settings.ACAPY_PROOF_FORMAT
         )
+        sub, claims = token_claims.sub, token_claims.for_pyop()
         user_id = sub or auth_session.pyop_user_id
 
         if sub:
