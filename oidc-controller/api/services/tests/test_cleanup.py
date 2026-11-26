@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from api.adapters.acapy.client import AcapyError
 from api.services import cleanup as cleanup_module
 from api.services.cleanup import (
     MAX_REPORTED_ERRORS,
@@ -85,6 +86,7 @@ class FakeAcapy:
         connections=(),
         fail_ids=(),
         failing_phases=(),
+        crashing_phases=(),
         delete_delay=0.0,
         fetch_delay=0.0,
     ):
@@ -95,6 +97,7 @@ class FakeAcapy:
         }
         self.fail_ids = set(fail_ids)
         self.failing_phases = set(failing_phases)
+        self.crashing_phases = set(crashing_phases)
         self.delete_delay = delete_delay
         self.fetch_delay = fetch_delay
         self.deleted = {"pres": [], "oob": [], "conn": []}
@@ -105,7 +108,9 @@ class FakeAcapy:
     async def _page(self, kind, limit, offset):
         self.page_calls += 1
         if kind in self.failing_phases:
-            raise RuntimeError(f"{kind} listing unavailable")
+            return AcapyError(f"{kind} listing unavailable")
+        if kind in self.crashing_phases:
+            raise RuntimeError(f"bug while listing {kind}")
         await asyncio.sleep(self.fetch_delay)
         return list(self.store[kind][offset : offset + limit])
 
@@ -115,10 +120,10 @@ class FakeAcapy:
         try:
             await asyncio.sleep(self.delete_delay)
             if record_id in self.fail_ids:
-                return False
+                return AcapyError(f"could not delete {record_id}")
             self.store[kind] = [r for r in self.store[kind] if r[key] != record_id]
             self.deleted[kind].append(record_id)
-            return True
+            return None
         finally:
             self.in_flight -= 1
 
@@ -526,6 +531,20 @@ class TestErrorHandling:
         assert fake.deleted["conn"] == ["expired"]
         assert stats["has_more"] is True
         assert any("presentation_records" in e for e in stats["errors"])
+
+    @pytest.mark.asyncio
+    async def test_unexpected_exception_does_not_stop_other_phases(self):
+        fake = FakeAcapy(
+            presentations=[pres("old", OLD)],
+            connections=[conn("expired", EXPIRED)],
+            crashing_phases={"pres"},
+        )
+
+        stats = await run_cleanup(fake)
+
+        assert fake.deleted["conn"] == ["expired"]
+        assert stats["has_more"] is True
+        assert any("bug while listing pres" in e for e in stats["errors"])
 
     @pytest.mark.asyncio
     async def test_reported_errors_are_capped(self):

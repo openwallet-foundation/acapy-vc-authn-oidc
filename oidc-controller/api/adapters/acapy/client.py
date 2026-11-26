@@ -1,3 +1,5 @@
+from dataclasses import dataclass
+from typing import Any
 from uuid import UUID
 
 import httpx
@@ -13,13 +15,11 @@ from api.config import settings
 from api.core.acapy.models import (
     CreatePresentationResponse,
     OobCreateInvitationResponse,
-    WalletDid,
 )
+from api.core.models import FrozenModel
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
 
-WALLET_DID_URI = "/wallet/did"
-PUBLIC_WALLET_DID_URI = "/wallet/did/public"
 CREATE_PRESENTATION_REQUEST_URL = "/present-proof-2.0/create-request"
 PRESENT_PROOF_RECORDS = "/present-proof-2.0/records"
 SEND_PRESENTATION_REQUEST_URL = "/present-proof-2.0/send-request"
@@ -30,6 +30,39 @@ OOB_CREATE_INVITATION = "/out-of-band/create-invitation"
 OOB_RECORDS_URI = "/out-of-band/records"
 OOB_INVITATIONS_URI = "/out-of-band/invitations"
 CONNECTIONS_URI = "/connections"
+
+
+@dataclass(frozen=True)
+class AcapyError:
+    """An expected failure talking to ACA-Py, returned instead of raised.
+
+    Every AcapyClient method follows one contract:
+
+    - Queries return ``T | AcapyError`` and commands return
+      ``None | AcapyError``, where None means it worked.
+    - AcapyError means ACA-Py could not be reached (``httpx.HTTPError``),
+      answered with an unexpected status, or sent a reply that does not
+      parse. The client does not log it; the caller decides what it means
+      and logs it.
+    - Anything else is a bug and raises.
+
+    ``reason`` is for our logs only. It can include ACA-Py's response body,
+    so never forward it to the wallet.
+    """
+
+    reason: str
+
+
+def _parse[M: FrozenModel](model: type[M], resp: httpx.Response) -> M | AcapyError:
+    try:
+        return model.model_validate(resp.json())
+    except ValueError as e:  # bad JSON or a ValidationError
+        return AcapyError(f"unexpected reply from ACA-Py: {e}")
+
+
+def _done(resp: httpx.Response | AcapyError) -> AcapyError | None:
+    """The result of a command, which only cares whether the call worked."""
+    return resp if isinstance(resp, AcapyError) else None
 
 
 class AcapyClient:
@@ -51,159 +84,110 @@ class AcapyClient:
             logger.warning("ACAPY_TENANCY not set, assuming SingleTenantAcapy")
             self.agent_config = SingleTenantAcapy(http_client)
 
+    async def _call(
+        self,
+        method: str,
+        path: str,
+        ok: tuple[int, ...] = (200,),
+        **kwargs: Any,
+    ) -> httpx.Response | AcapyError:
+        """Send one request to the admin API, applying the AcapyError contract
+        to transport errors and unexpected statuses."""
+        try:
+            resp = await self._http_client.request(
+                method,
+                self.acapy_host + path,
+                headers=await self.agent_config.get_headers(),
+                **kwargs,
+            )
+        except httpx.HTTPError as e:
+            return AcapyError(f"could not reach ACA-Py: {e}")
+        if resp.status_code not in ok:
+            return AcapyError(
+                f"{method} {path} returned {resp.status_code}: {resp.text}"
+            )
+        return resp
+
     async def create_presentation_request(
         self, presentation_request_configuration: dict
-    ) -> CreatePresentationResponse:
-        logger.debug(">>> create_presentation_request")
-
+    ) -> CreatePresentationResponse | AcapyError:
         format_key = settings.ACAPY_PROOF_FORMAT
         present_proof_payload = {
             "presentation_request": {format_key: presentation_request_configuration},
             "auto_remove": True,
             "auto_remove_on_failure": True,
         }
-
-        resp = await self._http_client.post(
-            self.acapy_host + CREATE_PRESENTATION_REQUEST_URL,
-            headers=await self.agent_config.get_headers(),
-            json=present_proof_payload,
+        resp = await self._call(
+            "POST", CREATE_PRESENTATION_REQUEST_URL, json=present_proof_payload
         )
-
-        assert resp.status_code == 200, resp.content
-
-        result = CreatePresentationResponse.model_validate(resp.json())
-
-        logger.debug("<<< create_presenation_request")
-        return result
-
-    async def get_presentation_request(self, presentation_exchange_id: UUID | str):
-        logger.debug(">>> get_presentation_request")
-
-        resp = await self._http_client.get(
-            self.acapy_host
-            + PRESENT_PROOF_RECORDS
-            + "/"
-            + str(presentation_exchange_id),
-            headers=await self.agent_config.get_headers(),
-        )
-
-        assert resp.status_code == 200, resp.content
-
-        logger.debug(f"<<< get_presentation_request -> {resp.json()}")
-        return resp.json()
+        if isinstance(resp, AcapyError):
+            return resp
+        return _parse(CreatePresentationResponse, resp)
 
     async def delete_presentation_record(
         self, presentation_exchange_id: UUID | str
-    ) -> bool:
-        """Delete a presentation record by ID"""
-        logger.debug(f">>> delete_presentation_record: {presentation_exchange_id}")
-
-        try:
-            resp = await self._http_client.delete(
-                f"{self.acapy_host}{PRESENT_PROOF_RECORDS}/{presentation_exchange_id}",
-                headers=await self.agent_config.get_headers(),
+    ) -> AcapyError | None:
+        """Delete a presentation record. A record that is already gone (e.g.
+        ACA-Py auto-removal) counts as deleted."""
+        return _done(
+            await self._call(
+                "DELETE",
+                f"{PRESENT_PROOF_RECORDS}/{presentation_exchange_id}",
+                ok=(200, 404),
             )
-
-            # 404 means it is already gone (e.g. ACA-Py auto-removal), the desired end state
-            success = resp.status_code in (200, 404)
-            if success:
-                logger.debug("<<< delete_presentation_record -> Success")
-            else:
-                logger.warning(
-                    f"<<< delete_presentation_record -> Failed: {resp.status_code}, {resp.content}"
-                )
-            return success
-
-        except Exception as e:
-            logger.error(
-                f"Failed to delete presentation record {presentation_exchange_id}: {e}"
-            )
-            return False
+        )
 
     async def _get_records_page(
         self, uri: str, limit: int, offset: int, filters: dict | None = None
-    ) -> list[dict]:
+    ) -> list[dict] | AcapyError:
         """Fetch one page of records from a paginated ACA-Py list endpoint.
 
-        Raises on transport or HTTP errors so callers can stop instead of
-        mistaking a failure for an empty result set.
+        A failure is an AcapyError, never an empty page, so callers can stop
+        instead of mistaking it for the end of the records.
         """
         params = {"limit": limit, "offset": offset, **(filters or {})}
-        resp = await self._http_client.get(
-            self.acapy_host + uri,
-            headers=await self.agent_config.get_headers(),
-            params=params,
-        )
-        resp.raise_for_status()
-        return resp.json().get("results", [])
+        resp = await self._call("GET", uri, params=params)
+        if isinstance(resp, AcapyError):
+            return resp
+        try:
+            return resp.json().get("results", [])
+        except ValueError as e:
+            return AcapyError(f"unexpected reply from ACA-Py: {e}")
 
     async def get_presentation_records_page(
         self, limit: int, offset: int = 0, role: str | None = "verifier"
-    ) -> list[dict]:
+    ) -> list[dict] | AcapyError:
         """Get a page of presentation exchange records (verifier role by default)."""
         filters = {"role": role} if role else None
         return await self._get_records_page(
             PRESENT_PROOF_RECORDS, limit, offset, filters
         )
 
-    async def get_connections_page(self, limit: int, offset: int = 0) -> list[dict]:
+    async def get_connections_page(
+        self, limit: int, offset: int = 0
+    ) -> list[dict] | AcapyError:
         """Get a page of connection records in any state."""
         return await self._get_records_page(CONNECTIONS_URI, limit, offset)
 
     async def get_oob_records_page(
         self, limit: int, offset: int = 0, role: str | None = "sender"
-    ) -> list[dict]:
+    ) -> list[dict] | AcapyError:
         """Get a page of out-of-band records (sender role by default)."""
         filters = {"role": role} if role else None
         return await self._get_records_page(OOB_RECORDS_URI, limit, offset, filters)
 
-    async def delete_oob_invitation(self, invi_msg_id: str) -> bool:
-        """Delete the OOB record and any connection created from an invitation."""
-        logger.debug(">>> delete_oob_invitation", invi_msg_id=invi_msg_id)
-
-        try:
-            resp = await self._http_client.delete(
-                f"{self.acapy_host}{OOB_INVITATIONS_URI}/{invi_msg_id}",
-                headers=await self.agent_config.get_headers(),
+    async def delete_oob_invitation(self, invi_msg_id: str) -> AcapyError | None:
+        """Delete the OOB record and any connection created from an invitation.
+        One that is already gone counts as deleted."""
+        return _done(
+            await self._call(
+                "DELETE", f"{OOB_INVITATIONS_URI}/{invi_msg_id}", ok=(200, 404)
             )
-            # 404 means it is already gone, which is the desired end state
-            success = resp.status_code in (200, 404)
-            if not success:
-                logger.warning(
-                    f"<<< delete_oob_invitation -> Failed: {resp.status_code}, {resp.content}"
-                )
-            return success
-
-        except Exception as e:
-            logger.error(f"Failed to delete OOB invitation {invi_msg_id}: {e}")
-            return False
-
-    async def get_wallet_did(self, public=False) -> WalletDid:
-        logger.debug(">>> get_wallet_did")
-        url = (
-            self.acapy_host + PUBLIC_WALLET_DID_URI
-            if public
-            else self.acapy_host + WALLET_DID_URI
         )
-
-        resp = await self._http_client.get(
-            url,
-            headers=await self.agent_config.get_headers(),
-        )
-
-        assert resp.status_code == 200, f"{resp.status_code}::{resp.content}"
-
-        data = resp.json()
-        resp_payload = data["result"] if public else data["results"][0]
-        did = WalletDid.model_validate(resp_payload)
-
-        logger.debug(f"<<< get_wallet_did -> {did}")
-        return did
 
     async def oob_create_invitation(
         self, presentation_exchange: dict, use_public_did: bool
-    ) -> OobCreateInvitationResponse:
-        logger.debug(">>> oob_create_invitation")
+    ) -> OobCreateInvitationResponse | AcapyError:
         create_invitation_payload = {
             "attachments": [
                 {
@@ -215,35 +199,17 @@ class AcapyClient:
             "use_public_did": use_public_did,
             "my_label": settings.INVITATION_LABEL,
         }
-
-        resp = await self._http_client.post(
-            self.acapy_host + OOB_CREATE_INVITATION,
-            headers=await self.agent_config.get_headers(),
-            json=create_invitation_payload,
+        resp = await self._call(
+            "POST", OOB_CREATE_INVITATION, json=create_invitation_payload
         )
-
-        assert resp.status_code == 200, resp.content
-
-        result = OobCreateInvitationResponse.model_validate(resp.json())
-
-        logger.debug("<<< oob_create_invitation")
-        return result
+        if isinstance(resp, AcapyError):
+            return resp
+        return _parse(OobCreateInvitationResponse, resp)
 
     async def send_presentation_request_by_connection(
         self, connection_id: str, presentation_request_configuration: dict
-    ) -> CreatePresentationResponse:
-        """
-        Send a presentation request to an existing connection.
-
-        Args:
-            connection_id: The ID of the established connection
-            presentation_request_configuration: The presentation request configuration
-
-        Returns:
-            CreatePresentationResponse: The response containing presentation exchange details
-        """
-        logger.debug(">>> send_presentation_request_by_connection")
-
+    ) -> CreatePresentationResponse | AcapyError:
+        """Send a presentation request to an established connection."""
         format_key = settings.ACAPY_PROOF_FORMAT
         present_proof_payload = {
             "connection_id": connection_id,
@@ -252,192 +218,34 @@ class AcapyClient:
             # Ignored by ACA-Py 1.7 send-request; failures rely on --no-preserve-failed-exchange-records
             "auto_remove_on_failure": True,
         }
-
-        resp = await self._http_client.post(
-            self.acapy_host + SEND_PRESENTATION_REQUEST_URL,
-            headers=await self.agent_config.get_headers(),
-            json=present_proof_payload,
+        resp = await self._call(
+            "POST", SEND_PRESENTATION_REQUEST_URL, json=present_proof_payload
         )
+        if isinstance(resp, AcapyError):
+            return resp
+        return _parse(CreatePresentationResponse, resp)
 
-        assert resp.status_code == 200, resp.content
-
-        result = CreatePresentationResponse.model_validate(resp.json())
-
-        logger.debug("<<< send_presentation_request_by_connection")
-        return result
-
-    async def get_connection(self, connection_id: str) -> dict:
-        """
-        Get details of a specific connection.
-
-        Args:
-            connection_id: The ID of the connection to retrieve
-
-        Returns:
-            dict: Connection details
-        """
-        logger.debug(">>> get_connection")
-
-        resp = await self._http_client.get(
-            self.acapy_host + CONNECTIONS_URI + "/" + connection_id,
-            headers=await self.agent_config.get_headers(),
-        )
-
-        assert resp.status_code == 200, resp.content
-
-        logger.debug(f"<<< get_connection -> {resp.json()}")
-        return resp.json()
-
-    async def list_connections(self, state: str | None = None) -> list[dict]:
-        """
-        List all connections, optionally filtered by state.
-
-        Args:
-            state: Optional state filter (e.g., "active", "completed")
-
-        Returns:
-            list[dict]: List of connection records
-        """
-        logger.debug(">>> list_connections")
-
-        params = {"state": state} if state else {}
-
-        resp = await self._http_client.get(
-            self.acapy_host + CONNECTIONS_URI,
-            headers=await self.agent_config.get_headers(),
-            params=params,
-        )
-
-        assert resp.status_code == 200, resp.content
-
-        connections = resp.json().get("results", [])
-        logger.debug(f"<<< list_connections -> {len(connections)} connections")
-        return connections
-
-    async def delete_connection(self, connection_id: str) -> bool:
-        """
-        Delete a connection.
-
-        Args:
-            connection_id: The ID of the connection to delete
-
-        Returns:
-            bool: True if the connection was deleted or no longer exists
-        """
-        logger.debug(">>> delete_connection", connection_id=connection_id)
-
-        try:
-            resp = await self._http_client.delete(
-                self.acapy_host + CONNECTIONS_URI + "/" + connection_id,
-                headers=await self.agent_config.get_headers(),
+    async def delete_connection(self, connection_id: str) -> AcapyError | None:
+        """Delete a connection. One that is already gone (e.g. removed with its
+        OOB invitation) counts as deleted."""
+        return _done(
+            await self._call(
+                "DELETE", f"{CONNECTIONS_URI}/{connection_id}", ok=(200, 404)
             )
-
-            # 404 means it is already gone (e.g. removed with its OOB invitation)
-            success = resp.status_code in (200, 404)
-            if success:
-                logger.debug("<<< delete_connection -> Success")
-            else:
-                logger.warning(
-                    f"<<< delete_connection -> Failed: {resp.status_code}, {resp.content}"
-                )
-            return success
-
-        except Exception as e:
-            logger.error(f"Failed to delete connection {connection_id}: {e}")
-            return False
-
-    async def delete_presentation_record_and_connection(
-        self, presentation_exchange_id: UUID | str, connection_id: str | None = None
-    ) -> tuple[bool, bool, list[str]]:
-        """
-        Delete a presentation record and optionally its associated connection.
-
-        This is the recommended method for cleanup as it handles both the presentation
-        record and connection deletion in the proper order.
-
-        Args:
-            presentation_exchange_id: The presentation exchange ID to delete
-            connection_id: Optional connection ID to delete. If not provided,
-                         only the presentation record will be deleted.
-
-        Returns:
-            tuple[bool, bool, list[str]]: A tuple containing:
-                - presentation_deleted: bool - True if presentation record was successfully deleted
-                - connection_deleted: bool - True if connection was successfully deleted or no connection_id was provided, False if deletion failed
-                - errors: list[str] - List of error messages from failed operations
-        """
-        logger.debug(
-            f">>> delete_presentation_record_and_connection: pres_ex={presentation_exchange_id}, conn={connection_id}"
         )
 
-        presentation_deleted = False
-        connection_deleted = False
-        errors = []
-
-        if presentation_exchange_id:
-            try:
-                presentation_deleted = await self.delete_presentation_record(
-                    presentation_exchange_id
-                )
-                if not presentation_deleted:
-                    errors.append(
-                        f"Failed to delete presentation record {presentation_exchange_id}"
-                    )
-            except Exception as e:
-                error_msg = f"Error deleting presentation record {presentation_exchange_id}: {e}"
-                errors.append(error_msg)
-                logger.error(error_msg)
-
-        # TODO: make mandatory when we drop OOB
-        if connection_id:
-            try:
-                connection_deleted = await self.delete_connection(connection_id)
-                if not connection_deleted:
-                    errors.append(f"Failed to delete connection {connection_id}")
-            except Exception as e:
-                error_msg = f"Error deleting connection {connection_id}: {e}"
-                errors.append(error_msg)
-                logger.error(error_msg)
-
-        logger.debug(
-            f"<<< delete_presentation_record_and_connection -> pres:{presentation_deleted}, conn:{connection_deleted}"
-        )
-        return presentation_deleted, connection_deleted, errors
-
-    async def send_problem_report(self, pres_ex_id: str, description: str) -> bool:
-        """
-        Send a problem report for a presentation exchange.
-
-        Args:
-            pres_ex_id: The presentation exchange ID
-            description: Description of the problem
-
-        Returns:
-            bool: True if problem report was sent successfully
-        """
-        logger.debug(">>> send_problem_report")
-
-        try:
-            resp = await self._http_client.post(
-                self.acapy_host
-                + PRESENT_PROOF_PROBLEM_REPORT_URL.format(pres_ex_id=pres_ex_id),
+    async def send_problem_report(
+        self, pres_ex_id: str, description: str
+    ) -> AcapyError | None:
+        """Tell the wallet a presentation exchange failed. DESCRIPTION is sent
+        to the holder, so keep internal details out of it."""
+        return _done(
+            await self._call(
+                "POST",
+                PRESENT_PROOF_PROBLEM_REPORT_URL.format(pres_ex_id=pres_ex_id),
                 json={"description": description},
-                headers=await self.agent_config.get_headers(),
             )
-
-            success = resp.status_code == 200
-            logger.debug(f"<<< send_problem_report -> {success}")
-
-            if not success:
-                logger.error(
-                    f"Failed to send problem report: {resp.status_code} - {resp.content}"
-                )
-
-            return success
-
-        except Exception as e:
-            logger.error(f"Error sending problem report: {e}")
-            return False
+        )
 
     async def create_connection_invitation(
         self,
@@ -447,7 +255,7 @@ class AcapyClient:
         alias: str | None = None,
         auto_accept: bool | None = None,
         metadata: dict | None = None,
-    ) -> OobCreateInvitationResponse:
+    ) -> OobCreateInvitationResponse | AcapyError:
         """
         Create an out-of-band invitation for either ephemeral or persistent connections.
 
@@ -460,10 +268,8 @@ class AcapyClient:
             metadata: Optional metadata to attach to the connection (default: None)
 
         Returns:
-            OobCreateInvitationResponse: The response containing invitation details
+            The invitation details, or AcapyError
         """
-        logger.debug(">>> create_connection_invitation")
-
         if multi_use:
             goal_code = "aries.vc.verify"
             goal = "Verify credentials for authentication"
@@ -502,16 +308,12 @@ class AcapyClient:
         if auto_accept is not None:
             params["auto_accept"] = str(auto_accept).lower()
 
-        resp = await self._http_client.post(
-            self.acapy_host + OOB_CREATE_INVITATION,
-            headers=await self.agent_config.get_headers(),
+        resp = await self._call(
+            "POST",
+            OOB_CREATE_INVITATION,
             json=create_invitation_payload,
             params=params,
         )
-
-        assert resp.status_code == 200, resp.content
-
-        result = OobCreateInvitationResponse.model_validate(resp.json())
-
-        logger.debug("<<< create_connection_invitation")
-        return result
+        if isinstance(resp, AcapyError):
+            return resp
+        return _parse(OobCreateInvitationResponse, resp)

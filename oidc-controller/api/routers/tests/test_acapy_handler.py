@@ -9,8 +9,10 @@ from bson import ObjectId
 from fastapi import HTTPException
 from pymongo.database import Database
 
+from api.adapters.acapy.client import AcapyClient, AcapyError
 from api.authSessions.models import AuthSession, AuthSessionState
 from api.config import settings
+from api.core.acapy.models import CreatePresentationResponse
 from api.core.models import PyObjectId
 from api.core.oidc.tests.__mocks__ import presentation as mock_presentation
 from api.routers.acapy_handler import (
@@ -89,11 +91,10 @@ class TestConnectionBasedVerificationWebhooks:
         )
         mock_auth_session_crud.return_value.advance = fake_advance()
 
-        mock_client_instance = MagicMock()
-        mock_client_instance.send_presentation_request_by_connection.return_value = (
-            MagicMock(
-                pres_ex_id="new-pres-ex-id",
-                model_dump=MagicMock(return_value={"pres_ex_id": "new-pres-ex-id"}),
+        mock_client_instance = MagicMock(spec=AcapyClient)
+        mock_client_instance.send_presentation_request_by_connection = AsyncMock(
+            return_value=CreatePresentationResponse(
+                thread_id="thread-id", pres_ex_id="new-pres-ex-id", pres_request={}
             )
         )
         mock_acapy_client.return_value = mock_client_instance
@@ -141,11 +142,11 @@ class TestConnectionBasedVerificationWebhooks:
         )
         mock_auth_session_crud.return_value.advance = fake_advance()
 
-        mock_client_instance = MagicMock()
-        mock_client_instance.send_presentation_request_by_connection.side_effect = (
-            Exception("Connection error")
+        mock_client_instance = MagicMock(spec=AcapyClient)
+        mock_client_instance.send_presentation_request_by_connection = AsyncMock(
+            return_value=AcapyError("Connection error")
         )
-        mock_client_instance.send_problem_report.return_value = True
+        mock_client_instance.send_problem_report = AsyncMock(return_value=None)
         mock_acapy_client.return_value = mock_client_instance
 
         # Execute
@@ -154,7 +155,7 @@ class TestConnectionBasedVerificationWebhooks:
         # Verify
         assert result == {}
         mock_client_instance.send_problem_report.assert_called_once_with(
-            "test-pres-ex-id", "Failed to send presentation request: Connection error"
+            "test-pres-ex-id", "Failed to send presentation request"
         )
         mock_notify.assert_awaited_once_with(SESSION_ID, "failed")
 
@@ -188,8 +189,8 @@ class TestConnectionBasedVerificationWebhooks:
         )
         mock_auth_session_crud.return_value.advance = fake_advance()
 
-        mock_client_instance = MagicMock()
-        mock_client_instance.send_problem_report.return_value = True
+        mock_client_instance = MagicMock(spec=AcapyClient)
+        mock_client_instance.send_problem_report.return_value = None
         mock_acapy_client.return_value = mock_client_instance
 
         # Execute
@@ -230,7 +231,7 @@ class TestConnectionBasedVerificationWebhooks:
         )
         advance = fake_advance()
         mock_auth_session_crud.return_value.advance = advance
-        mock_client_instance = MagicMock()
+        mock_client_instance = MagicMock(spec=AcapyClient)
         mock_acapy_client.return_value = mock_client_instance
 
         result = await post_topic(mock_request, "present_proof_v2_0", mock_db)
@@ -273,13 +274,7 @@ class TestConnectionBasedVerificationWebhooks:
         )
         mock_auth_session_crud.return_value.advance = fake_advance()
 
-        mock_client_instance = MagicMock()
-        mock_client_instance.get_presentation_request = AsyncMock(
-            return_value={"by_format": {"test": "presentation"}}
-        )
-        mock_client_instance.delete_presentation_record_and_connection = AsyncMock(
-            return_value=(True, False, [])
-        )
+        mock_client_instance = MagicMock(spec=AcapyClient)
         mock_acapy_client.return_value = mock_client_instance
 
         # Execute
@@ -320,8 +315,8 @@ class TestConnectionBasedVerificationWebhooks:
         )
         mock_auth_session_crud.return_value.advance = fake_advance()
 
-        mock_client_instance = MagicMock()
-        mock_client_instance.send_problem_report.return_value = True
+        mock_client_instance = MagicMock(spec=AcapyClient)
+        mock_client_instance.send_problem_report.return_value = None
         mock_acapy_client.return_value = mock_client_instance
 
         # Execute
@@ -372,9 +367,9 @@ class TestConnectionBasedVerificationWebhooks:
         )
         mock_auth_session_crud.return_value.advance = fake_advance()
 
-        mock_client_instance = MagicMock()
-        mock_client_instance.send_problem_report = AsyncMock(return_value=True)
-        mock_client_instance.delete_connection = AsyncMock(return_value=True)
+        mock_client_instance = MagicMock(spec=AcapyClient)
+        mock_client_instance.send_problem_report = AsyncMock(return_value=None)
+        mock_client_instance.delete_connection = AsyncMock(return_value=None)
         mock_acapy_client.return_value = mock_client_instance
 
         result = await post_topic(mock_request, "present_proof_v2_0", mock_db)
@@ -408,7 +403,7 @@ class TestConnectionBasedVerificationWebhooks:
         mock_db,
         mock_auth_session,
     ):
-        """Test that _cleanup__connection warns when delete_connection returns False."""
+        """_cleanup__connection logs and carries on when ACA-Py refuses the delete."""
         webhook_body = {
             "pres_ex_id": "test-pres-ex-id",
             "state": "done",
@@ -423,8 +418,10 @@ class TestConnectionBasedVerificationWebhooks:
         )
         mock_auth_session_crud.return_value.advance = fake_advance()
 
-        mock_client_instance = MagicMock()
-        mock_client_instance.delete_connection = AsyncMock(return_value=False)
+        mock_client_instance = MagicMock(spec=AcapyClient)
+        mock_client_instance.delete_connection = AsyncMock(
+            return_value=AcapyError("connection not found")
+        )
         mock_acapy_client.return_value = mock_client_instance
 
         result = await post_topic(mock_request, "present_proof_v2_0", mock_db)
@@ -463,7 +460,7 @@ class TestConnectionBasedVerificationWebhooks:
             return_value=mock_auth_session
         )
         mock_auth_session_crud.return_value.advance = fake_advance()
-        mock_acapy_client.return_value = MagicMock()
+        mock_acapy_client.return_value = MagicMock(spec=AcapyClient)
 
         result = await post_topic(mock_request, "present_proof_v2_0", mock_db)
 
@@ -504,7 +501,7 @@ class TestConnectionBasedVerificationWebhooks:
         )
         mock_auth_session_crud.return_value.advance = fake_advance()
 
-        mock_client_instance = MagicMock()
+        mock_client_instance = MagicMock(spec=AcapyClient)
         mock_acapy_client.return_value = mock_client_instance
 
         # Execute
@@ -547,7 +544,7 @@ class TestConnectionBasedVerificationWebhooks:
         )
         mock_auth_session_crud.return_value.advance = fake_advance()
 
-        mock_client_instance = MagicMock()
+        mock_client_instance = MagicMock(spec=AcapyClient)
         mock_acapy_client.return_value = mock_client_instance
 
         # Execute
@@ -614,8 +611,10 @@ class TestConnectionBasedVerificationIntegration:
     @pytest.mark.asyncio
     @patch("api.routers.acapy_handler.settings.USE_CONNECTION_BASED_VERIFICATION", True)
     @patch("api.routers.acapy_handler.AuthSessionCRUD")
+    @patch("api.routers.acapy_handler.AcapyClient", autospec=True)
     async def test_connection_webhook_fallback_to_connection_id_lookup(
         self,
+        mock_acapy_client,
         mock_auth_session_crud,
         mock_request,
         mock_db,
@@ -649,8 +648,10 @@ class TestConnectionBasedVerificationIntegration:
     @pytest.mark.asyncio
     @patch("api.routers.acapy_handler.settings.USE_CONNECTION_BASED_VERIFICATION", True)
     @patch("api.routers.acapy_handler.AuthSessionCRUD")
+    @patch("api.routers.acapy_handler.AcapyClient", autospec=True)
     async def test_connection_webhook_fallback_to_pres_exch_id_lookup(
         self,
+        mock_acapy_client,
         mock_auth_session_crud,
         mock_request,
         mock_db,
@@ -840,11 +841,11 @@ class TestConnectionBasedVerificationIntegration:
         )
         mock_auth_session_crud.return_value.advance = fake_advance()
 
-        mock_client_instance = MagicMock()
-        mock_client_instance.send_presentation_request_by_connection.side_effect = (
-            Exception("Connection error")
+        mock_client_instance = MagicMock(spec=AcapyClient)
+        mock_client_instance.send_presentation_request_by_connection = AsyncMock(
+            return_value=AcapyError("Connection error")
         )
-        mock_client_instance.send_problem_report.return_value = True
+        mock_client_instance.send_problem_report = AsyncMock(return_value=None)
         mock_acapy_client.return_value = mock_client_instance
 
         # Execute
@@ -950,13 +951,7 @@ class TestProverRoleWebhooks:
         )
         mock_auth_session_crud.return_value.advance = fake_advance()
 
-        mock_client_instance = MagicMock()
-        mock_client_instance.get_presentation_request = AsyncMock(
-            return_value={"by_format": {"test": "presentation"}}
-        )
-        mock_client_instance.delete_presentation_record_and_connection = AsyncMock(
-            return_value=(True, True, [])
-        )
+        mock_client_instance = MagicMock(spec=AcapyClient)
         mock_acapy_client.return_value = mock_client_instance
 
         # Execute
@@ -1036,13 +1031,7 @@ class TestProverRoleWebhooks:
         )
         mock_auth_session_crud.return_value.advance = fake_advance()
 
-        mock_client_instance = MagicMock()
-        mock_client_instance.get_presentation_request = AsyncMock(
-            return_value={"by_format": {"test": "presentation"}}
-        )
-        mock_client_instance.delete_presentation_record_and_connection = AsyncMock(
-            return_value=(True, True, [])
-        )
+        mock_client_instance = MagicMock(spec=AcapyClient)
         mock_acapy_client.return_value = mock_client_instance
 
         # Execute
@@ -1078,7 +1067,7 @@ class TestProverRoleWebhooks:
             }
 
             mock_request.body.return_value = json.dumps(webhook_body).encode("ascii")
-            mock_client = MagicMock()
+            mock_client = MagicMock(spec=AcapyClient)
             mock_acapy_client.return_value = mock_client
 
             result = await post_topic(mock_request, "present_proof_v2_0", mock_db)
@@ -1149,7 +1138,7 @@ class TestRecordRemovalWebhooks:
     @pytest.mark.asyncio
     @patch("api.routers.acapy_handler.AuthSessionCRUD")
     @patch("api.routers.acapy_handler.AcapyClient")
-    async def test_non_404_lookup_errors_still_propagate(
+    async def test_lookup_errors_still_propagate(
         self, mock_acapy_client, mock_auth_session_crud, mock_request, mock_db
     ):
         webhook_body = {"pres_ex_id": "test-pres-ex-id", "state": "done"}
@@ -1199,11 +1188,11 @@ class TestMiscWebhookCoverage:
         )
         mock_auth_session_crud.return_value.advance = fake_advance()
 
-        pres_response = MagicMock()
-        pres_response.pres_ex_id = "new-pres-ex-id"
-        pres_response.model_dump.return_value = {"pres_ex_id": "new-pres-ex-id"}
+        pres_response = CreatePresentationResponse(
+            thread_id="thread-id", pres_ex_id="new-pres-ex-id", pres_request={}
+        )
 
-        mock_client_instance = MagicMock()
+        mock_client_instance = MagicMock(spec=AcapyClient)
         mock_client_instance.send_presentation_request_by_connection = AsyncMock(
             return_value=pres_response
         )

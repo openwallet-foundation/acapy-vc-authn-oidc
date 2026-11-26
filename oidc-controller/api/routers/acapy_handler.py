@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import ValidationError
 from pymongo.database import Database
 
-from ..adapters.acapy.client import AcapyClient
+from ..adapters.acapy.client import AcapyClient, AcapyError
 from ..adapters.siem_audit import (
     audit_proof_verification_failed,
     audit_proof_verified,
@@ -18,6 +18,7 @@ from ..adapters.siem_audit import (
 from ..authSessions.crud import AuthSessionCRUD
 from ..authSessions.models import AuthSession
 from ..config import settings
+from ..core.acapy.models import CreatePresentationResponse
 from ..core.acapy.presentation import Presentations
 from ..core.acapy.webhooks import ConnectionWebhook, PresentProofWebhook
 from ..core.auth_session import (
@@ -52,21 +53,11 @@ def _audit_presentations(by_format: object) -> Presentations:
         return Presentations()
 
 
-async def _send_problem_report_safely(
-    client: AcapyClient, pres_ex_id: str, description: str
-) -> None:
-    """Send a problem report with error handling."""
-    try:
-        await client.send_problem_report(pres_ex_id, description)
-        logger.info(f"Problem report sent for pres_ex_id: {pres_ex_id}")
-    except Exception as e:
-        logger.error(f"Failed to send problem report: {e}")
-
-
 async def _cleanup__connection(
-    client: AcapyClient, auth_session: AuthSession, pres_ex_id: str, context: str
+    client: AcapyClient, auth_session: AuthSession, context: str
 ) -> None:
-    """Clean up connection with proper error handling."""
+    """Delete the session's connection if it was single-use. A failure is
+    only logged; the background cleanup retries it."""
     if (
         settings.USE_CONNECTION_BASED_VERIFICATION
         and auth_session.connection_id
@@ -76,19 +67,26 @@ async def _cleanup__connection(
     else:
         return
 
-    try:
-        if await client.delete_connection(connection_id_to_delete):
+    match await client.delete_connection(connection_id_to_delete):
+        case None:
             logger.info(
                 f"Successfully cleaned up single-use connection {connection_id_to_delete} after {context}"
             )
-        else:
+        case AcapyError(reason=reason):
             logger.warning(
-                f"Failed to cleanup single-use connection {connection_id_to_delete} after {context}"
+                f"Failed to cleanup single-use connection {connection_id_to_delete} after {context}",
+                reason=reason,
             )
 
-    except Exception as cleanup_error:
+
+async def _send_problem_report(
+    client: AcapyClient, pres_ex_id: str, description: str
+) -> None:
+    """Tell the wallet the exchange failed. A failure is only logged: the
+    session's outcome is already saved."""
+    if (error := await client.send_problem_report(pres_ex_id, description)) is not None:
         logger.warning(
-            f"Cleanup failed for presentation record {pres_ex_id} after {context}: {cleanup_error} - will be handled by background cleanup"
+            "Could not send problem report", pres_ex_id=pres_ex_id, reason=error.reason
         )
 
 
@@ -177,44 +175,41 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                                 f"Sending presentation request to connection {connection_id}"
                             )
 
-                            # Send presentation request to the established connection
-                            try:
-                                pres_response = await client.send_presentation_request_by_connection(
-                                    connection_id=connection_id,
-                                    presentation_request_configuration=session.proof_request,
-                                )
-
-                                # Update auth session with presentation exchange details and real connection ID
-                                await AuthSessionCRUD(db).advance(
-                                    session,
-                                    RequestSent(
-                                        pres_response.pres_ex_id,
-                                        pres_response.model_dump(),
-                                        connection_id,  # the real connection ID
-                                    ),
-                                )
-
-                                logger.info(
-                                    f"Presentation request sent successfully: {pres_response.pres_ex_id}"
-                                )
-                            except Exception as e:
-                                logger.error(
-                                    f"Failed to send presentation request: {e}"
-                                )
-                                failed = await AuthSessionCRUD(db).advance(
-                                    session, Failed()
-                                )
-                                if isinstance(failed, AuthSession):
-                                    # Send problem report if we have a presentation exchange ID
-                                    if failed.pres_exch_id:
-                                        await _send_problem_report_safely(
-                                            client,
-                                            failed.pres_exch_id,
-                                            f"Failed to send presentation request: {str(e)}",
-                                        )
-
-                                    # Emit failure status to frontend
-                                    await notify(str(failed.id), "failed")
+                            sent: Final = await client.send_presentation_request_by_connection(
+                                connection_id=connection_id,
+                                presentation_request_configuration=session.proof_request,
+                            )
+                            match sent:
+                                case CreatePresentationResponse():
+                                    # Record the exchange and the real connection ID
+                                    await AuthSessionCRUD(db).advance(
+                                        session,
+                                        RequestSent(
+                                            sent.pres_ex_id,
+                                            sent.model_dump(),
+                                            connection_id,
+                                        ),
+                                    )
+                                    logger.info(
+                                        f"Presentation request sent successfully: {sent.pres_ex_id}"
+                                    )
+                                case AcapyError(reason=reason):
+                                    logger.error(
+                                        f"Failed to send presentation request: {reason}"
+                                    )
+                                    failed = await AuthSessionCRUD(db).advance(
+                                        session, Failed()
+                                    )
+                                    if isinstance(failed, AuthSession):
+                                        if failed.pres_exch_id:
+                                            # The reason stays in our logs; it can
+                                            # hold ACA-Py's response body.
+                                            await _send_problem_report(
+                                                client,
+                                                failed.pres_exch_id,
+                                                "Failed to send presentation request",
+                                            )
+                                        await notify(str(failed.id), "failed")
                         else:
                             logger.debug(
                                 f"Auth session found but no proof_request: {session.id}"
@@ -265,7 +260,6 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                 # Return early - do NOT trigger verifier-role logic or cleanup
                 return {"status": "prover-role event logged"}
 
-            # Existing verifier-role code continues below...
             auth_session: Final = await AuthSessionCRUD(db).find_by_pres_exch_id(
                 pres_ex_id
             )
@@ -302,7 +296,6 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                         await _cleanup__connection(
                             client,
                             auth_session,
-                            pres_ex_id,
                             "missing by_format in webhook body",
                         )
                         return {"status": "missing by_format"}
@@ -342,14 +335,14 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                             settings.USE_CONNECTION_BASED_VERIFICATION
                             and failed.pres_exch_id
                         ):
-                            await _send_problem_report_safely(
+                            await _send_problem_report(
                                 client,
                                 failed.pres_exch_id,
                                 f"Presentation verification failed: {webhook_body.error_msg or 'Unknown error'}",
                             )
 
                 await _cleanup__connection(
-                    client, auth_session, pres_ex_id, "connection has been verified"
+                    client, auth_session, "connection has been verified"
                 )
                 return {}
 
@@ -377,14 +370,12 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                         settings.USE_CONNECTION_BASED_VERIFICATION
                         and abandoned.pres_exch_id
                     ):
-                        await _send_problem_report_safely(
+                        await _send_problem_report(
                             client,
                             abandoned.pres_exch_id,
                             f"Presentation abandoned: {webhook_body.error_msg or 'Unknown error'}",
                         )
-                await _cleanup__connection(
-                    client, auth_session, pres_ex_id, "abandonment"
-                )
+                await _cleanup__connection(client, auth_session, "abandonment")
                 return {}
 
             # Any other state: the wallet may have gone quiet past the deadline.
@@ -405,13 +396,13 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
 
                 # Send problem report for expired presentation in connection-based flow
                 if settings.USE_CONNECTION_BASED_VERIFICATION and expired.pres_exch_id:
-                    await _send_problem_report_safely(
+                    await _send_problem_report(
                         client,
                         expired.pres_exch_id,
                         f"Presentation expired: timeout after {settings.CONTROLLER_PRESENTATION_EXPIRE_TIME} seconds",
                     )
 
-                await _cleanup__connection(client, expired, pres_ex_id, "expiration")
+                await _cleanup__connection(client, expired, "expiration")
         case _:
             logger.debug("skipping webhook")
 

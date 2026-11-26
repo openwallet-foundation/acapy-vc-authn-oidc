@@ -22,7 +22,7 @@ from pyop.exceptions import (
 )
 from pyop.message import AuthorizationRequest
 
-from ..adapters.acapy.client import AcapyClient
+from ..adapters.acapy.client import AcapyClient, AcapyError
 from ..adapters.logger_util import log_debug
 from ..adapters.oidc import provider
 from ..adapters.siem_audit import (
@@ -49,6 +49,18 @@ VerifiedCredentialTokenUri = f"/{provider.TokenUriEndpoint}"
 VerifiedCredentialUserInfoUri = f"/{provider.UserInfoUriEndpoint}"
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
+
+
+def _from_agent[T](result: T | AcapyError) -> T:
+    """Turn an ACA-Py failure into a 502; the reason stays in our logs."""
+    if isinstance(result, AcapyError):
+        logger.error("ACA-Py request failed", reason=result.reason)
+        raise HTTPException(
+            status_code=http_status.HTTP_502_BAD_GATEWAY,
+            detail="Could not reach the verifier agent",
+        )
+    return result
+
 
 # Module-level Jinja2 environment — thread-safe, avoids per-request allocation.
 _jinja_env = Environment(loader=BaseLoader(), autoescape=True)
@@ -159,11 +171,13 @@ async def get_authorize(request: Request, db: Database = Depends(get_db)):
 
     if settings.USE_CONNECTION_BASED_VERIFICATION:
         # Connection-based verification flow
-        oob_invite_response = await client.create_connection_invitation(
-            multi_use=False,
-            presentation_exchange=None,  # No attachment - establish connection first
-            use_public_did=use_public_did,
-            auto_accept=True,  # Auto-accept connections to avoid manual acceptance
+        oob_invite_response = _from_agent(
+            await client.create_connection_invitation(
+                multi_use=False,
+                presentation_exchange=None,  # No attachment - establish connection first
+                use_public_did=use_public_did,
+                auto_accept=True,  # Auto-accept connections to avoid manual acceptance
+            )
         )
         msg_contents = oob_invite_response.invitation
 
@@ -177,12 +191,12 @@ async def get_authorize(request: Request, db: Database = Depends(get_db)):
         pres_ex_id = f"{oob_invite_response.invi_msg_id}"
     else:
         # EXISTING: Out-of-band verification flow
-        response = await client.create_presentation_request(proof_request)
+        response = _from_agent(await client.create_presentation_request(proof_request))
         pres_exch_dict = response.model_dump()
         pres_ex_id = response.pres_ex_id
 
-        oob_invite_response = await client.oob_create_invitation(
-            pres_exch_dict, use_public_did
+        oob_invite_response = _from_agent(
+            await client.oob_create_invitation(pres_exch_dict, use_public_did)
         )
         msg_contents = oob_invite_response.invitation
 

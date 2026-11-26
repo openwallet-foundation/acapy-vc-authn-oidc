@@ -9,7 +9,7 @@ from typing import Literal, TypedDict
 import httpx
 import structlog
 
-from ..adapters.acapy.client import AcapyClient
+from ..adapters.acapy.client import AcapyClient, AcapyError
 from ..config import settings
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
@@ -45,10 +45,10 @@ LimitFlag = Literal["hit_presentation_limit", "hit_connection_limit"]
 
 class _SweepPhase(TypedDict):
     phase: str
-    fetch_page: Callable[[int, int], Awaitable[list[dict]]]
+    fetch_page: Callable[[int, int], Awaitable[list[dict] | AcapyError]]
     id_key: str
     is_stale: Callable[[dict], bool]
-    delete: Callable[[str], Awaitable[bool]]
+    delete: Callable[[str], Awaitable[AcapyError | None]]
     max_deletes: int
     total_key: str
     cleaned_key: str
@@ -145,35 +145,33 @@ def _record_error(stats: CleanupStats, message: str) -> None:
 
 
 async def _delete_one(
-    delete: Callable[[str], Awaitable[bool]],
+    delete: Callable[[str], Awaitable[AcapyError | None]],
     record_id: str,
     semaphore: asyncio.Semaphore,
     phase: str,
     stats: CleanupStats,
 ) -> bool:
     async with semaphore:
-        try:
-            deleted = await delete(record_id)
-        except Exception as e:
-            logger.error(
-                "Error deleting record", phase=phase, record_id=record_id, error=str(e)
-            )
-            deleted = False
+        error = await delete(record_id)
 
-    if not deleted:
-        stats["failed_cleanups"] += 1
-        stats["has_more"] = True
-        _record_error(stats, f"Failed to delete {phase} record {record_id}")
-    return deleted
+    if error is None:
+        return True
+    logger.error(
+        "Error deleting record", phase=phase, record_id=record_id, error=error.reason
+    )
+    stats["failed_cleanups"] += 1
+    stats["has_more"] = True
+    _record_error(stats, f"Failed to delete {phase} record {record_id}")
+    return False
 
 
 async def _sweep(
     *,
     phase: str,
-    fetch_page: Callable[[int, int], Awaitable[list[dict]]],
+    fetch_page: Callable[[int, int], Awaitable[list[dict] | AcapyError]],
     id_key: str,
     is_stale: Callable[[dict], bool],
-    delete: Callable[[str], Awaitable[bool]],
+    delete: Callable[[str], Awaitable[AcapyError | None]],
     max_deletes: int,
     deadline: float,
     semaphore: asyncio.Semaphore,
@@ -205,6 +203,11 @@ async def _sweep(
             page = await asyncio.wait_for(fetch_page(PAGE_SIZE, offset), remaining)
         except TimeoutError:
             return budget_exhausted()
+        if isinstance(page, AcapyError):
+            logger.error("Cleanup phase failed", phase=phase, error=page.reason)
+            _record_error(stats, f"Cleanup phase {phase} failed: {page.reason}")
+            stats["has_more"] = True
+            return False
         stats[total_key] += len(page)
 
         stale_ids = [r[id_key] for r in page if r.get(id_key) and is_stale(r)]
