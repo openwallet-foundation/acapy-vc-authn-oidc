@@ -365,12 +365,12 @@ async def test_startup_redis_check_failure(mock_settings):
         patch("api.main.can_we_reach_redis", return_value=False),
         patch("api.main.build_redis_url", return_value="redis://localhost"),
         patch("api.main.validate_redis_config"),
-    ):
-        with pytest.raises(
+        pytest.raises(
             RuntimeError,
             match="REDIS_MODE=single is configured but Redis is not reachable",
-        ):
-            await _startup(app)
+        ),
+    ):
+        await _startup(app)
 
 
 @pytest.mark.asyncio

@@ -49,15 +49,9 @@ class MultiTenantAcapy:
                     "ACAPY_TENANT_WALLET_ID is required for multi-tenant mode"
                 )
 
-            admin_api_key_configured = (
-                settings.ST_ACAPY_ADMIN_API_KEY_NAME and settings.ST_ACAPY_ADMIN_API_KEY
-            )
-
-            headers = {}
-            if admin_api_key_configured:
-                headers[settings.ST_ACAPY_ADMIN_API_KEY_NAME] = (
-                    settings.ST_ACAPY_ADMIN_API_KEY
-                )
+            key_name = settings.ST_ACAPY_ADMIN_API_KEY_NAME
+            key = settings.ST_ACAPY_ADMIN_API_KEY
+            headers: dict[str, str] = {key_name: key} if key_name and key else {}
 
             resp = await self._http_client.post(
                 settings.ACAPY_ADMIN_URL
@@ -73,11 +67,12 @@ class MultiTenantAcapy:
                 )
                 raise Exception(f"{resp.status_code}::{error_detail}")
 
-            MultiTenantAcapy._token = resp.json()["token"]
+            token: str = resp.json()["token"]
+            MultiTenantAcapy._token = token
             MultiTenantAcapy._token_expiry = time.time() + self.TOKEN_TTL
 
             logger.debug("<<< get_wallet_token - Cached new token")
-            return MultiTenantAcapy._token
+            return token
 
     async def get_headers(self) -> dict[str, str]:
         return {"Authorization": "Bearer " + await self.get_wallet_token()}
@@ -130,10 +125,11 @@ class TractionTenantAcapy:
                 )
 
                 if resp.status_code == 200:
-                    TractionTenantAcapy._token = resp.json()["token"]
+                    token: str = resp.json()["token"]
+                    TractionTenantAcapy._token = token
                     TractionTenantAcapy._token_expiry = time.time() + self.TOKEN_TTL
                     logger.debug("<<< get_wallet_token (Success via Traction API)")
-                    return TractionTenantAcapy._token
+                    return token
                 else:
                     error_detail = resp.content.decode()
                     logger.error(
@@ -156,14 +152,11 @@ class SingleTenantAcapy:
         pass  # No HTTP calls needed for single-tenant header construction
 
     async def get_headers(self) -> dict[str, str]:
-        admin_api_key_configured = (
-            settings.ST_ACAPY_ADMIN_API_KEY_NAME and settings.ST_ACAPY_ADMIN_API_KEY
-        )
+        key_name = settings.ST_ACAPY_ADMIN_API_KEY_NAME
+        key = settings.ST_ACAPY_ADMIN_API_KEY
 
-        if admin_api_key_configured:
-            return {
-                settings.ST_ACAPY_ADMIN_API_KEY_NAME: settings.ST_ACAPY_ADMIN_API_KEY
-            }
+        if key_name and key:
+            return {key_name: key}
         else:
             logger.debug("No admin API key configured for single tenant agent")
             return {}

@@ -4,13 +4,6 @@ from urllib.parse import urlparse
 
 import structlog
 import structlog.typing
-from api.clientConfigurations.models import TOKENENDPOINTAUTHMETHODS
-from api.core.config import settings
-from api.core.models import VCUserinfo
-from api.core.redis_utils import (
-    BaseRedisWrapperWithPack,
-    extract_storage_class,
-)
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
@@ -20,6 +13,14 @@ from pyop.authz_state import AuthorizationState
 from pyop.provider import Provider
 from pyop.storage import StatelessWrapper
 from pyop.subject_identifier import HashBasedSubjectIdentifierFactory
+
+from api.clientConfigurations.models import TOKENENDPOINTAUTHMETHODS
+from api.core.config import RedisMode, settings
+from api.core.models import VCUserinfo
+from api.core.redis_utils import (
+    BaseRedisWrapperWithPack,
+    extract_storage_class,
+)
 
 logger: structlog.typing.FilteringBoundLogger = structlog.get_logger()
 DIR_PATH = os.path.dirname(os.path.realpath(__file__))
@@ -35,9 +36,8 @@ def get_signing_key_dir_path(to_replace_str, replacement_str, filename_str) -> s
 
 def save_pem_file(filename, content):
     """Save the pem file in oidc-controller dir."""
-    f = open(filename, "wb")
-    f.write(content)
-    f.close()
+    with open(filename, "wb") as f:
+        f.write(content)
 
 
 def pem_file_exists(filepath) -> bool:
@@ -70,7 +70,7 @@ if not pem_file_exists(SIGNING_KEY_FILEPATH):
     logger.info("creating new pem file")
     private_key = rsa.generate_private_key(
         public_exponent=65537,
-        key_size=int(settings.SIGNING_KEY_SIZE),
+        key_size=settings.SIGNING_KEY_SIZE,
         backend=default_backend(),
     )
     pem = private_key.private_bytes(
@@ -123,15 +123,17 @@ class DynamicClientDatabase(dict):
         from api.db.session import COLLECTION_NAMES
 
         # Check cache first
-        if client_id in self._cache:
-            if time.time() - self._cache_time[client_id] < self._cache_ttl:
-                logger.debug(
-                    "Client loaded from cache",
-                    client_id=client_id,
-                    source="cache",
-                    cache_age=time.time() - self._cache_time[client_id],
-                )
-                return self._cache[client_id]
+        if (
+            client_id in self._cache
+            and time.time() - self._cache_time[client_id] < self._cache_ttl
+        ):
+            logger.debug(
+                "Client loaded from cache",
+                client_id=client_id,
+                source="cache",
+                cache_age=time.time() - self._cache_time[client_id],
+            )
+            return self._cache[client_id]
 
         # Load from database
         logger.debug(
@@ -173,7 +175,7 @@ class DynamicClientDatabase(dict):
         client = self._get_client_from_db(key)
         return client if client is not None else default
 
-    def keys(self):
+    def keys(self):  # pyright: ignore[reportIncompatibleMethodOverride]
         """Return all client IDs from database."""
         from api.db.session import COLLECTION_NAMES
 
@@ -181,12 +183,12 @@ class DynamicClientDatabase(dict):
         col = db.get_collection(COLLECTION_NAMES.CLIENT_CONFIGURATIONS)
         return [doc["client_id"] for doc in col.find({}, {"client_id": 1})]
 
-    def values(self):
+    def values(self):  # pyright: ignore[reportIncompatibleMethodOverride]
         """Return all clients from database."""
         for client_id in self.keys():
             yield self[client_id]
 
-    def items(self):
+    def items(self):  # pyright: ignore[reportIncompatibleMethodOverride]
         """Return all (client_id, client) pairs from database."""
         for client_id in self.keys():
             yield client_id, self[client_id]
@@ -235,9 +237,9 @@ subject_id_factory = HashBasedSubjectIdentifierFactory(settings.SUBJECT_ID_HASH_
 
 
 # Conditionally create storage backends based on REDIS_MODE setting
-if settings.REDIS_MODE.lower() != "none":
+if settings.REDIS_MODE != RedisMode.NONE:
     # Redis storage for multi-pod deployments - shared state across all pods
-    redis_mode = settings.REDIS_MODE.lower()
+    redis_mode = settings.REDIS_MODE
 
     storage_class: type[BaseRedisWrapperWithPack] = extract_storage_class(redis_mode)
     authorization_code_storage = storage_class(
@@ -302,7 +304,7 @@ async def init_provider(db: Database):
     Uses DynamicClientDatabase to ensure all pods see the same client configurations
     without requiring provider reloads when clients are added/updated.
     """
-    global provider
+    global provider  # noqa: PLW0603 - set once at startup
     from api.db.session import client as mongo_client
 
     # Create a callable that returns the database

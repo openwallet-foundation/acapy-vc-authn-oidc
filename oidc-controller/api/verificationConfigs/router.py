@@ -1,3 +1,5 @@
+from typing import Any
+
 from fastapi import APIRouter, Depends
 from fastapi import status as http_status
 from fastapi.responses import HTMLResponse
@@ -49,10 +51,10 @@ async def get_all_ver_configs(db: Database = Depends(get_db)):
 
 @router.get("/explorer", include_in_schema=False)
 async def get_proof_request_explorer(db: Database = Depends(get_db)):
-    data = {
+    data: dict[str, Any] = {
         "title": "Presentation Request Explorer",
     }
-    with open(settings.CONTROLLER_TEMPLATE_DIR + "/ver_config_explorer.html", "r") as f:
+    with open(settings.CONTROLLER_TEMPLATE_DIR + "/ver_config_explorer.html") as f:
         template_file = f.read()
     template = _jinja_env.from_string(template_file)
     #  get all from VerificationConfigCRUD and add to the jinja template

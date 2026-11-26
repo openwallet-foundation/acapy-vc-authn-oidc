@@ -103,15 +103,18 @@ class TestCreateTtlIndexes:
         """Test TTL index creation with valid configuration file."""
         config_file = "/tmp/test_config.json"
 
-        with patch(
-            "builtins.open", mock_open(read_data=json.dumps(valid_config_file_content))
+        with (
+            patch(
+                "builtins.open",
+                mock_open(read_data=json.dumps(valid_config_file_content)),
+            ),
+            patch("api.db.session.apply_expiration_times") as mock_apply,
         ):
-            with patch("api.db.session.apply_expiration_times") as mock_apply:
-                create_ttl_indexes(mock_collection, config_file)
+            create_ttl_indexes(mock_collection, config_file)
 
-                mock_apply.assert_called_once_with(
-                    mock_collection, valid_config_file_content
-                )
+            mock_apply.assert_called_once_with(
+                mock_collection, valid_config_file_content
+            )
 
     def test_create_ttl_indexes_file_not_found(self, mock_collection):
         """Test TTL index creation when config file is not found."""
@@ -150,18 +153,20 @@ class TestCreateTtlIndexes:
         """Test TTL index creation with invalid auth session states."""
         config_file = "/tmp/invalid_states_config.json"
 
-        with patch(
-            "builtins.open",
-            mock_open(read_data=json.dumps(invalid_config_file_content)),
+        with (
+            patch(
+                "builtins.open",
+                mock_open(read_data=json.dumps(invalid_config_file_content)),
+            ),
+            patch("api.db.session.logger") as mock_logger,
         ):
-            with patch("api.db.session.logger") as mock_logger:
-                create_ttl_indexes(mock_collection, config_file)
+            create_ttl_indexes(mock_collection, config_file)
 
-                mock_logger.error.assert_called_once()
-                call_args = mock_logger.error.call_args[0][0]
-                assert "There is at least one invalid entry in the file" in call_args
-                assert config_file in call_args
-                assert "valid auth session strings are" in call_args
+            mock_logger.error.assert_called_once()
+            call_args = mock_logger.error.call_args[0][0]
+            assert "There is at least one invalid entry in the file" in call_args
+            assert config_file in call_args
+            assert "valid auth session strings are" in call_args
 
     def test_create_ttl_indexes_mixed_valid_invalid_states(self, mock_collection):
         """Test TTL index creation with mixed valid and invalid states."""
@@ -179,13 +184,13 @@ class TestCreateTtlIndexes:
         config_file = "/tmp/non_string_config.json"
         non_string_content = ["verified", 123, "failed"]
 
-        with patch(
-            "builtins.open", mock_open(read_data=json.dumps(non_string_content))
+        with (
+            patch("builtins.open", mock_open(read_data=json.dumps(non_string_content))),
+            patch("api.db.session.logger") as mock_logger,
         ):
-            with patch("api.db.session.logger") as mock_logger:
-                create_ttl_indexes(mock_collection, config_file)
+            create_ttl_indexes(mock_collection, config_file)
 
-                mock_logger.error.assert_called_once()
+            mock_logger.error.assert_called_once()
 
 
 class TestInitDb:

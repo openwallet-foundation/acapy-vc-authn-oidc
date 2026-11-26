@@ -3,7 +3,7 @@ import io
 import time
 import uuid
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import Any, Protocol, cast
 from urllib.parse import urlencode, urlparse
 
 import jwt
@@ -13,7 +13,6 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi import status as http_status
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from jinja2 import BaseLoader, Environment
-from oic.oic.message import AuthorizationRequest
 from pymongo.database import Database
 from pyop.exceptions import (
     BearerTokenError,
@@ -21,6 +20,7 @@ from pyop.exceptions import (
     InvalidAuthenticationRequest,
     OAuthError,
 )
+from pyop.message import AuthorizationRequest
 
 from ..authSessions.crud import AuthSessionCreate, AuthSessionCRUD
 from ..authSessions.models import AuthSession, AuthSessionPatch, AuthSessionState
@@ -89,6 +89,11 @@ async def poll_pres_exch_complete(pid: str, db: Database = Depends(get_db)):
     return {"proof_status": auth_session.proof_status}
 
 
+class _PackingStorage(Protocol):
+    def __getitem__(self, key: str) -> dict: ...
+    def pack(self, value: dict) -> str: ...
+
+
 def gen_deep_link(auth_session: AuthSession) -> str:
     controller_host = settings.CONTROLLER_URL
     url_to_message = (
@@ -119,7 +124,7 @@ async def get_authorize(request: Request, db: Database = Depends(get_db)):
         raise HTTPException(
             status_code=http_status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid auth request: {e}",
-        )
+        ) from e
 
     # PyOP checks a code_verifier only when a challenge was sent, so without
     # this an RP could opt out of PKCE by omitting it.
@@ -139,11 +144,19 @@ async def get_authorize(request: Request, db: Database = Depends(get_db)):
     # retrieve presentation_request config.
     client = AcapyClient(request.app.state.http_client)
     ver_config_id = model.get("pres_req_conf_id")
+    if not isinstance(ver_config_id, str):
+        raise HTTPException(
+            status_code=http_status.HTTP_400_BAD_REQUEST,
+            detail="Missing pres_req_conf_id",
+        )
     ver_config = await VerificationConfigCRUD(db).get(ver_config_id)
 
     # Generate proof request configuration
     try:
-        proof_request = ver_config.generate_proof_request()
+        # Local time, so date variables such as $today_int use the server's date.
+        proof_request = ver_config.generate_proof_request(
+            datetime.now().astimezone(), settings.SET_NON_REVOKED
+        )
     except VariableSubstitutionError as e:
         return JSONResponse(
             status_code=http_status.HTTP_400_BAD_REQUEST,
@@ -166,7 +179,6 @@ async def get_authorize(request: Request, db: Database = Depends(get_db)):
         msg_contents = oob_invite_response.invitation
 
         # We'll create the presentation request after connection is established
-        pres_exch_dict = None
         # Use invitation message ID as temporary unique identifier
         if not oob_invite_response.invi_msg_id:
             raise HTTPException(
@@ -193,7 +205,6 @@ async def get_authorize(request: Request, db: Database = Depends(get_db)):
         request_parameters=model.to_dict(),
         ver_config_id=ver_config_id,
         pres_exch_id=pres_ex_id,
-        presentation_exchange=pres_exch_dict,
         presentation_request_msg=msg_contents.model_dump(
             by_alias=True, exclude_none=True
         ),
@@ -214,7 +225,7 @@ async def get_authorize(request: Request, db: Database = Depends(get_db)):
     user_agent = request.headers.get("user-agent")
     audit_auth_session_initiated(
         session_id=str(auth_session.id),
-        client_id=model.get("client_id", "unknown"),
+        client_id=model.get("client_id") or "unknown",
         ver_config=ver_config,
         client_ip=client_ip,
         user_agent=user_agent,
@@ -234,7 +245,7 @@ async def get_authorize(request: Request, db: Database = Depends(get_db)):
     )
     # CREATE the image
     buff = io.BytesIO()
-    qrcode.make(url_to_message).save(buff, format="PNG")
+    qrcode.make(url_to_message).save(buff, kind="PNG")
     image_contents = base64.b64encode(buff.getvalue()).decode("utf-8")
     callback_url = f"""{controller_host}{AuthorizeCallbackUri}?pid={auth_session.id}"""
 
@@ -261,9 +272,7 @@ async def get_authorize(request: Request, db: Database = Depends(get_db)):
     }
 
     # Prepare the template (autoescape=True prevents XSS via template injection)
-    with open(
-        settings.CONTROLLER_TEMPLATE_DIR + "/verified_credentials.html", "r"
-    ) as f:
+    with open(settings.CONTROLLER_TEMPLATE_DIR + "/verified_credentials.html") as f:
         template_file = f.read()
     template = _jinja_env.from_string(template_file)
 
@@ -417,7 +426,7 @@ def _store_claims(user_id: str, claims: dict[str, Any], session_id: str) -> None
         raise HTTPException(
             status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to store claims: {str(e)}",
-        )
+        ) from e
 
 
 def _log_id_token(token_response: dict[str, Any], session_id: str) -> None:
@@ -463,7 +472,9 @@ async def post_token(request: Request, db: Database = Depends(get_db)):
             raise _invalid_grant()
 
         ver_config = await VerificationConfigCRUD(db).get(auth_session.ver_config_id)
-        sub, claims = _split_subject(Token.get_claims(auth_session, ver_config))
+        sub, claims = _split_subject(
+            Token.get_claims(auth_session, ver_config, settings.ACAPY_PROOF_FORMAT)
+        )
         user_id = sub or auth_session.pyop_user_id
 
         if sub:
@@ -478,7 +489,7 @@ async def post_token(request: Request, db: Database = Depends(get_db)):
 
         # Packing creates a new code (a new Redis key, or a new encrypted blob
         # when stateless), so the form must reference the new one.
-        codes = provider.provider.authz_state.authorization_codes
+        codes = cast(_PackingStorage, provider.provider.authz_state.authorization_codes)
         form_dict["code"] = codes.pack(_with_claims(codes[code], claims, sub))
 
         logger.info(
@@ -501,7 +512,7 @@ async def post_token(request: Request, db: Database = Depends(get_db)):
                 if e.oauth_error == "invalid_client"
                 else http_status.HTTP_400_BAD_REQUEST,
                 detail={"error": e.oauth_error, "error_description": str(e)},
-            )
+            ) from e
         _log_id_token(token_response, session_id)
 
         # SIEM Audit: Log successful token issuance (count only, no claim values)
@@ -548,10 +559,10 @@ async def get_userinfo(request: Request):
             status_code=http_status.HTTP_401_UNAUTHORIZED,
             detail=str(e),
             headers={"WWW-Authenticate": "Bearer"},
-        )
+        ) from e
     except Exception as e:
         logger.error(f"UserInfo unexpected error: {e}")
         raise HTTPException(
             status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve user info",
-        )
+        ) from e

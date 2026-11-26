@@ -284,14 +284,11 @@ async def test_send_presentation_request_by_connection_throws_assertion_error_on
     ):
         client = AcapyClient(http_client)
         client.agent_config.get_headers = mock.AsyncMock(return_value={"x-api-key": ""})
-        try:
+        with pytest.raises(AssertionError):
             await client.send_presentation_request_by_connection(
                 connection_id=connection_id,
                 presentation_request_configuration=presentation_request_config,
             )
-            assert False, "Should have thrown AssertionError"
-        except AssertionError as e:
-            assert e is not None
 
 
 @pytest.mark.asyncio
@@ -323,11 +320,8 @@ async def test_get_connection_throws_assertion_error_on_non_200_response(http_cl
 
     client = AcapyClient(http_client)
     client.agent_config.get_headers = mock.AsyncMock(return_value={"x-api-key": ""})
-    try:
+    with pytest.raises(AssertionError):
         await client.get_connection(connection_id)
-        assert False, "Should have thrown AssertionError"
-    except AssertionError as e:
-        assert e is not None
 
 
 @pytest.mark.asyncio
@@ -382,11 +376,8 @@ async def test_list_connections_throws_assertion_error_on_non_200_response(
 
     client = AcapyClient(http_client)
     client.agent_config.get_headers = mock.AsyncMock(return_value={"x-api-key": ""})
-    try:
+    with pytest.raises(AssertionError):
         await client.list_connections()
-        assert False, "Should have thrown AssertionError"
-    except AssertionError as e:
-        assert e is not None
 
 
 @pytest.mark.asyncio
@@ -519,11 +510,8 @@ async def test_create_connection_invitation_throws_assertion_error_on_non_200(
 
     client = AcapyClient(http_client)
     client.agent_config.get_headers = mock.AsyncMock(return_value={"x-api-key": ""})
-    try:
+    with pytest.raises(AssertionError):
         await client.create_connection_invitation()
-        assert False, "Should have thrown AssertionError"
-    except AssertionError as e:
-        assert e is not None
 
 
 # Problem report tests

@@ -4,6 +4,7 @@ from unittest.mock import Mock
 
 import pytest
 from api.core.models import (
+    FrozenModel,
     GenericErrorMessage,
     HealthCheck,
     PyObjectId,
@@ -12,6 +13,7 @@ from api.core.models import (
     VCUserinfo,
 )
 from bson import ObjectId
+from pydantic import ConfigDict, ValidationError
 
 
 class TestPyObjectId:
@@ -35,6 +37,33 @@ class TestPyObjectId:
         field_schema = {}
         PyObjectId.__get_pydantic_json_schema__(field_schema)
         assert field_schema["type"] == "string"
+
+
+class TestFrozenModel:
+    """FrozenModel subclasses cannot be changed after construction."""
+
+    def test_assignment_raises(self):
+        status = StatusMessage(status=True, message="ok")
+        with pytest.raises(ValidationError) as excinfo:
+            status.message = "changed"  # pyright: ignore[reportAttributeAccessIssue]
+        assert excinfo.value.errors()[0]["type"] == "frozen_instance"
+
+    def test_subclass_with_own_config_stays_frozen(self):
+        class Aliased(FrozenModel):
+            name: str
+
+            model_config = ConfigDict(populate_by_name=True)
+
+        model = Aliased(name="a")
+        with pytest.raises(ValidationError) as excinfo:
+            model.name = "b"  # pyright: ignore[reportAttributeAccessIssue]
+        assert excinfo.value.errors()[0]["type"] == "frozen_instance"
+
+    def test_model_copy_with_update(self):
+        status = StatusMessage(status=True, message="ok")
+        changed = status.model_copy(update={"message": "changed"})
+        assert changed.message == "changed"
+        assert status.message == "ok"
 
 
 class TestUUIDModel:

@@ -17,7 +17,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from api.core.acapy.config import MultiTenantAcapy, TractionTenantAcapy
-from api.core.config import settings, validate_redis_config
+from api.core.config import RedisMode, settings, validate_redis_config
 from api.core.oidc.provider import init_provider
 from api.core.webhook_utils import register_tenant_webhook
 
@@ -47,6 +47,7 @@ from .routers.sse import (
     router as sse_router,
 )
 from .verificationConfigs.router import router as ver_configs_router
+from .verificationConfigs.user_variables import load_user_variables
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
 
@@ -83,6 +84,7 @@ async def _startup(app: FastAPI):
     )
 
     validate_redis_config()
+    load_user_variables()
 
     await init_db()
     await init_provider(await get_db())
@@ -91,20 +93,20 @@ async def _startup(app: FastAPI):
     # Redis is required for both SSE cross-pod messaging AND PyOP token
     # storage — if it's unreachable the entire auth flow is broken, so we fail
     # fast here rather than starting and crashing on every request.
-    mode = settings.REDIS_MODE.lower()
-    if mode == "none":
+    mode = settings.REDIS_MODE
+    if mode == RedisMode.NONE:
         logger.debug("Redis disabled (REDIS_MODE=none)")
     else:
         try:
             reachable = False
-            if mode == "single":
+            if mode == RedisMode.SINGLE:
                 reachable = can_we_reach_redis(build_redis_url())
-            elif mode == "sentinel":
+            elif mode == RedisMode.SENTINEL:
                 hosts = parse_host_port_pairs(settings.REDIS_HOST)
                 reachable = can_we_reach_sentinel(
                     hosts, settings.REDIS_SENTINEL_MASTER_NAME
                 )
-            elif mode == "cluster":
+            elif mode == RedisMode.CLUSTER:
                 hosts = parse_host_port_pairs(settings.REDIS_HOST)
                 reachable = can_we_reach_cluster(hosts)
 

@@ -1,9 +1,10 @@
 import structlog
-from api.db.session import COLLECTION_NAMES
 from fastapi import HTTPException
 from fastapi import status as http_status
 from pymongo import ReturnDocument
 from pymongo.database import Database
+
+from api.db.session import COLLECTION_NAMES
 
 from ..core.models import PyObjectId
 from .models import AuthSession, AuthSessionCreate, AuthSessionPatch, AuthSessionState
@@ -18,7 +19,7 @@ class AuthSessionCRUD:
     async def create(self, auth_session: AuthSessionCreate) -> AuthSession:
         col = self._db.get_collection(COLLECTION_NAMES.AUTH_SESSION)
         result = col.insert_one(auth_session.model_dump())
-        return AuthSession(**col.find_one({"_id": result.inserted_id}))
+        return AuthSession.model_validate(col.find_one({"_id": result.inserted_id}))
 
     async def get_by_connection_id(self, connection_id: str) -> AuthSession | None:
         """Get auth session by connection ID for connection-based verification."""
@@ -42,7 +43,9 @@ class AuthSessionCRUD:
 
         return AuthSession(**auth_sess)
 
-    async def patch(self, id: str | PyObjectId, data: AuthSessionPatch) -> AuthSession:
+    async def patch(
+        self, id: str | PyObjectId, data: AuthSessionPatch
+    ) -> AuthSession | None:
         if not PyObjectId.is_valid(id):
             raise HTTPException(
                 status_code=http_status.HTTP_400_BAD_REQUEST, detail=f"Invalid id: {id}"
@@ -54,7 +57,7 @@ class AuthSessionCRUD:
             return_document=ReturnDocument.AFTER,
         )
 
-        return auth_sess
+        return AuthSession.model_validate(auth_sess) if auth_sess else None
 
     async def delete(self, id: str) -> bool:
         if not PyObjectId.is_valid(id):

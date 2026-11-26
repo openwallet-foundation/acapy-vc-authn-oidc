@@ -478,7 +478,7 @@ class TestBuildAsyncRedisClient:
         with (
             patch.object(sse_module.settings, "REDIS_MODE", "single"),
             patch.object(sse_module.settings, "REDIS_HOST", "redis:6379"),
-            patch.object(sse_module.settings, "REDIS_PASSWORD", ""),
+            patch.object(sse_module.settings, "REDIS_PASSWORD", None),
             patch.object(sse_module.settings, "REDIS_DB", 0),
             patch("api.routers.sse.async_redis.Redis") as mock_cls,
         ):
@@ -492,7 +492,7 @@ class TestBuildAsyncRedisClient:
         with (
             patch.object(sse_module.settings, "REDIS_MODE", "cluster"),
             patch.object(sse_module.settings, "REDIS_HOST", "node1:6379,node2:6380"),
-            patch.object(sse_module.settings, "REDIS_PASSWORD", ""),
+            patch.object(sse_module.settings, "REDIS_PASSWORD", None),
             patch("api.routers.sse.async_redis.Redis") as mock_cls,
         ):
             await build_async_redis_client()
@@ -515,7 +515,7 @@ class TestBuildAsyncRedisClient:
         with (
             patch.object(sse_module.settings, "REDIS_MODE", "sentinel"),
             patch.object(sse_module.settings, "REDIS_HOST", "sentinel1:26379"),
-            patch.object(sse_module.settings, "REDIS_PASSWORD", ""),
+            patch.object(sse_module.settings, "REDIS_PASSWORD", None),
             patch.object(sse_module.settings, "REDIS_SENTINEL_MASTER_NAME", "mymaster"),
             patch("api.routers.sse.async_redis.sentinel.Sentinel", mock_sentinel_cls),
         ):
@@ -781,7 +781,7 @@ class TestSinglePodStreamExpiry:
             call_count += 1
             if call_count == 1:
                 coro.close()
-                raise asyncio.TimeoutError()
+                raise TimeoutError()
             return await original_wait_for(coro, timeout)
 
         collected = []

@@ -9,9 +9,15 @@ import pytest
 # methods as bytes in Python 3.14+, breaking route matching. Override to HTTPXMocker
 # which patches at the httpx level and keeps methods as strings.
 import respx.mocks
-from api.core.config import settings
+
+os.environ.setdefault("CONTROLLER_URL", "https://controller")
+
+from api.core.config import settings  # noqa: E402
 
 respx.mocks.DEFAULT_MOCKER = "httpx"
+
+# Settings are frozen so app code can't change them. Tests still patch them.
+type(settings).model_config["frozen"] = False
 
 
 # disable mongodb logging when running tests
@@ -46,6 +52,5 @@ except Exception as e:
     print(f"Warning: Failed to setup test assets directory: {e}")
 
 
-settings.CONTROLLER_URL = "https://controller"
 settings.TESTING = True
 settings.ACAPY_PROOF_FORMAT = "indy"

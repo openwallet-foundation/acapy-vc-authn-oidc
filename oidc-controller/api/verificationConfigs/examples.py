@@ -1,4 +1,6 @@
-ex_ver_config = {
+from pydantic.config import JsonDict
+
+ex_ver_config: JsonDict = {
     "ver_config_id": "test-request-config",
     "include_v1_attributes": False,
     "generate_consistent_identifier": False,

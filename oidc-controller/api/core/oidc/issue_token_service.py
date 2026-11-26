@@ -1,17 +1,14 @@
 import dataclasses
 import hashlib
 import json
-from datetime import datetime
 from typing import Any
 
 import canonicaljson
 import structlog
-from pydantic import BaseModel
 
 from ...authSessions.models import AuthSession
-from ...core.models import RevealedAttribute
+from ...core.models import FrozenModel, RevealedAttribute
 from ...verificationConfigs.models import ReqAttr, VerificationConfig
-from ..config import settings
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
 
@@ -19,13 +16,12 @@ PROOF_CLAIMS_ATTRIBUTE_NAME = "vc_presented_attributes"
 
 
 @dataclasses.dataclass(frozen=True)
-class Claim(BaseModel):
+class Claim(FrozenModel):
     type: str
     value: str
 
 
-class Token(BaseModel):
-    creation_time: datetime = datetime.now()
+class Token(FrozenModel):
     issuer: str
     audiences: list[str]
     lifetime: int
@@ -33,7 +29,10 @@ class Token(BaseModel):
 
     @classmethod
     def get_claims(
-        cls, auth_session: AuthSession, ver_config: VerificationConfig
+        cls,
+        auth_session: AuthSession,
+        ver_config: VerificationConfig,
+        proof_format: str,
     ) -> dict[str, str]:
         """Converts vc presentation values to oidc claims"""
         oidc_claims: list[Claim] = [
@@ -55,9 +54,9 @@ class Token(BaseModel):
 
         # Make fallback logic more robust by checking both pres_request and pres.
         # This handles in-flight sessions during configuration changes and guards against malformed data.
-        pres_request = auth_session.presentation_exchange.get("pres_request", {})
-        pres = auth_session.presentation_exchange.get("pres", {})
-        proof_format = settings.ACAPY_PROOF_FORMAT
+        pres_exch = auth_session.presentation_exchange or {}
+        pres_request = pres_exch.get("pres_request", {})
+        pres = pres_exch.get("pres", {})
 
         if proof_format not in pres_request or proof_format not in pres:
             if "indy" in pres_request and "indy" in pres:
@@ -76,27 +75,25 @@ class Token(BaseModel):
 
         logger.info(
             "Extracted requested attributes from presentation request",
-            requested_attributes=auth_session.presentation_exchange["pres_request"][
-                proof_format
-            ]["requested_attributes"],
+            requested_attributes=pres_exch["pres_request"][proof_format][
+                "requested_attributes"
+            ],
             proof_format=proof_format,
         )
 
         referent: str
         requested_attr: ReqAttr
         try:
-            for referent, requested_attrdict in auth_session.presentation_exchange[
-                "pres_request"
-            ][proof_format]["requested_attributes"].items():
+            for referent, requested_attrdict in pres_exch["pres_request"][proof_format][
+                "requested_attributes"
+            ].items():
                 requested_attr = ReqAttr(**requested_attrdict)
                 logger.debug(
                     f"Processing referent: {referent}, requested_attr: {requested_attr}"
                 )
-                revealed_attrs: dict[str, RevealedAttribute] = (
-                    auth_session.presentation_exchange["pres"][proof_format][
-                        "requested_proof"
-                    ]["revealed_attr_groups"]
-                )
+                revealed_attrs: dict[str, RevealedAttribute] = pres_exch["pres"][
+                    proof_format
+                ]["requested_proof"]["revealed_attr_groups"]
                 logger.debug(f"revealed_attrs: {revealed_attrs}")
                 # loop through each value and put it in token as a claim
                 for attr_name in requested_attr.names:
@@ -110,7 +107,7 @@ class Token(BaseModel):
             logger.error(
                 f"An exception occurred while extracting the proof claims: {err}"
             )
-            raise RuntimeError(err)
+            raise RuntimeError(err) from err
 
         proof_claims = json.dumps(
             {c.type: c.value for c in presentation_claims.values()}

@@ -1,25 +1,26 @@
-from pydantic import BaseModel
+from typing import Any
 
+from ..models import FrozenModel
 from . import OutOfBandMessage
 
 
-class WalletDid(BaseModel):
+class WalletDid(FrozenModel):
     did: str
     verkey: str
     posture: str
 
 
-class WalletDidPublicResponse(BaseModel):
+class WalletDidPublicResponse(FrozenModel):
     result: WalletDid | None = None
 
 
-class CreatePresentationResponse(BaseModel):
+class CreatePresentationResponse(FrozenModel):
     thread_id: str
     pres_ex_id: str
-    pres_request: dict
+    pres_request: dict[str, Any]
 
 
-class OobCreateInvitationResponse(BaseModel):
+class OobCreateInvitationResponse(FrozenModel):
     invi_msg_id: str
     invitation_url: str
     oob_id: str

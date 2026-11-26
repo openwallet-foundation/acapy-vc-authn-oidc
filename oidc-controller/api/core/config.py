@@ -4,13 +4,14 @@ import logging.config
 import os
 import re
 import sys
-from enum import Enum
+from enum import StrEnum
 from functools import lru_cache
 from pathlib import Path
+from typing import Any
 
 import structlog
-from pydantic import ConfigDict, field_validator
-from pydantic_settings import BaseSettings
+from pydantic import field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 # Removed in later versions of python
@@ -45,7 +46,7 @@ use_json_logs: bool = strtobool(
 time_stamp_format: str = os.environ.get("LOG_TIMESTAMP_FORMAT", "iso")
 
 with open((Path(__file__).parent.parent / "logconf.json").resolve()) as user_file:
-    file_contents: dict = json.loads(user_file.read())
+    file_contents: dict[str, Any] = json.loads(user_file.read())
     logging.config.dictConfig(file_contents["logger"])
 
 
@@ -128,12 +129,19 @@ structlog.configure(
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
 
 
-class EnvironmentEnum(str, Enum):
+class EnvironmentEnum(StrEnum):
     PRODUCTION = "production"
     LOCAL = "local"
 
 
-class GlobalConfig(BaseSettings):
+class RedisMode(StrEnum):
+    NONE = "none"
+    SINGLE = "single"
+    SENTINEL = "sentinel"
+    CLUSTER = "cluster"
+
+
+class GlobalConfig(BaseSettings, frozen=True):  # pyright: ignore[reportGeneralTypeIssues]
     TITLE: str = os.environ.get(
         "CONTROLLER_APP_TITLE", "acapy-vc-authn-oidc Controller"
     )
@@ -157,21 +165,21 @@ class GlobalConfig(BaseSettings):
 
     MONGODB_URL: str = f"""mongodb://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}?retryWrites=true&w=majority"""  # noqa: E501
 
-    CONTROLLER_URL: str | None = os.environ.get("CONTROLLER_URL")
+    CONTROLLER_URL: str
     CONTROLLER_WEB_HOOK_URL: str | None = os.environ.get("CONTROLLER_WEB_HOOK_URL")
     # Where to send users when trying to scan with their mobile camera (not a wallet)
-    CONTROLLER_CAMERA_REDIRECT_URL: str | None = os.environ.get(
-        "CONTROLLER_CAMERA_REDIRECT_URL"
+    CONTROLLER_CAMERA_REDIRECT_URL: str = os.environ.get(
+        "CONTROLLER_CAMERA_REDIRECT_URL", "wallet_howto"
     )
     # The number of seconds to wait for a presentation to be verified, Default: 10
-    CONTROLLER_PRESENTATION_EXPIRE_TIME: int = os.environ.get(
-        "CONTROLLER_PRESENTATION_EXPIRE_TIME", 10
+    CONTROLLER_PRESENTATION_EXPIRE_TIME: int = int(
+        os.environ.get("CONTROLLER_PRESENTATION_EXPIRE_TIME", 10)
     )
 
     # How long auth_sessions with matching the states in
     # CONTROLLER_SESSION_TIMEOUT_CONFIG_FILE are stored for in seconds
-    CONTROLLER_PRESENTATION_CLEANUP_TIME: int = os.environ.get(
-        "CONTROLLER_PRESENTATION_CLEANUP_TIME", 86400
+    CONTROLLER_PRESENTATION_CLEANUP_TIME: int = int(
+        os.environ.get("CONTROLLER_PRESENTATION_CLEANUP_TIME", 86400)
     )
 
     # Presentation record cleanup configuration
@@ -250,7 +258,7 @@ class GlobalConfig(BaseSettings):
     DEFAULT_PAGE_SIZE: int | str = os.environ.get("DEFAULT_PAGE_SIZE", 10)
 
     # openssl rand -hex 32
-    SIGNING_KEY_SIZE: int = os.environ.get("SIGNING_KEY_SIZE", 2048)
+    SIGNING_KEY_SIZE: int = int(os.environ.get("SIGNING_KEY_SIZE", 2048))
     # SIGNING_KEY_FILEPATH expects complete path including filename and extension.
     SIGNING_KEY_FILEPATH: str | None = os.environ.get("SIGNING_KEY_FILEPATH")
     SIGNING_KEY_ALGORITHM: str = os.environ.get("SIGNING_KEY_ALGORITHM", "RS256")
@@ -304,20 +312,30 @@ class GlobalConfig(BaseSettings):
     # - cluster: Redis Cluster (REDIS_HOST = "host1:port1,host2:port2")
     # REDIS_HOST is always comma-separated host:port pairs.
     # For single mode, only one entry is allowed.
-    REDIS_MODE: str = os.environ.get("REDIS_MODE", "none").lower()
+    REDIS_MODE: RedisMode = RedisMode.NONE
     REDIS_HOST: str = os.environ.get("REDIS_HOST", "redis:6379")
     REDIS_PASSWORD: str | None = os.environ.get("REDIS_PASSWORD")
     REDIS_DB: int = int(os.environ.get("REDIS_DB", 0))
+
+    @field_validator("REDIS_MODE", mode="before")
+    @classmethod
+    def normalize_redis_mode(cls, v: object) -> object:
+        return v.strip().lower() if isinstance(v, str) else v
+
+    @field_validator("REDIS_PASSWORD")
+    @classmethod
+    def empty_password_is_none(cls, v: str | None) -> str | None:
+        return v or None
 
     # Sentinel-specific configuration (only used when REDIS_MODE=sentinel)
     REDIS_SENTINEL_MASTER_NAME: str = os.environ.get(
         "REDIS_SENTINEL_MASTER_NAME", "mymaster"
     )
 
-    model_config = ConfigDict(case_sensitive=True)
+    model_config = SettingsConfigDict(case_sensitive=True)
 
 
-class LocalConfig(GlobalConfig):
+class LocalConfig(GlobalConfig, frozen=True):
     """Local configurations."""
 
     DEBUG: bool = True
@@ -325,7 +343,7 @@ class LocalConfig(GlobalConfig):
     ENVIRONMENT: EnvironmentEnum = EnvironmentEnum.LOCAL
 
 
-class ProdConfig(GlobalConfig):
+class ProdConfig(GlobalConfig, frozen=True):
     """Production configurations."""
 
     DEBUG: bool = False
@@ -337,12 +355,13 @@ class FactoryConfig:
         self.environment = environment
 
     def __call__(self) -> GlobalConfig:
+        # Required fields such as CONTROLLER_URL come from the environment.
         if self.environment == EnvironmentEnum.LOCAL.value:
-            return LocalConfig()
-        return ProdConfig()
+            return LocalConfig()  # pyright: ignore[reportCallIssue]
+        return ProdConfig()  # pyright: ignore[reportCallIssue]
 
 
-@lru_cache()
+@lru_cache
 def get_configuration() -> GlobalConfig:
     return FactoryConfig(os.environ.get("ENVIRONMENT"))()
 
@@ -381,15 +400,10 @@ def validate_redis_config():
 
     Raises ValueError with a clear message if configuration is invalid.
     """
-    mode = settings.REDIS_MODE.lower()
+    mode = settings.REDIS_MODE
 
-    if mode == "none":
+    if mode == RedisMode.NONE:
         return
-
-    if mode not in ("single", "sentinel", "cluster"):
-        raise ValueError(
-            f"Invalid REDIS_MODE: '{mode}'. Must be one of: none, single, sentinel, cluster"
-        )
 
     host_port_pattern = re.compile(r"^[\w.\-]+:\d+$")
     nodes = [n.strip() for n in settings.REDIS_HOST.split(",") if n.strip()]
@@ -405,7 +419,7 @@ def validate_redis_config():
                 f"Expected format: 'host:port' (e.g., 'redis:6379' or 'sentinel1:26379,sentinel2:26379')"
             )
 
-    if mode == "single" and len(nodes) > 1:
+    if mode == RedisMode.SINGLE and len(nodes) > 1:
         raise ValueError(
             f"REDIS_MODE=single but REDIS_HOST contains multiple hosts: '{settings.REDIS_HOST}'. "
             f"For single mode, use one host:port (e.g., REDIS_HOST=redis:6379). "

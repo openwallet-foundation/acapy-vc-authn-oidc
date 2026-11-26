@@ -32,20 +32,20 @@ class ClientConfigurationCRUD:
             )
 
         # No need to reload provider - DynamicClientDatabase loads from MongoDB on-demand
-        return ClientConfiguration(
-            **col.find_one({"client_id": client_config.client_id})
+        return ClientConfiguration.model_validate(
+            col.find_one({"client_id": client_config.client_id})
         )
 
     async def get(self, client_id: str) -> ClientConfiguration:
         col = self._db.get_collection(COLLECTION_NAMES.CLIENT_CONFIGURATIONS)
         obj = col.find_one({"client_id": client_id})
-        check_and_raise_not_found_http_exception(obj, NOT_FOUND_MSG)
+        obj = check_and_raise_not_found_http_exception(obj, NOT_FOUND_MSG)
 
-        return ClientConfiguration(**obj)
+        return ClientConfiguration.model_validate(obj)
 
     async def get_all(self) -> list[ClientConfiguration]:
         col = self._db.get_collection(COLLECTION_NAMES.CLIENT_CONFIGURATIONS)
-        return [ClientConfiguration(**cc) for cc in col.find()]
+        return [ClientConfiguration.model_validate(cc) for cc in col.find()]
 
     async def patch(
         self, client_id: str, data: ClientConfigurationPatch
@@ -56,10 +56,10 @@ class ClientConfigurationCRUD:
             {"$set": data.model_dump(exclude_unset=True)},
             return_document=ReturnDocument.AFTER,
         )
-        check_and_raise_not_found_http_exception(obj, NOT_FOUND_MSG)
+        obj = check_and_raise_not_found_http_exception(obj, NOT_FOUND_MSG)
 
         # No need to reload provider - DynamicClientDatabase loads from MongoDB on-demand
-        return obj
+        return ClientConfiguration.model_validate(obj)
 
     async def delete(self, client_id: str) -> bool:
         col = self._db.get_collection(COLLECTION_NAMES.CLIENT_CONFIGURATIONS)
