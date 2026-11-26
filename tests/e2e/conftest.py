@@ -252,6 +252,45 @@ def e2e_ephemeral_ver_config_id(e2e_client_id, schema_id) -> str:
     return ver_config_id
 
 
+@pytest.fixture(scope="session")
+def e2e_unsatisfiable_ver_config_id(e2e_client_id) -> str:
+    """Create a verification config the holder cannot satisfy.
+
+    The restriction names a schema the holder has no credential for, so the
+    holder's ACA-Py cannot build a presentation and reports a problem, which
+    moves the session to ABANDONED.
+    """
+    ver_config_id = "e2e-test-config-unsatisfiable"
+    payload = {
+        "ver_config_id": ver_config_id,
+        "subject_identifier": "first_name",
+        "generate_consistent_identifier": False,
+        "include_v1_attributes": False,
+        "proof_request": {
+            "name": "E2E Unsatisfiable Proof",
+            "version": "1.0",
+            "requested_attributes": [
+                {
+                    "names": ["first_name"],
+                    "restrictions": [
+                        {"schema_id": "AAAAAAAAAAAAAAAAAAAAAA:2:no-such-schema:1.0"}
+                    ],
+                }
+            ],
+            "requested_predicates": [],
+        },
+    }
+    r = httpx.post(
+        f"{CONTROLLER_URL}/ver_configs/",
+        json=payload,
+        headers=_api_headers(),
+        timeout=10.0,
+    )
+    if r.status_code != 409:
+        r.raise_for_status()
+    return ver_config_id
+
+
 # ---------------------------------------------------------------------------
 # Function-scoped: per-test helpers
 # ---------------------------------------------------------------------------
