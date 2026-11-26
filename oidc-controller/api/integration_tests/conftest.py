@@ -341,6 +341,20 @@ def acapy_connection_mock(
 # ---------------------------------------------------------------------------
 
 
+def make_connections_webhook(
+    connection_id: str = TEST_CONNECTION_ID,
+    invi_msg_id: str = FAKE_INVI_MSG_ID,
+    state: str = "active",
+) -> dict:
+    """Build a connections webhook body (emitted by AcaPy when a connection is established)."""
+    return {
+        "connection_id": connection_id,
+        "state": state,
+        "invitation_msg_id": invi_msg_id,
+        "invi_msg_id": invi_msg_id,
+    }
+
+
 def make_proof_webhook(
     pres_ex_id: str,
     verified: bool = True,

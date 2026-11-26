@@ -36,23 +36,14 @@ from starlette.responses import StreamingResponse
 
 from ..adapters.redis_utils import parse_host_port_pairs
 from ..authSessions.crud import AuthSessionCRUD
-from ..authSessions.models import AuthSession, AuthSessionPatch, AuthSessionState
+from ..authSessions.models import AuthSession, AuthSessionState
 from ..config import RedisMode, settings
-from ..core.auth_session import Expired, apply, as_utc, has_expired
+from ..core.auth_session import FINAL_STATES, Expired, as_utc
 from ..db.session import get_db
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
 
 router = APIRouter()
-
-TERMINAL_STATES = frozenset(
-    {
-        AuthSessionState.VERIFIED,
-        AuthSessionState.FAILED,
-        AuthSessionState.EXPIRED,
-        AuthSessionState.ABANDONED,
-    }
-)
 
 # Single-pod in-process signaling: pid -> asyncio.Event
 # Note: supports only one SSE subscriber per pid (one browser tab per session).
@@ -178,7 +169,7 @@ async def _get_initial_state(
         auth_session = await AuthSessionCRUD(db).get(pid)
         return (
             auth_session.proof_status,
-            auth_session.proof_status in TERMINAL_STATES,
+            auth_session.proof_status in FINAL_STATES,
             auth_session.expired_timestamp,
             auth_session,
         )
@@ -198,44 +189,34 @@ def _seconds_until_expiry(expired_timestamp: datetime | None) -> float:
     return min(30.0, max(1.0, remaining))
 
 
-async def _expire_if_needed(
+async def _final_status(
     pid: str, db: Database, auth_session: AuthSession | None = None
-) -> bool:
-    """Transition a NOT_STARTED session to EXPIRED if its deadline has passed.
+) -> AuthSessionState | None:
+    """Return the session's final status, expiring it first if its deadline passed.
 
     Called on connect (passing the auth_session from _get_initial_state to avoid
     a second DB read) and on every keepalive tick (auth_session=None, re-fetches).
-    Returns True if the session was just expired, False otherwise.
+    The keepalive read doubles as a fallback for a lost notify: whatever final
+    status is in the database is returned, not only EXPIRED. Returns None while
+    the session is still open.
     """
     try:
         if auth_session is None:
             auth_session = await AuthSessionCRUD(db).get(pid)
-        if auth_session.proof_status != AuthSessionState.NOT_STARTED:
-            logger.debug(
-                "SSE expiry check: status is not NOT_STARTED, skipping",
-                pid=pid,
-                proof_status=auth_session.proof_status,
-            )
-            return False
-        now = datetime.now(UTC)
-        expired = has_expired(auth_session, now)
-        logger.debug(
-            "SSE expiry check",
-            pid=pid,
-            expired_time=str(auth_session.expired_timestamp),
-            now=str(now),
-            is_expired=expired,
+        if auth_session.proof_status in FINAL_STATES:
+            return auth_session.proof_status
+        expired = await AuthSessionCRUD(db).advance(
+            auth_session, Expired(datetime.now(UTC))
         )
-        if expired:
-            auth_session = apply(auth_session, Expired())
-            await AuthSessionCRUD(db).patch(
-                pid, AuthSessionPatch(**auth_session.model_dump())
-            )
+        if isinstance(expired, AuthSession):
             logger.info("SSE detected expired session", pid=pid)
-            return True
+            # Other streams for this session, possibly on other pods, would
+            # otherwise only see it on their next expiry check.
+            await notify(pid, "expired")
+            return AuthSessionState.EXPIRED
     except Exception:
         logger.exception("SSE expiry check failed", pid=pid)
-    return False
+    return None
 
 
 async def _sse_event_loop(
@@ -284,10 +265,10 @@ async def _sse_event_loop(
 
     # Check expiry immediately on connect in case the deadline already passed.
     # Guard on NOT_STARTED: any other status means expiry can't apply, skip the DB read.
-    if status == AuthSessionState.NOT_STARTED and await _expire_if_needed(
-        pid, db, auth_session=auth_session
+    if status == AuthSessionState.NOT_STARTED and (
+        (final := await _final_status(pid, db, auth_session=auth_session)) is not None
     ):
-        yield _format_event({"status": "expired"}, id=str(seq))
+        yield _format_event({"status": final}, id=str(seq))
         return
 
     while not await request.is_disconnected():
@@ -296,17 +277,18 @@ async def _sse_event_loop(
         except ConnectionError:
             return
         if payload is None:
-            # Timeout — send a keepalive comment and check expiry.
+            # Timeout — send a keepalive comment and re-read the session, which
+            # also catches a final status whose notify never arrived.
             yield ": keepalive\n\n"
-            if await _expire_if_needed(pid, db):
-                yield _format_event({"status": "expired"}, id=str(seq))
+            if (final := await _final_status(pid, db)) is not None:
+                yield _format_event({"status": final}, id=str(seq))
                 return
             # _seconds_until_expiry clamps to 1s minimum when past the deadline,
             # so we retry every second until expiry succeeds.
             continue
         yield _format_event(payload, id=str(seq))
         seq += 1
-        if payload.get("status") in TERMINAL_STATES:
+        if payload.get("status") in FINAL_STATES:
             return
 
 

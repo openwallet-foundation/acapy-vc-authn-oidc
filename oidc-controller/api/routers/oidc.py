@@ -31,10 +31,10 @@ from ..adapters.siem_audit import (
     audit_token_issued,
 )
 from ..authSessions.crud import AuthSessionCreate, AuthSessionCRUD
-from ..authSessions.models import AuthSession, AuthSessionPatch, AuthSessionState
+from ..authSessions.models import AuthSession, AuthSessionState
 from ..clientConfigurations.crud import ClientConfigurationCRUD
 from ..config import settings
-from ..core.auth_session import Expired, apply, has_expired
+from ..core.auth_session import Expired
 from ..core.oidc.issue_token_service import Token
 from ..db.session import get_db
 from ..routers.sse import notify
@@ -67,17 +67,13 @@ async def poll_pres_exch_complete(pid: str, db: Database = Depends(get_db)):
 
     pid = str(auth_session.id)
 
-    """
-     Check if proof is expired. But only if the proof has not been started.
-     NOTE: This should eventually be moved to a background task.
-    """
-    if has_expired(auth_session, datetime.now(UTC)):
+    expired = await AuthSessionCRUD(db).advance(
+        auth_session, Expired(datetime.now(UTC))
+    )
+    if isinstance(expired, AuthSession):
         logger.warning("PROOF EXPIRED")
-        auth_session = apply(auth_session, Expired())
-        await AuthSessionCRUD(db).patch(
-            str(auth_session.id), AuthSessionPatch(**auth_session.model_dump())
-        )
         await notify(pid, "expired")
+        auth_session = expired
 
     return {"proof_status": auth_session.proof_status}
 
@@ -377,16 +373,6 @@ def _invalid_grant() -> HTTPException:
     )
 
 
-def _split_subject(claims: dict[str, Any]) -> tuple[str | None, dict[str, Any]]:
-    """Separate the presentation's `sub` from the other claims.
-
-    PyOP reads `sub` from authz_info; leaving it in the claims as well makes
-    IdToken() receive it twice and raise a TypeError.
-    """
-    rest = {k: v for k, v in claims.items() if k != "sub"}
-    return claims.get("sub") or None, rest
-
-
 def _with_claims(
     authz_info: dict[str, Any], claims: dict[str, Any], sub: str | None
 ) -> dict[str, Any]:
@@ -465,9 +451,10 @@ async def post_token(request: Request, db: Database = Depends(get_db)):
             raise _invalid_grant()
 
         ver_config = await VerificationConfigCRUD(db).get(auth_session.ver_config_id)
-        sub, claims = _split_subject(
-            Token.get_claims(auth_session, ver_config, settings.ACAPY_PROOF_FORMAT)
+        token_claims = Token.get_claims(
+            auth_session, ver_config, settings.ACAPY_PROOF_FORMAT
         )
+        sub, claims = token_claims.sub, token_claims.for_pyop()
         user_id = sub or auth_session.pyop_user_id
 
         if sub:

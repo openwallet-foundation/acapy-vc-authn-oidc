@@ -1,7 +1,16 @@
 """Tests for AuthSession CRUD operations."""
 
+import asyncio
+import os
+import random
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
+from uuid import uuid4
 
+import mongomock
+import pymongo
 import pytest
 from bson import ObjectId
 from fastapi import HTTPException
@@ -16,8 +25,37 @@ from api.authSessions.models import (
     AuthSessionPatch,
     AuthSessionState,
 )
+from api.core.auth_session import (
+    FINAL_STATES,
+    Abandoned,
+    Event,
+    Expired,
+    Failed,
+    Rejected,
+    RequestSent,
+    Scanned,
+    Verified,
+)
 from api.core.models import PyObjectId
 from api.db.session import COLLECTION_NAMES
+
+MONGO_TEST_URL = os.environ.get("MONGO_TEST_URL")
+
+
+@pytest.fixture
+def auth_session_collection():
+    """An empty auth session collection: mongomock, or a throwaway database on
+    the MongoDB at MONGO_TEST_URL when that is set."""
+    if not MONGO_TEST_URL:
+        yield mongomock.MongoClient().db.get_collection(COLLECTION_NAMES.AUTH_SESSION)
+        return
+    client = pymongo.MongoClient(MONGO_TEST_URL)
+    db = client.get_database(f"test_{uuid4().hex}")
+    try:
+        yield db.get_collection(COLLECTION_NAMES.AUTH_SESSION)
+    finally:
+        client.drop_database(db.name)
+        client.close()
 
 
 @pytest.fixture
@@ -405,6 +443,15 @@ class TestAuthSessionCRUD:
         )
 
     @pytest.mark.asyncio
+    async def test_find_by_pres_exch_id_not_found(
+        self, auth_session_crud, mock_database, mock_collection
+    ):
+        mock_database.get_collection.return_value = mock_collection
+        mock_collection.find_one.return_value = None
+
+        assert await auth_session_crud.find_by_pres_exch_id("missing") is None
+
+    @pytest.mark.asyncio
     async def test_get_by_pyop_auth_code_success(
         self,
         auth_session_crud,
@@ -524,3 +571,189 @@ class TestAuthSessionCRUD:
 
         assert exc_info.value.status_code == http_status.HTTP_400_BAD_REQUEST
         assert "Invalid id: invalid-id" in str(exc_info.value.detail)
+
+
+class TestAdvance:
+    @pytest.fixture
+    def collection(self, auth_session_collection):
+        return auth_session_collection
+
+    @pytest.fixture
+    def crud(self, collection):
+        return AuthSessionCRUD(collection.database)
+
+    @pytest.fixture
+    def stored(self, collection, sample_auth_session_data):
+        collection.insert_one(dict(sample_auth_session_data))
+        return AuthSession.model_validate(sample_auth_session_data)
+
+    @pytest.mark.asyncio
+    async def test_saves_the_transition(self, crud, collection, stored):
+        result = await crud.advance(stored, Scanned())
+
+        assert isinstance(result, AuthSession)
+        assert result.proof_status is AuthSessionState.PENDING
+        assert collection.find_one()["proof_status"] == AuthSessionState.PENDING
+
+    @pytest.mark.asyncio
+    async def test_reapplies_the_event_after_a_concurrent_scan(
+        self, crud, collection, stored
+    ):
+        # The webhook loaded the session before the wallet's scan saved PENDING.
+        collection.update_one(
+            {"_id": stored.id}, {"$set": {"proof_status": AuthSessionState.PENDING}}
+        )
+
+        result = await crud.advance(stored, Verified({"pres": {}}))
+
+        assert isinstance(result, AuthSession)
+        assert result.proof_status is AuthSessionState.VERIFIED
+        assert collection.find_one()["proof_status"] == AuthSessionState.VERIFIED
+
+    @pytest.mark.asyncio
+    async def test_rejects_the_event_if_the_session_is_gone(
+        self, crud, collection, stored
+    ):
+        collection.delete_one({"_id": stored.id})
+
+        assert isinstance(await crud.advance(stored, Scanned()), Rejected)
+
+    @pytest.mark.asyncio
+    async def test_loses_to_a_concurrent_final_state(self, crud, collection, stored):
+        collection.update_one(
+            {"_id": stored.id}, {"$set": {"proof_status": AuthSessionState.VERIFIED}}
+        )
+
+        assert isinstance(await crud.advance(stored, Failed()), Rejected)
+        assert collection.find_one()["proof_status"] == AuthSessionState.VERIFIED
+
+    @pytest.mark.asyncio
+    async def test_writes_only_the_changed_fields(self, crud, collection, stored):
+        collection.update_one({"_id": stored.id}, {"$set": {"code_redeemed": True}})
+
+        await crud.advance(stored, Scanned())
+
+        assert collection.find_one()["code_redeemed"] is True
+
+    @pytest.mark.asyncio
+    async def test_event_with_nothing_to_write_returns_the_stored_session(
+        self, crud, collection, stored
+    ):
+        sent = RequestSent("pres-1", {"state": "request-sent"}, "conn-1")
+        stored = await crud.advance(stored, sent)
+        assert isinstance(stored, AuthSession)
+
+        result = await crud.advance(stored, sent)
+
+        assert isinstance(result, AuthSession)
+        assert result.id == stored.id
+        assert result.proof_status is AuthSessionState.NOT_STARTED
+        assert (result.pres_exch_id, result.connection_id) == ("pres-1", "conn-1")
+
+    @pytest.mark.asyncio
+    async def test_event_with_nothing_to_write_still_checks_the_status(
+        self, crud, collection, stored
+    ):
+        sent = RequestSent("pres-1", {"state": "request-sent"}, "conn-1")
+        stored = await crud.advance(stored, sent)
+        assert isinstance(stored, AuthSession)
+        collection.update_one(
+            {"_id": stored.id}, {"$set": {"proof_status": AuthSessionState.VERIFIED}}
+        )
+
+        assert isinstance(await crud.advance(stored, sent), Rejected)
+        assert collection.find_one()["proof_status"] == AuthSessionState.VERIFIED
+
+    @pytest.mark.asyncio
+    async def test_matches_records_without_a_status(
+        self, crud, collection, sample_auth_session_data
+    ):
+        legacy = {
+            k: v for k, v in sample_auth_session_data.items() if k != "proof_status"
+        }
+        collection.insert_one(legacy)
+
+        result = await crud.advance(AuthSession.model_validate(legacy), Scanned())
+
+        assert isinstance(result, AuthSession)
+        assert collection.find_one()["proof_status"] == AuthSessionState.PENDING
+
+    @pytest.mark.asyncio
+    async def test_rejected_events_are_not_written(self, crud, collection, stored):
+        verified = stored.model_copy(update={"proof_status": AuthSessionState.VERIFIED})
+        collection.update_one(
+            {"_id": stored.id}, {"$set": {"proof_status": AuthSessionState.VERIFIED}}
+        )
+
+        assert isinstance(await crud.advance(verified, Failed()), Rejected)
+        assert collection.find_one()["proof_status"] == AuthSessionState.VERIFIED
+
+
+@pytest.mark.skipif(
+    not MONGO_TEST_URL,
+    reason="needs a real MongoDB: mongomock's updates are not atomic across threads",
+)
+class TestConcurrentAdvance:
+    """Many writers advance one session at once, each from the same snapshot."""
+
+    WRITERS = 16
+    ROUNDS = 25
+
+    @staticmethod
+    def _event(rng: random.Random) -> Event:
+        return rng.choice(
+            [
+                Scanned(),
+                Verified({"pres": {}}),
+                Failed(),
+                Abandoned(),
+                Expired(datetime.now(UTC)),
+            ]
+        )
+
+    @staticmethod
+    def _race(
+        crud: AuthSessionCRUD, snapshot: AuthSession, events: list[Event]
+    ) -> list[AuthSession | Rejected]:
+        """Advance SNAPSHOT with each event on its own thread, all at once."""
+        start = threading.Barrier(len(events))
+
+        def write(event: Event) -> AuthSession | Rejected:
+            start.wait()
+            return asyncio.run(crud.advance(snapshot, event))
+
+        with ThreadPoolExecutor(len(events)) as pool:
+            return list(pool.map(write, events))
+
+    def test_exactly_one_writer_finishes_the_session(
+        self, auth_session_collection, sample_auth_session_data
+    ):
+        crud = AuthSessionCRUD(auth_session_collection.database)
+        rng = random.Random(1155)
+        for _ in range(self.ROUNDS):
+            data = {
+                **sample_auth_session_data,
+                "_id": ObjectId(),
+                "expired_timestamp": datetime.now(UTC) - timedelta(minutes=1),
+            }
+            auth_session_collection.insert_one(data)
+            snapshot = AuthSession.model_validate(data)
+            events = [self._event(rng) for _ in range(self.WRITERS)]
+            results = self._race(crud, snapshot, events)
+
+            finishers = [
+                result
+                for result in results
+                if isinstance(result, AuthSession)
+                and result.proof_status in FINAL_STATES
+            ]
+            scans = [
+                event
+                for event, result in zip(events, results, strict=True)
+                if isinstance(event, Scanned) and isinstance(result, AuthSession)
+            ]
+            stored = auth_session_collection.find_one({"_id": data["_id"]})
+            assert len(finishers) == 1, events
+            assert stored is not None
+            assert stored["proof_status"] == finishers[0].proof_status
+            assert len(scans) <= 1

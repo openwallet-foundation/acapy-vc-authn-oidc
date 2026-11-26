@@ -42,6 +42,7 @@ respx = "^0.23.1"
 httpx2 = "^2.16.2"
 basedpyright = "^1.40.2"
 import-linter = "^2.17"
+hypothesis = "^6.170.17"
 
 [tool.pytest.ini_options]
 testpaths = ["oidc-controller"]

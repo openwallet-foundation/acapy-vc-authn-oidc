@@ -6,6 +6,7 @@ import pytest
 from bson import ObjectId
 
 from api.authSessions.models import AuthSession
+from api.core.oidc.issue_token_service import Claims
 from api.routers.oidc import post_token, store_subject_identifier
 
 # Test Helpers
@@ -86,13 +87,13 @@ class TestPostTokenAuthSessionUpdate:
             mock_ver_config.generate_consistent_identifier = False
 
             # Mock Token.get_claims to return claims with sub
-            mock_token_class.get_claims.return_value = {
-                "sub": "alice@example.com@showcase-person",
-                "pres_req_conf_id": "showcase-person",
-                "acr": "vc_authn",
-                "nonce": "test-nonce",
-                "vc_presented_attributes": '{"email": "alice@example.com"}',
-            }
+            mock_token_class.get_claims.return_value = Claims(
+                pres_req_conf_id="showcase-person",
+                nonce="test-nonce",
+                sub="alice@example.com@showcase-person",
+                vc_presented_attributes='{"email": "alice@example.com"}',
+                v1_attributes={},
+            )
 
             # Mock CRUD
             mock_crud = MagicMock()
@@ -189,13 +190,13 @@ class TestPostTokenAuthSessionUpdate:
             mock_ver_config.generate_consistent_identifier = False
 
             presentation_sub = "alice@example.com@showcase-person"
-            mock_token_class.get_claims.return_value = {
-                "sub": presentation_sub,
-                "pres_req_conf_id": "showcase-person",
-                "acr": "vc_authn",
-                "nonce": "test-nonce",
-                "vc_presented_attributes": '{"email": "alice@example.com"}',
-            }
+            mock_token_class.get_claims.return_value = Claims(
+                pres_req_conf_id="showcase-person",
+                nonce="test-nonce",
+                sub=presentation_sub,
+                vc_presented_attributes='{"email": "alice@example.com"}',
+                v1_attributes={},
+            )
 
             mock_crud = MagicMock()
             mock_crud.get_by_pyop_auth_code = AsyncMock(return_value=mock_auth_session)
@@ -370,12 +371,13 @@ class TestPostTokenIntegration:
             mock_ver_config.generate_consistent_identifier = False
 
             # Mock Token.get_claims to return minimal claims (no sub)
-            mock_token_class.get_claims.return_value = {
-                "pres_req_conf_id": "test-config",
-                "acr": "vc_authn",
-                "nonce": "test-nonce",
-                "vc_presented_attributes": "{}",
-            }
+            mock_token_class.get_claims.return_value = Claims(
+                pres_req_conf_id="test-config",
+                nonce="test-nonce",
+                sub=None,
+                vc_presented_attributes="{}",
+                v1_attributes={},
+            )
 
             mock_crud = MagicMock()
             mock_crud.get_by_pyop_auth_code = AsyncMock(return_value=mock_auth_session)

@@ -6,9 +6,9 @@ from pymongo.database import Database
 
 from ..adapters.siem_audit import audit_qr_scanned
 from ..authSessions.crud import AuthSessionCRUD
-from ..authSessions.models import AuthSession, AuthSessionPatch, AuthSessionState
+from ..authSessions.models import AuthSession, AuthSessionState
 from ..config import settings
-from ..core.auth_session import Scanned, apply
+from ..core.auth_session import Scanned
 from ..db.session import get_db
 from ..routers.oidc import gen_deep_link
 from ..routers.sse import notify
@@ -22,15 +22,10 @@ router = APIRouter()
 
 
 async def toggle_pending(db, auth_session: AuthSession):
-    # We need to set this to pending now
-    auth_session = apply(auth_session, Scanned())
-    # A scan doesn't change the exchange, and stored sessions can have a null
-    # one that AuthSessionPatch rejects.
-    await AuthSessionCRUD(db).patch(
-        auth_session.id,
-        AuthSessionPatch(**auth_session.model_dump(exclude={"presentation_exchange"})),
-    )
-    await notify(str(auth_session.id), "pending")
+    if isinstance(
+        await AuthSessionCRUD(db).advance(auth_session, Scanned()), AuthSession
+    ):
+        await notify(str(auth_session.id), "pending")
 
 
 @router.get("/url/pres_exch/{pres_exch_id}")

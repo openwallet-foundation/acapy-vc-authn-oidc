@@ -15,6 +15,12 @@ jobs:
     strategy:
       matrix:
         python-version: ["3.15"]
+    services:
+      # A real MongoDB for the auth session tests that need atomic updates.
+      mongo:
+        image: mongo:8.3
+        ports:
+          - 27017:27017
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up Python ${{ matrix.python-version }}
@@ -40,6 +46,8 @@ jobs:
         run: |
           poetry run lint-imports ../pyproject.toml
       - name: Unit tests
+        env:
+          MONGO_TEST_URL: mongodb://localhost:27017
         run: |
           poetry run pytest -m "not e2e and not integration" --log-cli-level=INFO --cov --cov-report lcov
       - name: Integration tests
