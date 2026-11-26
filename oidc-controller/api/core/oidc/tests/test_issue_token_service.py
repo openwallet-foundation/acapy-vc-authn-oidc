@@ -1,9 +1,7 @@
 import json
 from copy import deepcopy
-from unittest.mock import patch
 
 import pytest
-from api.core.config import settings
 from api.core.oidc.issue_token_service import Token
 from api.core.oidc.tests.__mocks__ import auth_session, presentation, ver_config
 
@@ -99,7 +97,7 @@ async def test_valid_proof_presentation_with_one_attribute_returns_claims(
         "revealed_attr_groups"
     ] = basic_valid_revealed_attr_groups
     auth_session_fixture.presentation_exchange = presentation_fixture["by_format"]
-    claims = Token.get_claims(auth_session_fixture, ver_config_fixture)
+    claims = Token.get_claims(auth_session_fixture, ver_config_fixture, "indy")
     assert claims is not None
 
 
@@ -158,7 +156,7 @@ async def test_valid_proof_presentation_with_multiple_attributes_returns_claims(
         },
     }
     auth_session_fixture.presentation_exchange = presentation_fixture["by_format"]
-    claims = Token.get_claims(auth_session_fixture, ver_config_fixture)
+    claims = Token.get_claims(auth_session_fixture, ver_config_fixture, "indy")
     assert claims is not None
 
 
@@ -173,8 +171,10 @@ async def test_include_v1_attributes_false_does_not_add_the_named_attributes(
         "revealed_attr_groups"
     ] = multiple_valid_revealed_attr_groups
     auth_session_fixture.presentation_exchange = presentation_fixture["by_format"]
-    ver_config_fixture.include_v1_attributes = False
-    claims = Token.get_claims(auth_session_fixture, ver_config_fixture)
+    ver_config_fixture = ver_config_fixture.model_copy(
+        update={"include_v1_attributes": False}
+    )
+    claims = Token.get_claims(auth_session_fixture, ver_config_fixture, "indy")
     vc_presented_attributes_obj = eval(claims["vc_presented_attributes"])
     assert claims is not None
     assert vc_presented_attributes_obj["email_1"] == "test@email.com"
@@ -194,8 +194,10 @@ async def test_include_v1_attributes_true_adds_the_named_attributes(
         "revealed_attr_groups"
     ] = multiple_valid_revealed_attr_groups
     auth_session_fixture.presentation_exchange = presentation_fixture["by_format"]
-    ver_config_fixture.include_v1_attributes = True
-    claims = Token.get_claims(auth_session_fixture, ver_config_fixture)
+    ver_config_fixture = ver_config_fixture.model_copy(
+        update={"include_v1_attributes": True}
+    )
+    claims = Token.get_claims(auth_session_fixture, ver_config_fixture, "indy")
     vc_presented_attributes_obj = eval(claims["vc_presented_attributes"])
     assert claims is not None
     assert vc_presented_attributes_obj["email_1"] == "test@email.com"
@@ -215,8 +217,10 @@ async def test_include_v1_attributes_none_does_not_add_the_named_attributes(
         "revealed_attr_groups"
     ] = multiple_valid_revealed_attr_groups
     auth_session_fixture.presentation_exchange = presentation_fixture["by_format"]
-    ver_config_fixture.include_v1_attributes = None
-    claims = Token.get_claims(auth_session_fixture, ver_config_fixture)
+    ver_config_fixture = ver_config_fixture.model_copy(
+        update={"include_v1_attributes": None}
+    )
+    claims = Token.get_claims(auth_session_fixture, ver_config_fixture, "indy")
     vc_presented_attributes_obj = eval(claims["vc_presented_attributes"])
     assert claims is not None
     assert vc_presented_attributes_obj["email_1"] == "test@email.com"
@@ -260,7 +264,7 @@ async def test_revealed_attrs_dont_match_requested_attributes_throws_exception(
     }
     auth_session_fixture.presentation_exchange = presentation_fixture["by_format"]
     with pytest.raises(RuntimeError):
-        Token.get_claims(auth_session_fixture, ver_config_fixture)
+        Token.get_claims(auth_session_fixture, ver_config_fixture, "indy")
 
 
 @pytest.mark.asyncio
@@ -274,7 +278,7 @@ async def test_valid_presentation_with_matching_subject_identifier_in_claims_sub
         "revealed_attr_groups"
     ] = basic_valid_revealed_attr_groups
     auth_session_fixture.presentation_exchange = presentation_fixture["by_format"]
-    claims = Token.get_claims(auth_session_fixture, ver_config_fixture)
+    claims = Token.get_claims(auth_session_fixture, ver_config_fixture, "indy")
     print(claims)
     assert claims["sub"] == "test@email.com@verified-email"
 
@@ -290,8 +294,10 @@ async def test_valid_pres_with_non_matching_subj_id_gen_consistent_id_missing_no
         "revealed_attr_groups"
     ] = basic_valid_revealed_attr_groups
     auth_session_fixture.presentation_exchange = presentation_fixture["by_format"]
-    ver_config_fixture.subject_identifier = "not-email"
-    claims = Token.get_claims(auth_session_fixture, ver_config_fixture)
+    ver_config_fixture = ver_config_fixture.model_copy(
+        update={"subject_identifier": "not-email"}
+    )
+    claims = Token.get_claims(auth_session_fixture, ver_config_fixture, "indy")
     assert not ver_config_fixture.generate_consistent_identifier
     assert "sub" not in claims
 
@@ -307,9 +313,13 @@ async def test_valid_pres_non_matching_subj_id_gen_consistent_id_false_has_no_su
         "revealed_attr_groups"
     ] = basic_valid_revealed_attr_groups
     auth_session_fixture.presentation_exchange = presentation_fixture["by_format"]
-    ver_config_fixture.subject_identifier = "not-email"
-    ver_config_fixture.generate_consistent_identifier = False
-    claims = Token.get_claims(auth_session_fixture, ver_config_fixture)
+    ver_config_fixture = ver_config_fixture.model_copy(
+        update={
+            "subject_identifier": "not-email",
+            "generate_consistent_identifier": False,
+        }
+    )
+    claims = Token.get_claims(auth_session_fixture, ver_config_fixture, "indy")
     assert "sub" not in claims
 
 
@@ -324,23 +334,34 @@ async def test_valid_pres_non_matching_subj_id_gen_consistent_id_true_has_sub(
         "revealed_attr_groups"
     ] = basic_valid_revealed_attr_groups
     auth_session_fixture.presentation_exchange = presentation_fixture["by_format"]
-    ver_config_fixture.subject_identifier = "not-email"
-    ver_config_fixture.generate_consistent_identifier = True
-    claims = Token.get_claims(auth_session_fixture, ver_config_fixture)
+    ver_config_fixture = ver_config_fixture.model_copy(
+        update={
+            "subject_identifier": "not-email",
+            "generate_consistent_identifier": True,
+        }
+    )
+    claims = Token.get_claims(auth_session_fixture, ver_config_fixture, "indy")
     assert "sub" in claims
 
     # Ensure that this sub is not using the ver_config.subject_identifier
-    ver_config_fixture.subject_identifier = "email"
-    ver_config_fixture.generate_consistent_identifier = False
+    ver_config_fixture = ver_config_fixture.model_copy(
+        update={"subject_identifier": "email", "generate_consistent_identifier": False}
+    )
     claims_subject_identifier = Token.get_claims(
-        auth_session_fixture, ver_config_fixture
+        auth_session_fixture, ver_config_fixture, "indy"
     )
     assert claims["sub"] != claims_subject_identifier["sub"]
 
     # Ensure that sub is consistent
-    ver_config_fixture.subject_identifier = "not-email"
-    ver_config_fixture.generate_consistent_identifier = True
-    claims_duplicate = Token.get_claims(auth_session_fixture, ver_config_fixture)
+    ver_config_fixture = ver_config_fixture.model_copy(
+        update={
+            "subject_identifier": "not-email",
+            "generate_consistent_identifier": True,
+        }
+    )
+    claims_duplicate = Token.get_claims(
+        auth_session_fixture, ver_config_fixture, "indy"
+    )
     assert claims["sub"] == claims_duplicate["sub"]
 
 
@@ -371,8 +392,7 @@ async def test_get_claims_happy_path_anoncreds(
     )
 
     # Act: Config is 'anoncreds'
-    with patch.object(settings, "ACAPY_PROOF_FORMAT", "anoncreds"):
-        claims = Token.get_claims(auth_session_fixture, ver_config_fixture)
+    claims = Token.get_claims(auth_session_fixture, ver_config_fixture, "anoncreds")
 
     # Assert
     attributes = json.loads(claims["vc_presented_attributes"])
@@ -393,9 +413,8 @@ async def test_get_claims_fallback_migration_logic(
     )
 
     # Act: Config is set to 'anoncreds' (simulating new deployment)
-    with patch.object(settings, "ACAPY_PROOF_FORMAT", "anoncreds"):
-        # This would raise ValueError if fallback logic didn't exist
-        claims = Token.get_claims(auth_session_fixture, ver_config_fixture)
+    # This would raise ValueError if fallback logic didn't exist
+    claims = Token.get_claims(auth_session_fixture, ver_config_fixture, "anoncreds")
 
     # Assert: Should still find the data under 'indy' key
     attributes = json.loads(claims["vc_presented_attributes"])
@@ -416,8 +435,7 @@ async def test_get_claims_fallback_reverse_migration_logic(
     )
 
     # Act: Config is set to 'indy' (simulating default/legacy config)
-    with patch.object(settings, "ACAPY_PROOF_FORMAT", "indy"):
-        claims = Token.get_claims(auth_session_fixture, ver_config_fixture)
+    claims = Token.get_claims(auth_session_fixture, ver_config_fixture, "indy")
 
     # Assert: Should correctly find the data under 'anoncreds' key
     attributes = json.loads(claims["vc_presented_attributes"])
@@ -444,7 +462,7 @@ async def test_get_claims_no_nonce_success(
     auth_session_fixture.presentation_exchange = presentation_fixture["by_format"]
 
     # Act
-    claims = Token.get_claims(auth_session_fixture, ver_config_fixture)
+    claims = Token.get_claims(auth_session_fixture, ver_config_fixture, "indy")
 
     # Assert
     assert claims is not None
@@ -473,7 +491,7 @@ async def test_get_claims_with_nonce_success(
     auth_session_fixture.presentation_exchange = presentation_fixture["by_format"]
 
     # Act
-    claims = Token.get_claims(auth_session_fixture, ver_config_fixture)
+    claims = Token.get_claims(auth_session_fixture, ver_config_fixture, "indy")
 
     # Assert
     assert claims is not None
@@ -492,9 +510,8 @@ async def test_get_claims_raises_error_on_missing_format(
 
     # Act & Assert
     with (
-        patch.object(settings, "ACAPY_PROOF_FORMAT", "indy"),
         pytest.raises(
             ValueError, match="No valid proof format found in presentation exchange"
         ),
     ):
-        Token.get_claims(auth_session_fixture, ver_config_fixture)
+        Token.get_claims(auth_session_fixture, ver_config_fixture, "indy")

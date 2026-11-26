@@ -47,6 +47,7 @@ from .routers.sse import (
     router as sse_router,
 )
 from .verificationConfigs.router import router as ver_configs_router
+from .verificationConfigs.user_variables import load_user_variables
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
 
@@ -83,6 +84,7 @@ async def _startup(app: FastAPI):
     )
 
     validate_redis_config()
+    load_user_variables()
 
     await init_db()
     await init_provider(await get_db())

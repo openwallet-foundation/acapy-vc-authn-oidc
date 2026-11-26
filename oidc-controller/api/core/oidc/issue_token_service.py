@@ -1,17 +1,14 @@
 import dataclasses
 import hashlib
 import json
-from datetime import datetime
 from typing import Any
 
 import canonicaljson
 import structlog
-from pydantic import BaseModel
 
 from ...authSessions.models import AuthSession
-from ...core.models import RevealedAttribute
+from ...core.models import FrozenModel, RevealedAttribute
 from ...verificationConfigs.models import ReqAttr, VerificationConfig
-from ..config import settings
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
 
@@ -19,13 +16,12 @@ PROOF_CLAIMS_ATTRIBUTE_NAME = "vc_presented_attributes"
 
 
 @dataclasses.dataclass(frozen=True)
-class Claim(BaseModel):
+class Claim(FrozenModel):
     type: str
     value: str
 
 
-class Token(BaseModel):
-    creation_time: datetime = datetime.now()
+class Token(FrozenModel):
     issuer: str
     audiences: list[str]
     lifetime: int
@@ -33,7 +29,10 @@ class Token(BaseModel):
 
     @classmethod
     def get_claims(
-        cls, auth_session: AuthSession, ver_config: VerificationConfig
+        cls,
+        auth_session: AuthSession,
+        ver_config: VerificationConfig,
+        proof_format: str,
     ) -> dict[str, str]:
         """Converts vc presentation values to oidc claims"""
         oidc_claims: list[Claim] = [
@@ -58,7 +57,6 @@ class Token(BaseModel):
         pres_exch = auth_session.presentation_exchange or {}
         pres_request = pres_exch.get("pres_request", {})
         pres = pres_exch.get("pres", {})
-        proof_format = settings.ACAPY_PROOF_FORMAT
 
         if proof_format not in pres_request or proof_format not in pres:
             if "indy" in pres_request and "indy" in pres:

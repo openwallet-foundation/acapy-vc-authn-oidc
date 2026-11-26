@@ -1,7 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum, auto
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field  # noqa: TID251 - routers mutate sessions
 
 from api.core.models import UUIDModel
 
@@ -21,7 +21,7 @@ class AuthSessionBase(BaseModel):
     pres_exch_id: str | None = None  # Optional for connection-based flow
     expired_timestamp: datetime = Field(
         default_factory=lambda: (
-            datetime.now(UTC)
+            datetime.now(UTC)  # noqa: TID251 - default for new records
             + timedelta(seconds=settings.CONTROLLER_PRESENTATION_EXPIRE_TIME)
         )
     )
@@ -37,7 +37,7 @@ class AuthSessionBase(BaseModel):
     proof_request: dict | None = None  # Store proof request for later use
     multi_use: bool = False  # Track if connection is multi-use (default: single-use)
     model_config = ConfigDict(populate_by_name=True)
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))  # noqa: TID251 - default for new records
 
 
 class AuthSession(AuthSessionBase, UUIDModel):

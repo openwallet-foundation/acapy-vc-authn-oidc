@@ -1,11 +1,12 @@
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import ConfigDict, Field
 
+from ..models import FrozenModel
 from .service_decorator import OOBServiceDecorator
 
 
-class OutOfBandPresentProofAttachment(BaseModel):
+class OutOfBandPresentProofAttachment(FrozenModel):
     id: str = Field(alias="@id")
     mime_type: str = Field(default="application/json", alias="mime-type")
     data: dict[str, Any]
@@ -13,7 +14,7 @@ class OutOfBandPresentProofAttachment(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
-class OutOfBandMessage(BaseModel):
+class OutOfBandMessage(FrozenModel):
     # https://github.com/hyperledger/aries-rfcs/blob/main/features/0434-outofband
     id: str = Field(alias="@id")
     type: str = Field(

@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from datetime import datetime
 
 import pytest
 from api.db.session import COLLECTION_NAMES
@@ -154,7 +155,9 @@ async def test_generate_proof_request():
     )
 
     # Generate the proof request
-    proof_request = verification_config.generate_proof_request()
+    proof_request = verification_config.generate_proof_request(
+        datetime.now().astimezone(), set_non_revoked=True
+    )
 
     # Assertions to verify the generated proof request
     assert proof_request["name"] == "test_proof_request"

@@ -5,34 +5,29 @@ Other users of this project can add their own variable substitutions or override
 the entire file to suit their own needs.
 """
 
-import copy
 import re
-import time
 from collections.abc import Callable
 from datetime import datetime, timedelta
-
-import structlog
-
-from ..core.config import settings
-
-logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
 
 SubstitutionFunction = Callable[..., int | str]
 
 
 class VariableSubstitutionMap:
     def __init__(self):
-        # Map of static variables that can be used in a proof
-        # This class defines threshold_years_X as a dynamic one
-        self.static_map = {
+        # Built-in variables. They are computed from the time passed to resolve()
+        # so the result does not depend on when the function happens to run.
+        self.static_map: dict[str, Callable[[datetime], int]] = {
             "$now": self.get_now,
             "$today_int": self.get_today_date,
             "$tomorrow_int": self.get_tomorrow_date,
         }
-
-        self.user_static_map: dict[re.Pattern[str], SubstitutionFunction] = {
+        # Built-in variables with regex groups, so $threshold_years_X works for any X.
+        self.dynamic_map: dict[re.Pattern[str], Callable[..., int]] = {
             re.compile(r"\$threshold_years_(\d+)"): self.get_threshold_years_date
         }
+
+        # User defined variables. These receive only the captured regex groups.
+        self.user_static_map: dict[re.Pattern[str], SubstitutionFunction] = {}
 
     def add_variable_substitution(
         self, pattern: str, substitution_function: SubstitutionFunction
@@ -44,96 +39,72 @@ class VariableSubstitutionMap:
 
         Examples:
         vsm.add_variable_substitution(r\"\\$years since (\\d+) (\\d+)\", lambda x, y: int(x) + int(y))
-        vsm[f"$years since {10} {12}"] => 22
+        vsm.resolve(f"$years since {10} {12}", now) => 22
         """
-        self.user_static_map[re.compile(pattern)] = substitution_function
+        compiled = re.compile(pattern)
+        # A user pattern replaces a built-in with the same pattern.
+        self.dynamic_map.pop(compiled, None)
+        self.user_static_map[compiled] = substitution_function
 
-    def get_threshold_years_date(self, years: str) -> int:
+    def get_threshold_years_date(self, now: datetime, years: str) -> int:
         """
         Calculate the threshold date for a given number of years.
 
         Args:
-            years (int): The number of years to subtract from the current year.
+            now (datetime): The current time.
+            years (str): The number of years to subtract from the current year.
 
         Returns:
             int: The current date minux X years in YYYYMMDD format.
         """
-        threshold_date = datetime.today().replace(
-            year=datetime.today().year - int(years)
-        )
+        threshold_date = now.replace(year=now.year - int(years))
         return int(threshold_date.strftime("%Y%m%d"))
 
-    def get_now(self) -> int:
+    def get_now(self, now: datetime) -> int:
         """
         Get the current timestamp.
 
         Returns:
             int: The current timestamp in seconds since the epoch.
         """
-        return int(time.time())
+        return int(now.timestamp())
 
-    def get_today_date(self) -> int:
+    def get_today_date(self, now: datetime) -> int:
         """
         Get today's date in YYYYMMDD format as a number.
 
         Returns:
             int: Today's date in YYYYMMDD format.
         """
-        return int(datetime.today().strftime("%Y%m%d"))
+        return int(now.strftime("%Y%m%d"))
 
-    def get_tomorrow_date(self) -> int:
+    def get_tomorrow_date(self, now: datetime) -> int:
         """
         Get tomorrow's date in YYYYMMDD format as a number.
 
         Returns:
             int: Tomorrow's date in YYYYMMDD format.
         """
-        return int((datetime.today() + timedelta(days=1)).strftime("%Y%m%d"))
+        return int((now + timedelta(days=1)).strftime("%Y%m%d"))
 
-    # For "dynamic" variables, use a regex to match the key and return a lambda function
-    # So a proof request can use $threshold_years_X to get the years back for X years
     def __contains__(self, key: str) -> bool:
-        res = key in self.static_map
-        if not res:
-            for i in self.user_static_map:
-                if re.match(i, key):
-                    return True
-        return res
-
-    def __getitem__(self, key: str):
         if key in self.static_map:
-            return self.static_map[key]
-        for i, j in self.user_static_map.items():
-            if nmatch := re.match(i, key):
-                return lambda: j(*nmatch.groups())
+            return True
+        patterns = [*self.dynamic_map, *self.user_static_map]
+        return any(re.match(p, key) for p in patterns)
+
+    def resolve(self, key: str, now: datetime) -> int | str:
+        """Return the value of the variable KEY at time NOW."""
+        if key in self.static_map:
+            return self.static_map[key](now)
+        for pattern, func in self.dynamic_map.items():
+            if nmatch := re.match(pattern, key):
+                return func(now, *nmatch.groups())
+        for pattern, func in self.user_static_map.items():
+            if nmatch := re.match(pattern, key):
+                return func(*nmatch.groups())
         raise KeyError(f"Key {key} not found in format_args_function_map")
 
 
 # Create an instance of the custom mapping class
 variable_substitution_map = VariableSubstitutionMap()
-
-
-def apply_user_variables():
-    if settings.CONTROLLER_VARIABLE_SUBSTITUTION_OVERRIDE is None:
-        logger.warning("No user defined variable substitutions file provided")
-        return None
-    try:
-        with open(settings.CONTROLLER_VARIABLE_SUBSTITUTION_OVERRIDE) as user_file:
-            code = user_file.read()
-    except FileNotFoundError:
-        logger.warning("User defined variable substitutions file could not be found")
-        return None
-    else:
-        og_substitution_map = copy.copy(variable_substitution_map.user_static_map)
-        exec(code)
-        if len(variable_substitution_map.user_static_map) <= 1:
-            logger.info("No new user created variable substitution where found")
-
-        for pattern, func in variable_substitution_map.user_static_map.items():
-            if pattern not in og_substitution_map:
-                logger.info(
-                    f'New user created variable substitution: The pattern "{pattern.pattern}" is now mapped to the function {func.__name__}'
-                )
-
-
-apply_user_variables()
