@@ -2,7 +2,7 @@
 
 Used by:
 - api/routers/sse.py (SSE Redis pub/sub)
-- api/core/oidc/provider.py (PyOP token storage)
+- api/adapters/oidc/provider.py (PyOP token storage)
 - api/main.py (startup health checks)
 """
 
@@ -15,7 +15,7 @@ import structlog
 from redis.cluster import ClusterNode, RedisCluster
 from redis.sentinel import Sentinel
 
-from api.core.config import RedisMode, settings
+from api.config import RedisMode, settings
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
 

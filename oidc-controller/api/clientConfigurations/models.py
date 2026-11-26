@@ -2,7 +2,7 @@ from enum import StrEnum
 
 from pydantic import ConfigDict, Field
 
-from ..core.config import settings
+from ..config import settings
 from ..core.models import FrozenModel
 from .examples import ex_client_config
 

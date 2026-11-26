@@ -14,13 +14,13 @@ from pyop.provider import Provider
 from pyop.storage import StatelessWrapper
 from pyop.subject_identifier import HashBasedSubjectIdentifierFactory
 
-from api.clientConfigurations.models import TOKENENDPOINTAUTHMETHODS
-from api.core.config import RedisMode, settings
-from api.core.models import VCUserinfo
-from api.core.redis_utils import (
+from api.adapters.redis_utils import (
     BaseRedisWrapperWithPack,
     extract_storage_class,
 )
+from api.clientConfigurations.models import TOKENENDPOINTAUTHMETHODS
+from api.config import RedisMode, settings
+from api.core.models import VCUserinfo
 
 logger: structlog.typing.FilteringBoundLogger = structlog.get_logger()
 DIR_PATH = os.path.dirname(os.path.realpath(__file__))
@@ -48,7 +48,7 @@ def pem_file_exists(filepath) -> bool:
 if settings.TESTING:
     # Test pem file location /vc-authn-oidc/test-signing-keys.
     SIGNING_KEY_FILEPATH = get_signing_key_dir_path(
-        to_replace_str="/oidc-controller/api/core/oidc",
+        to_replace_str="/oidc-controller/api/adapters/oidc",
         replacement_str="/test-signing-keys",
         filename_str="test_signing_key.pem",
     )
@@ -56,7 +56,7 @@ else:
     if not settings.SIGNING_KEY_FILEPATH:
         # Default pem file location /app/signing-keys.
         SIGNING_KEY_FILEPATH = get_signing_key_dir_path(
-            to_replace_str="/api/core/oidc",
+            to_replace_str="/api/adapters/oidc",
             replacement_str="/signing-keys",
             filename_str="signing_key.pem",
         )

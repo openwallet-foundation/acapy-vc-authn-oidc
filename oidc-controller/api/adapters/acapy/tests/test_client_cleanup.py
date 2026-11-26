@@ -5,8 +5,8 @@ from uuid import UUID
 import httpx
 import pytest
 import respx
-from api.core.acapy.client import AcapyClient
-from api.core.config import settings
+from api.adapters.acapy.client import AcapyClient
+from api.config import settings
 
 
 @pytest.fixture

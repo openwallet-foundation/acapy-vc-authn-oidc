@@ -69,15 +69,18 @@ target-version = "py313"
 extend-exclude = ["docker/"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "W", "B", "C4", "SIM", "UP", "PLW0603", "TID251", "T20", "PTH123"]
+select = ["E", "F", "I", "W", "B", "C4", "SIM", "UP", "PLW0603", "TID251", "T20", "PTH123", "INP001"]
 ignore = ["E501"]
 
 [tool.ruff.lint.per-file-ignores]
-# Nested patch() blocks read fine in tests.
-"**/{tests,integration_tests}/*" = ["SIM117"]
+# Nested patch() blocks read fine in tests, and tests may set the clock,
+# environment and files up however they need.
+"**/{tests,integration_tests}/*" = ["SIM117", "TID251", "T20", "PTH123", "INP001"]
+# import-linter skips directories without __init__.py, so require one under api.
+"!oidc-controller/api/**" = ["INP001"]
 # Effect bans apply only to the pure modules. Keep this list in step with
 # source_modules in the import-linter contract below.
-"!oidc-controller/api/{authSessions/models.py,clientConfigurations/models.py,core/acapy/models.py,core/acapy/out_of_band.py,core/acapy/present_proof_attachment.py,core/acapy/present_proof_presentation.py,core/acapy/service_decorator.py,core/models.py,core/oidc/issue_token_service.py,verificationConfigs/helpers.py,verificationConfigs/models.py,verificationConfigs/variableSubstitutions.py}" = ["TID251", "T20", "PTH123"]
+"!oidc-controller/api/{core/**,authSessions/models.py,clientConfigurations/models.py,verificationConfigs/helpers.py,verificationConfigs/models.py,verificationConfigs/variableSubstitutions.py}" = ["TID251", "T20", "PTH123"]
 
 # Pure modules must not read the clock, randomness, the environment or files,
 # or start processes. Take the value as an argument instead.
@@ -118,24 +121,25 @@ reportMatchNotExhaustive = "error"
 strict = [
     "oidc-controller/api/clientConfigurations/examples.py",
     "oidc-controller/api/clientConfigurations/models.py",
-    "oidc-controller/api/core/acapy/config.py",
+    "oidc-controller/api/adapters/acapy/config.py",
     "oidc-controller/api/core/acapy/models.py",
     "oidc-controller/api/core/acapy/out_of_band.py",
     "oidc-controller/api/core/acapy/present_proof_attachment.py",
     "oidc-controller/api/core/acapy/present_proof_presentation.py",
     "oidc-controller/api/core/acapy/service_decorator.py",
-    "oidc-controller/api/core/auth.py",
-    "oidc-controller/api/core/config.py",
-    "oidc-controller/api/core/http_exception_util.py",
+    "oidc-controller/api/adapters/auth.py",
+    "oidc-controller/api/config.py",
+    "oidc-controller/api/adapters/http_exception_util.py",
     "oidc-controller/api/db/collections.py",
     "oidc-controller/api/routers/cleanup.py",
     "oidc-controller/api/verificationConfigs/examples.py",
     "oidc-controller/api/verificationConfigs/variableSubstitutions.py",
 ]
 
-# Keep the pure modules free of I/O. They may use settings, which are frozen,
-# but must not reach the database, Redis, HTTP or the web framework, directly
-# or through another module. Add a module to source_modules once it is pure.
+# Keep the pure modules free of I/O. Everything in api.core is pure, plus the
+# models and helpers listed below that live beside their routers. They must
+# not reach the database, Redis, HTTP or the web framework, directly or
+# through another module. I/O code belongs in api.adapters or the routers.
 [tool.importlinter]
 root_package = "api"
 include_external_packages = true
@@ -144,15 +148,9 @@ include_external_packages = true
 name = "Pure modules do no I/O"
 type = "forbidden"
 source_modules = [
+    "api.core",
     "api.authSessions.models",
     "api.clientConfigurations.models",
-    "api.core.acapy.models",
-    "api.core.acapy.out_of_band",
-    "api.core.acapy.present_proof_attachment",
-    "api.core.acapy.present_proof_presentation",
-    "api.core.acapy.service_decorator",
-    "api.core.models",
-    "api.core.oidc.issue_token_service",
     "api.verificationConfigs.helpers",
     "api.verificationConfigs.models",
     "api.verificationConfigs.variableSubstitutions",
@@ -164,12 +162,9 @@ forbidden_modules = [
     "redis",
     "socketio",
     "starlette",
+    "api.adapters",
     "api.authSessions.crud",
     "api.clientConfigurations.crud",
-    "api.core.acapy.client",
-    "api.core.oidc.provider",
-    "api.core.redis_utils",
-    "api.core.webhook_utils",
     "api.db",
     "api.routers",
     "api.services",
@@ -177,23 +172,18 @@ forbidden_modules = [
 ]
 
 # Pure functions take settings as arguments rather than reading the global.
-# The two model modules are exempt because they use settings for field defaults.
+# The two model modules above are exempt because they use settings for field
+# defaults.
 [[tool.importlinter.contracts]]
 name = "Pure functions do not read settings"
 type = "forbidden"
 source_modules = [
-    "api.core.acapy.models",
-    "api.core.acapy.out_of_band",
-    "api.core.acapy.present_proof_attachment",
-    "api.core.acapy.present_proof_presentation",
-    "api.core.acapy.service_decorator",
-    "api.core.models",
-    "api.core.oidc.issue_token_service",
+    "api.core",
     "api.verificationConfigs.helpers",
     "api.verificationConfigs.models",
     "api.verificationConfigs.variableSubstitutions",
 ]
-forbidden_modules = ["api.core.config"]
+forbidden_modules = ["api.config"]
 allow_indirect_imports = true
 
 [build-system]

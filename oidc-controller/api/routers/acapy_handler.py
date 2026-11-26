@@ -8,17 +8,17 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pymongo.database import Database
 
-from ..authSessions.crud import AuthSessionCRUD
-from ..authSessions.models import AuthSession, AuthSessionPatch, AuthSessionState
-from ..core.acapy.client import AcapyClient
-from ..core.config import settings
-from ..core.siem_audit import (
+from ..adapters.acapy.client import AcapyClient
+from ..adapters.siem_audit import (
     audit_proof_verification_failed,
     audit_proof_verified,
     audit_session_abandoned,
     audit_session_expired,
     audit_webhook_received,
 )
+from ..authSessions.crud import AuthSessionCRUD
+from ..authSessions.models import AuthSession, AuthSessionPatch, AuthSessionState
+from ..config import settings
 from ..db.session import get_db
 from ..routers.sse import notify
 

@@ -3,7 +3,7 @@
 from unittest.mock import patch
 
 import pytest
-from api.core.http_exception_util import (
+from api.adapters.http_exception_util import (
     CONFLICT_DEFAULT_MSG,
     NOT_FOUND_DEFAULT_MSG,
     UNKNOWN_DEFAULT_MSG,
@@ -43,7 +43,7 @@ class TestRaiseAppropriateHttpException:
         """Test handling of unknown error codes."""
         write_error = WriteError("Unknown error", code=12345, details={})
 
-        with patch("api.core.http_exception_util.logger") as mock_logger:
+        with patch("api.adapters.http_exception_util.logger") as mock_logger:
             with pytest.raises(HTTPException) as exc_info:
                 raise_appropriate_http_exception(write_error)
 
@@ -58,7 +58,7 @@ class TestRaiseAppropriateHttpException:
         write_error = WriteError("Unknown error", code=99999, details={})
         custom_message = "Custom conflict message"
 
-        with patch("api.core.http_exception_util.logger") as mock_logger:
+        with patch("api.adapters.http_exception_util.logger") as mock_logger:
             with pytest.raises(HTTPException) as exc_info:
                 raise_appropriate_http_exception(write_error, custom_message)
 
@@ -73,7 +73,7 @@ class TestRaiseAppropriateHttpException:
         """Test handling of zero error code."""
         write_error = WriteError("Zero error code", code=0, details={})
 
-        with patch("api.core.http_exception_util.logger") as mock_logger:
+        with patch("api.adapters.http_exception_util.logger") as mock_logger:
             with pytest.raises(HTTPException) as exc_info:
                 raise_appropriate_http_exception(write_error)
 
@@ -87,7 +87,7 @@ class TestRaiseAppropriateHttpException:
         """Test handling of negative error code."""
         write_error = WriteError("Negative error code", code=-1, details={})
 
-        with patch("api.core.http_exception_util.logger") as mock_logger:
+        with patch("api.adapters.http_exception_util.logger") as mock_logger:
             with pytest.raises(HTTPException) as exc_info:
                 raise_appropriate_http_exception(write_error)
 
@@ -233,7 +233,7 @@ class TestWriteErrorIntegration:
         write_error = WriteError("String code error", code="11000", details={})
 
         # This should trigger the else branch since "11000" != 11000
-        with patch("api.core.http_exception_util.logger") as mock_logger:
+        with patch("api.adapters.http_exception_util.logger") as mock_logger:
             with pytest.raises(HTTPException) as exc_info:
                 raise_appropriate_http_exception(write_error)
 

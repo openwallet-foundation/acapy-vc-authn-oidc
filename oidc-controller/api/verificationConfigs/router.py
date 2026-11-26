@@ -6,8 +6,8 @@ from fastapi.responses import HTMLResponse
 from jinja2 import BaseLoader, Environment
 from pymongo.database import Database
 
-from ..core.auth import get_api_key
-from ..core.config import settings
+from ..adapters.auth import get_api_key
+from ..config import settings
 from ..core.models import GenericErrorMessage, StatusMessage
 from ..db.session import get_db
 from .crud import VerificationConfigCRUD

@@ -4,7 +4,7 @@ from unittest import mock
 import httpx
 import pytest
 import respx
-from api.core.acapy.client import (
+from api.adapters.acapy.client import (
     CONNECTIONS_URI,
     CREATE_PRESENTATION_REQUEST_URL,
     OOB_CREATE_INVITATION,
@@ -15,17 +15,17 @@ from api.core.acapy.client import (
     WALLET_DID_URI,
     AcapyClient,
 )
-from api.core.acapy.config import (
+from api.adapters.acapy.config import (
     MultiTenantAcapy,
     SingleTenantAcapy,
     TractionTenantAcapy,
 )
-from api.core.acapy.models import CreatePresentationResponse, WalletDid
-from api.core.acapy.tests.__mocks__ import (
+from api.adapters.acapy.tests.__mocks__ import (
     create_presentation_response_http,
     presentation_request_configuration,
 )
-from api.core.config import settings
+from api.config import settings
+from api.core.acapy.models import CreatePresentationResponse, WalletDid
 
 
 @pytest.fixture

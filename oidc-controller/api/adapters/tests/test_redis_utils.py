@@ -3,7 +3,7 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
-from api.core.redis_utils import (
+from api.adapters.redis_utils import (
     BaseRedisWrapperWithPack,
     _get_sentinel_master,
 )
@@ -19,13 +19,13 @@ class TestGetSentinelMaster:
         sentinel_instance.master_for.return_value = master
         return sentinel_instance, master
 
-    @patch("api.core.redis_utils.Sentinel")
+    @patch("api.adapters.redis_utils.Sentinel")
     def test_password_passed_to_sentinel_kwargs(self, mock_sentinel_cls):
         """REDIS_PASSWORD is forwarded to sentinel_kwargs for sentinel auth."""
         sentinel_instance, _ = self._make_sentinel_mock()
         mock_sentinel_cls.return_value = sentinel_instance
 
-        with patch("api.core.redis_utils.settings") as mock_settings:
+        with patch("api.adapters.redis_utils.settings") as mock_settings:
             mock_settings.REDIS_HOST = "sentinel1:26379,sentinel2:26379"
             mock_settings.REDIS_PASSWORD = "shared-pw"
             mock_settings.REDIS_SENTINEL_MASTER_NAME = "mymaster"
@@ -35,13 +35,13 @@ class TestGetSentinelMaster:
         _, kwargs = mock_sentinel_cls.call_args
         assert kwargs["sentinel_kwargs"]["password"] == "shared-pw"
 
-    @patch("api.core.redis_utils.Sentinel")
+    @patch("api.adapters.redis_utils.Sentinel")
     def test_password_passed_to_master_for(self, mock_sentinel_cls):
         """REDIS_PASSWORD is forwarded to master_for for master auth."""
         sentinel_instance, _ = self._make_sentinel_mock()
         mock_sentinel_cls.return_value = sentinel_instance
 
-        with patch("api.core.redis_utils.settings") as mock_settings:
+        with patch("api.adapters.redis_utils.settings") as mock_settings:
             mock_settings.REDIS_HOST = "sentinel1:26379"
             mock_settings.REDIS_PASSWORD = "shared-pw"
             mock_settings.REDIS_SENTINEL_MASTER_NAME = "mymaster"
@@ -52,13 +52,13 @@ class TestGetSentinelMaster:
             "mymaster", password="shared-pw"
         )
 
-    @patch("api.core.redis_utils.Sentinel")
+    @patch("api.adapters.redis_utils.Sentinel")
     def test_no_password_when_unset(self, mock_sentinel_cls):
         """When REDIS_PASSWORD is unset, sentinel_kwargs has no password key."""
         sentinel_instance, _ = self._make_sentinel_mock()
         mock_sentinel_cls.return_value = sentinel_instance
 
-        with patch("api.core.redis_utils.settings") as mock_settings:
+        with patch("api.adapters.redis_utils.settings") as mock_settings:
             mock_settings.REDIS_HOST = "sentinel1:26379"
             mock_settings.REDIS_PASSWORD = None
             mock_settings.REDIS_SENTINEL_MASTER_NAME = "mymaster"
@@ -68,13 +68,13 @@ class TestGetSentinelMaster:
         _, kwargs = mock_sentinel_cls.call_args
         assert "password" not in kwargs["sentinel_kwargs"]
 
-    @patch("api.core.redis_utils.Sentinel")
+    @patch("api.adapters.redis_utils.Sentinel")
     def test_multiple_sentinel_hosts(self, mock_sentinel_cls):
         """All sentinel hosts are parsed and passed to Sentinel."""
         sentinel_instance, _ = self._make_sentinel_mock()
         mock_sentinel_cls.return_value = sentinel_instance
 
-        with patch("api.core.redis_utils.settings") as mock_settings:
+        with patch("api.adapters.redis_utils.settings") as mock_settings:
             mock_settings.REDIS_HOST = "s1:26379,s2:26379,s3:26379"
             mock_settings.REDIS_PASSWORD = "pw"
             mock_settings.REDIS_SENTINEL_MASTER_NAME = "mymaster"
@@ -88,27 +88,27 @@ class TestGetSentinelMaster:
 class TestParseHostPortPairsEmptyEntry:
     def test_empty_entries_are_skipped(self):
         """Double-comma produces an empty entry that is silently skipped."""
-        from api.core.redis_utils import parse_host_port_pairs
+        from api.adapters.redis_utils import parse_host_port_pairs
 
         result = parse_host_port_pairs("node1:6379,,node2:6379")
         assert result == [("node1", 6379), ("node2", 6379)]
 
     def test_trailing_comma_is_skipped(self):
         """Trailing comma produces an empty entry that is silently skipped."""
-        from api.core.redis_utils import parse_host_port_pairs
+        from api.adapters.redis_utils import parse_host_port_pairs
 
         result = parse_host_port_pairs("node1:6379,")
         assert result == [("node1", 6379)]
 
 
 class TestGetClusterClient:
-    @patch("api.core.redis_utils.RedisCluster")
-    @patch("api.core.redis_utils.ClusterNode")
-    @patch("api.core.redis_utils.settings")
+    @patch("api.adapters.redis_utils.RedisCluster")
+    @patch("api.adapters.redis_utils.ClusterNode")
+    @patch("api.adapters.redis_utils.settings")
     def test_get_cluster_client_builds_correct_nodes(
         self, mock_settings, mock_cluster_node, mock_redis_cluster
     ):
-        from api.core.redis_utils import _get_cluster_client
+        from api.adapters.redis_utils import _get_cluster_client
 
         mock_settings.REDIS_HOST = "node1:6379,node2:6380"
         mock_settings.REDIS_PASSWORD = "secret"
@@ -129,10 +129,10 @@ class TestGetClusterClient:
 
 
 class TestGetSingleRedisClient:
-    @patch("api.core.redis_utils.redis")
-    @patch("api.core.redis_utils.settings")
+    @patch("api.adapters.redis_utils.redis")
+    @patch("api.adapters.redis_utils.settings")
     def test_get_single_redis_client(self, mock_settings, mock_redis):
-        from api.core.redis_utils import _get_single_redis_client
+        from api.adapters.redis_utils import _get_single_redis_client
 
         mock_settings.REDIS_MODE = "single"
         mock_settings.REDIS_HOST = "redis:6379"
@@ -199,7 +199,7 @@ class TestBaseRedisWrapperWithPackConnect:
         with pytest.raises(ConnectionError):
             _ = wrapper.db
 
-    @patch("api.core.redis_utils.time")
+    @patch("api.adapters.redis_utils.time")
     def test_db_property_retries_after_delay_expires(self, mock_time):
         call_count = 0
         mock_client = MagicMock()
@@ -326,9 +326,9 @@ class TestBaseRedisWrapperWithPackPackUnpack:
 
 
 class TestRedisSubclasses:
-    @patch("api.core.redis_utils._get_sentinel_master")
+    @patch("api.adapters.redis_utils._get_sentinel_master")
     def test_sentinel_wrapper_connect(self, mock_fn):
-        from api.core.redis_utils import SentinelRedisWrapperWithPack
+        from api.adapters.redis_utils import SentinelRedisWrapperWithPack
 
         mock_master = MagicMock()
         mock_fn.return_value = mock_master
@@ -337,9 +337,9 @@ class TestRedisSubclasses:
         assert wrapper._connect() is mock_master
         mock_fn.assert_called_once()
 
-    @patch("api.core.redis_utils._get_cluster_client")
+    @patch("api.adapters.redis_utils._get_cluster_client")
     def test_cluster_wrapper_connect(self, mock_fn):
-        from api.core.redis_utils import ClusterRedisWrapperWithPack
+        from api.adapters.redis_utils import ClusterRedisWrapperWithPack
 
         mock_client = MagicMock()
         mock_fn.return_value = mock_client
@@ -348,9 +348,9 @@ class TestRedisSubclasses:
         assert wrapper._connect() is mock_client
         mock_fn.assert_called_once()
 
-    @patch("api.core.redis_utils._get_single_redis_client")
+    @patch("api.adapters.redis_utils._get_single_redis_client")
     def test_single_wrapper_connect(self, mock_fn):
-        from api.core.redis_utils import SingleRedisWrapperWithPack
+        from api.adapters.redis_utils import SingleRedisWrapperWithPack
 
         mock_client = MagicMock()
         mock_fn.return_value = mock_client
@@ -362,7 +362,7 @@ class TestRedisSubclasses:
 
 class TestExtractStorageClass:
     def test_sentinel_mode(self):
-        from api.core.redis_utils import (
+        from api.adapters.redis_utils import (
             SentinelRedisWrapperWithPack,
             extract_storage_class,
         )
@@ -370,7 +370,7 @@ class TestExtractStorageClass:
         assert extract_storage_class("sentinel") is SentinelRedisWrapperWithPack
 
     def test_cluster_mode(self):
-        from api.core.redis_utils import (
+        from api.adapters.redis_utils import (
             ClusterRedisWrapperWithPack,
             extract_storage_class,
         )
@@ -378,7 +378,7 @@ class TestExtractStorageClass:
         assert extract_storage_class("cluster") is ClusterRedisWrapperWithPack
 
     def test_default_falls_back_to_single(self):
-        from api.core.redis_utils import (
+        from api.adapters.redis_utils import (
             SingleRedisWrapperWithPack,
             extract_storage_class,
         )
@@ -393,9 +393,9 @@ class TestExtractStorageClass:
 
 
 class TestCanWeReachRedis:
-    @patch("api.core.redis_utils.redis")
+    @patch("api.adapters.redis_utils.redis")
     def test_returns_true_when_ping_succeeds(self, mock_redis):
-        from api.core.redis_utils import can_we_reach_redis
+        from api.adapters.redis_utils import can_we_reach_redis
 
         mock_client = MagicMock()
         mock_redis.from_url.return_value = mock_client
@@ -407,9 +407,9 @@ class TestCanWeReachRedis:
         mock_client.ping.assert_called_once()
         mock_client.close.assert_called_once()
 
-    @patch("api.core.redis_utils.redis")
+    @patch("api.adapters.redis_utils.redis")
     def test_returns_false_when_ping_raises(self, mock_redis):
-        from api.core.redis_utils import can_we_reach_redis
+        from api.adapters.redis_utils import can_we_reach_redis
 
         mock_client = MagicMock()
         mock_redis.from_url.return_value = mock_client
@@ -426,9 +426,9 @@ class TestCanWeReachRedis:
 
 
 class TestCanWeReachSentinel:
-    @patch("api.core.redis_utils.Sentinel")
+    @patch("api.adapters.redis_utils.Sentinel")
     def test_returns_true_when_master_ping_succeeds(self, mock_sentinel_cls):
-        from api.core.redis_utils import can_we_reach_sentinel
+        from api.adapters.redis_utils import can_we_reach_sentinel
 
         mock_master = MagicMock()
         mock_master.ping.return_value = True
@@ -436,7 +436,7 @@ class TestCanWeReachSentinel:
         mock_sentinel_instance.master_for.return_value = mock_master
         mock_sentinel_cls.return_value = mock_sentinel_instance
 
-        with patch("api.core.redis_utils.settings") as mock_settings:
+        with patch("api.adapters.redis_utils.settings") as mock_settings:
             mock_settings.REDIS_PASSWORD = None
             result = can_we_reach_sentinel([("sentinel1", 26379)], "mymaster")
 
@@ -444,9 +444,9 @@ class TestCanWeReachSentinel:
         mock_master.ping.assert_called_once()
         mock_master.close.assert_called_once()
 
-    @patch("api.core.redis_utils.Sentinel")
+    @patch("api.adapters.redis_utils.Sentinel")
     def test_returns_false_when_ping_raises(self, mock_sentinel_cls):
-        from api.core.redis_utils import can_we_reach_sentinel
+        from api.adapters.redis_utils import can_we_reach_sentinel
 
         mock_master = MagicMock()
         mock_master.ping.side_effect = ConnectionError("sentinel unreachable")
@@ -454,7 +454,7 @@ class TestCanWeReachSentinel:
         mock_sentinel_instance.master_for.return_value = mock_master
         mock_sentinel_cls.return_value = mock_sentinel_instance
 
-        with patch("api.core.redis_utils.settings") as mock_settings:
+        with patch("api.adapters.redis_utils.settings") as mock_settings:
             mock_settings.REDIS_PASSWORD = None
             result = can_we_reach_sentinel([("sentinel1", 26379)], "mymaster")
 
@@ -474,13 +474,13 @@ class TestCanWeReachCluster:
     def test_returns_true_when_ping_succeeds(
         self, mock_redis_cluster, mock_cluster_node
     ):
-        from api.core.redis_utils import can_we_reach_cluster
+        from api.adapters.redis_utils import can_we_reach_cluster
 
         mock_client = MagicMock()
         mock_client.ping.return_value = True
         mock_redis_cluster.return_value = mock_client
 
-        with patch("api.core.redis_utils.settings") as mock_settings:
+        with patch("api.adapters.redis_utils.settings") as mock_settings:
             mock_settings.REDIS_PASSWORD = None
             result = can_we_reach_cluster([("node1", 6379), ("node2", 6380)])
 
@@ -493,13 +493,13 @@ class TestCanWeReachCluster:
     def test_returns_false_when_ping_raises(
         self, mock_redis_cluster, mock_cluster_node
     ):
-        from api.core.redis_utils import can_we_reach_cluster
+        from api.adapters.redis_utils import can_we_reach_cluster
 
         mock_client = MagicMock()
         mock_client.ping.side_effect = ConnectionError("cluster unreachable")
         mock_redis_cluster.return_value = mock_client
 
-        with patch("api.core.redis_utils.settings") as mock_settings:
+        with patch("api.adapters.redis_utils.settings") as mock_settings:
             mock_settings.REDIS_PASSWORD = None
             result = can_we_reach_cluster([("node1", 6379)])
 

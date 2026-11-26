@@ -45,7 +45,7 @@ use_json_logs: bool = strtobool(
 
 time_stamp_format: str = os.environ.get("LOG_TIMESTAMP_FORMAT", "iso")
 
-with open((Path(__file__).parent.parent / "logconf.json").resolve()) as user_file:
+with open((Path(__file__).parent / "logconf.json").resolve()) as user_file:
     file_contents: dict[str, Any] = json.loads(user_file.read())
     logging.config.dictConfig(file_contents["logger"])
 

@@ -5,7 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field  # noqa: TID251 - routers muta
 
 from api.core.models import UUIDModel
 
-from ..core.config import settings
+from ..config import settings
 
 
 class AuthSessionState(StrEnum):

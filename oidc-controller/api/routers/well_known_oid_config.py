@@ -3,7 +3,7 @@ from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
 # from oic.oauth2.message import ASConfigurationResponse
-from ..core.oidc import provider
+from ..adapters.oidc import provider
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
 

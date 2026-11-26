@@ -3,14 +3,18 @@ from uuid import UUID
 import httpx
 import structlog
 
-from ..config import settings
-from .config import (
+from api.adapters.acapy.config import (
     AgentConfig,
     MultiTenantAcapy,
     SingleTenantAcapy,
     TractionTenantAcapy,
 )
-from .models import CreatePresentationResponse, OobCreateInvitationResponse, WalletDid
+from api.config import settings
+from api.core.acapy.models import (
+    CreatePresentationResponse,
+    OobCreateInvitationResponse,
+    WalletDid,
+)
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
 

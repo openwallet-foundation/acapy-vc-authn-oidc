@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING, Literal
 import structlog
 
 if TYPE_CHECKING:
-    from ..verificationConfigs.models import VerificationConfig
+    from api.verificationConfigs.models import VerificationConfig
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger("siem.audit")
 

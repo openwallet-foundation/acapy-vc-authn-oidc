@@ -44,7 +44,7 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 
-from ..core.auth import get_api_key
+from ..adapters.auth import get_api_key
 from ..services.cleanup import (
     perform_cleanup,
     validate_cleanup_configuration,

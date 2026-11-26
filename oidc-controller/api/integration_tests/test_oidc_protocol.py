@@ -18,9 +18,9 @@ import pytest
 from jwt.algorithms import RSAAlgorithm
 from pyop.authz_state import AuthorizationState
 
+from api.adapters.oidc import provider as oidc_provider
+from api.adapters.redis_utils import SingleRedisWrapperWithPack
 from api.core.models import VCUserinfo
-from api.core.oidc import provider as oidc_provider
-from api.core.redis_utils import SingleRedisWrapperWithPack
 
 from .conftest import (
     FAKE_PRES_EX_ID,
@@ -176,7 +176,7 @@ class TestUserInfo:
         """GET /userinfo with no Authorization header returns 401."""
         client, _ = integration_client
         monkeypatch.setattr(
-            "api.core.config.settings.CONTROLLER_ENABLE_USERINFO_ENDPOINT", True
+            "api.config.settings.CONTROLLER_ENABLE_USERINFO_ENDPOINT", True
         )
         resp = client.get("/userinfo")
         assert resp.status_code == 401
@@ -187,7 +187,7 @@ class TestUserInfo:
         """GET /userinfo with a valid Bearer access_token returns VC attributes."""
         client, _ = integration_client
         monkeypatch.setattr(
-            "api.core.config.settings.CONTROLLER_ENABLE_USERINFO_ENDPOINT", True
+            "api.config.settings.CONTROLLER_ENABLE_USERINFO_ENDPOINT", True
         )
 
         tokens = _full_token_flow(client)
@@ -256,7 +256,7 @@ class TestRedisStorage:
         """In Redis mode the ID token and /userinfo come from Redis-held state."""
         client, _ = integration_client
         monkeypatch.setattr(
-            "api.core.config.settings.CONTROLLER_ENABLE_USERINFO_ENDPOINT", True
+            "api.config.settings.CONTROLLER_ENABLE_USERINFO_ENDPOINT", True
         )
 
         tokens = _full_token_flow(client)
@@ -291,9 +291,7 @@ class TestPKCE:
     def test_code_verifier_is_checked(
         self, integration_client, oob_mode, monkeypatch, required, verifier, ok
     ):
-        monkeypatch.setattr(
-            "api.core.config.settings.CONTROLLER_REQUIRE_PKCE", required
-        )
+        monkeypatch.setattr("api.config.settings.CONTROLLER_REQUIRE_PKCE", required)
         client, _ = integration_client
         resp = _token_response(client, S256, {"code_verifier": verifier})
         assert resp.status_code == (200 if ok else 400)
@@ -306,7 +304,7 @@ class TestPKCE:
     def test_required_pkce_rejects_missing_or_weak_challenge(
         self, integration_client, oob_mode, monkeypatch, extra
     ):
-        monkeypatch.setattr("api.core.config.settings.CONTROLLER_REQUIRE_PKCE", True)
+        monkeypatch.setattr("api.config.settings.CONTROLLER_REQUIRE_PKCE", True)
         client, _ = integration_client
         with acapy_oob_mock(pres_ex_id=FAKE_PRES_EX_ID):
             resp = client.get("/authorize", params={**authorize_params(), **extra})

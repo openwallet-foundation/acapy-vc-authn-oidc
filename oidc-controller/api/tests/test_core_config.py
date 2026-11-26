@@ -4,14 +4,15 @@ import os
 from unittest.mock import patch
 
 import pytest
-from api.core.config import (
+from pydantic import ValidationError
+
+from api.config import (
     EnvironmentEnum,
     FactoryConfig,
     determin_log_level,
     strtobool,
     validate_redis_config,
 )
-from pydantic import ValidationError
 
 
 def test_strtobool():
@@ -71,7 +72,7 @@ class TestFactoryConfig:
 
     def test_factory_config_local(self):
         """Test FactoryConfig returns LocalConfig for local environment."""
-        from api.core.config import LocalConfig
+        from api.config import LocalConfig
 
         config_factory = FactoryConfig(EnvironmentEnum.LOCAL.value)
         result = config_factory()
@@ -79,7 +80,7 @@ class TestFactoryConfig:
 
     def test_factory_config_prod(self):
         """Test FactoryConfig returns ProdConfig for production environment."""
-        from api.core.config import ProdConfig
+        from api.config import ProdConfig
 
         config_factory = FactoryConfig("production")
         result = config_factory()
@@ -87,7 +88,7 @@ class TestFactoryConfig:
 
     def test_factory_config_none(self):
         """Test FactoryConfig returns ProdConfig for None environment."""
-        from api.core.config import ProdConfig
+        from api.config import ProdConfig
 
         config_factory = FactoryConfig(None)
         result = config_factory()
@@ -103,7 +104,7 @@ class TestConfigValidation:
             with pytest.raises(
                 ValueError, match="ACAPY_PROOF_FORMAT must be 'indy' or 'anoncreds'"
             ):
-                from api.core import config
+                from api import config
 
                 importlib.reload(config)
 
@@ -159,7 +160,7 @@ class TestOIDCConfig:
 class TestValidateRedisConfig:
     """Test validate_redis_config function for configuration validation."""
 
-    @patch("api.core.config.settings")
+    @patch("api.config.settings")
     def test_validate_redis_config_mode_none(self, mock_settings):
         """Test validation passes for mode=none."""
         mock_settings.REDIS_MODE = "none"
@@ -167,7 +168,7 @@ class TestValidateRedisConfig:
         # Should not raise
         validate_redis_config()
 
-    @patch("api.core.config.settings")
+    @patch("api.config.settings")
     def test_validate_redis_config_single_mode_valid(self, mock_settings):
         """Test validation passes for valid single mode config with host:port."""
         mock_settings.REDIS_MODE = "single"
@@ -176,7 +177,7 @@ class TestValidateRedisConfig:
         # Should not raise
         validate_redis_config()
 
-    @patch("api.core.config.settings")
+    @patch("api.config.settings")
     def test_validate_redis_config_single_mode_bare_hostname_invalid(
         self, mock_settings
     ):
@@ -188,7 +189,7 @@ class TestValidateRedisConfig:
             validate_redis_config()
         assert "Invalid node:" in str(exc.value)
 
-    @patch("api.core.config.settings")
+    @patch("api.config.settings")
     def test_validate_redis_config_single_mode_with_multiple_hosts_fails(
         self, mock_settings
     ):
@@ -202,7 +203,7 @@ class TestValidateRedisConfig:
             exc.value
         )
 
-    @patch("api.core.config.settings")
+    @patch("api.config.settings")
     def test_validate_redis_config_sentinel_mode_valid(self, mock_settings):
         """Test validation passes for valid sentinel mode config."""
         mock_settings.REDIS_MODE = "sentinel"
@@ -211,7 +212,7 @@ class TestValidateRedisConfig:
         # Should not raise
         validate_redis_config()
 
-    @patch("api.core.config.settings")
+    @patch("api.config.settings")
     def test_validate_redis_config_sentinel_mode_invalid_format(self, mock_settings):
         """Test validation fails for sentinel mode with invalid host format."""
         mock_settings.REDIS_MODE = "sentinel"
@@ -221,7 +222,7 @@ class TestValidateRedisConfig:
             validate_redis_config()
         assert "requires REDIS_HOST as host:port pairs" in str(exc.value)
 
-    @patch("api.core.config.settings")
+    @patch("api.config.settings")
     def test_validate_redis_config_cluster_mode_valid(self, mock_settings):
         """Test validation passes for valid cluster mode config."""
         mock_settings.REDIS_MODE = "cluster"
@@ -230,7 +231,7 @@ class TestValidateRedisConfig:
         # Should not raise
         validate_redis_config()
 
-    @patch("api.core.config.settings")
+    @patch("api.config.settings")
     def test_validate_redis_config_cluster_mode_invalid_format(self, mock_settings):
         """Test validation fails for cluster mode with invalid host format."""
         mock_settings.REDIS_MODE = "cluster"
@@ -246,7 +247,7 @@ class TestValidateRedisConfig:
             with pytest.raises(ValidationError, match="REDIS_MODE"):
                 FactoryConfig(EnvironmentEnum.LOCAL.value)()
 
-    @patch("api.core.config.settings")
+    @patch("api.config.settings")
     def test_validate_redis_config_sentinel_with_ip_addresses(self, mock_settings):
         """Test validation passes for sentinel mode with IP addresses."""
         mock_settings.REDIS_MODE = "sentinel"
@@ -255,7 +256,7 @@ class TestValidateRedisConfig:
         # Should not raise
         validate_redis_config()
 
-    @patch("api.core.config.settings")
+    @patch("api.config.settings")
     def test_validate_redis_config_cluster_single_node(self, mock_settings):
         """Test validation passes for cluster mode with single node."""
         mock_settings.REDIS_MODE = "cluster"

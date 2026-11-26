@@ -5,12 +5,12 @@ from unittest import mock
 import httpx
 import pytest
 import respx
-from api.core.acapy.config import (
+from api.adapters.acapy.config import (
     MultiTenantAcapy,
     SingleTenantAcapy,
     TractionTenantAcapy,
 )
-from api.core.config import settings
+from api.config import settings
 
 
 def reset_acapy_cache(cls):
