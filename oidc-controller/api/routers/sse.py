@@ -38,6 +38,7 @@ from ..adapters.redis_utils import parse_host_port_pairs
 from ..authSessions.crud import AuthSessionCRUD
 from ..authSessions.models import AuthSession, AuthSessionPatch, AuthSessionState
 from ..config import RedisMode, settings
+from ..core.auth_session import Expired, apply, as_utc, has_expired
 from ..db.session import get_db
 
 logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
@@ -193,8 +194,7 @@ def _seconds_until_expiry(expired_timestamp: datetime | None) -> float:
     """
     if expired_timestamp is None:
         return 30.0
-    now = datetime.now(UTC) if expired_timestamp.tzinfo is not None else datetime.now()
-    remaining = (expired_timestamp - now).total_seconds()
+    remaining = (as_utc(expired_timestamp) - datetime.now(UTC)).total_seconds()
     return min(30.0, max(1.0, remaining))
 
 
@@ -217,17 +217,17 @@ async def _expire_if_needed(
                 proof_status=auth_session.proof_status,
             )
             return False
-        expired_time = auth_session.expired_timestamp
-        now = datetime.now(UTC) if expired_time.tzinfo is not None else datetime.now()
+        now = datetime.now(UTC)
+        expired = has_expired(auth_session, now)
         logger.debug(
             "SSE expiry check",
             pid=pid,
-            expired_time=str(expired_time),
+            expired_time=str(auth_session.expired_timestamp),
             now=str(now),
-            is_expired=expired_time < now,
+            is_expired=expired,
         )
-        if expired_time < now:
-            auth_session.proof_status = AuthSessionState.EXPIRED
+        if expired:
+            auth_session = apply(auth_session, Expired())
             await AuthSessionCRUD(db).patch(
                 pid, AuthSessionPatch(**auth_session.model_dump())
             )

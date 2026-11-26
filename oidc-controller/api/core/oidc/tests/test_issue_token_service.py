@@ -1,7 +1,9 @@
 import json
 from copy import deepcopy
+from unittest.mock import MagicMock
 
 import pytest
+from api.core.oidc import issue_token_service
 from api.core.oidc.issue_token_service import Token
 from api.core.oidc.tests.__mocks__ import auth_session, presentation, ver_config
 
@@ -96,7 +98,9 @@ async def test_valid_proof_presentation_with_one_attribute_returns_claims(
     presentation_fixture["by_format"]["pres"]["indy"]["requested_proof"][
         "revealed_attr_groups"
     ] = basic_valid_revealed_attr_groups
-    auth_session_fixture.presentation_exchange = presentation_fixture["by_format"]
+    auth_session_fixture = auth_session_fixture.model_copy(
+        update={"presentation_exchange": presentation_fixture["by_format"]}
+    )
     claims = Token.get_claims(auth_session_fixture, ver_config_fixture, "indy")
     assert claims is not None
 
@@ -155,7 +159,9 @@ async def test_valid_proof_presentation_with_multiple_attributes_returns_claims(
             },
         },
     }
-    auth_session_fixture.presentation_exchange = presentation_fixture["by_format"]
+    auth_session_fixture = auth_session_fixture.model_copy(
+        update={"presentation_exchange": presentation_fixture["by_format"]}
+    )
     claims = Token.get_claims(auth_session_fixture, ver_config_fixture, "indy")
     assert claims is not None
 
@@ -170,7 +176,9 @@ async def test_include_v1_attributes_false_does_not_add_the_named_attributes(
     presentation_fixture["by_format"]["pres"]["indy"]["requested_proof"][
         "revealed_attr_groups"
     ] = multiple_valid_revealed_attr_groups
-    auth_session_fixture.presentation_exchange = presentation_fixture["by_format"]
+    auth_session_fixture = auth_session_fixture.model_copy(
+        update={"presentation_exchange": presentation_fixture["by_format"]}
+    )
     ver_config_fixture = ver_config_fixture.model_copy(
         update={"include_v1_attributes": False}
     )
@@ -193,7 +201,9 @@ async def test_include_v1_attributes_true_adds_the_named_attributes(
     presentation_fixture["by_format"]["pres"]["indy"]["requested_proof"][
         "revealed_attr_groups"
     ] = multiple_valid_revealed_attr_groups
-    auth_session_fixture.presentation_exchange = presentation_fixture["by_format"]
+    auth_session_fixture = auth_session_fixture.model_copy(
+        update={"presentation_exchange": presentation_fixture["by_format"]}
+    )
     ver_config_fixture = ver_config_fixture.model_copy(
         update={"include_v1_attributes": True}
     )
@@ -216,7 +226,9 @@ async def test_include_v1_attributes_none_does_not_add_the_named_attributes(
     presentation_fixture["by_format"]["pres"]["indy"]["requested_proof"][
         "revealed_attr_groups"
     ] = multiple_valid_revealed_attr_groups
-    auth_session_fixture.presentation_exchange = presentation_fixture["by_format"]
+    auth_session_fixture = auth_session_fixture.model_copy(
+        update={"presentation_exchange": presentation_fixture["by_format"]}
+    )
     ver_config_fixture = ver_config_fixture.model_copy(
         update={"include_v1_attributes": None}
     )
@@ -262,9 +274,36 @@ async def test_revealed_attrs_dont_match_requested_attributes_throws_exception(
             },
         }
     }
-    auth_session_fixture.presentation_exchange = presentation_fixture["by_format"]
+    auth_session_fixture = auth_session_fixture.model_copy(
+        update={"presentation_exchange": presentation_fixture["by_format"]}
+    )
     with pytest.raises(RuntimeError):
         Token.get_claims(auth_session_fixture, ver_config_fixture, "indy")
+
+
+def test_malformed_presentation_errors_leave_out_credential_values(
+    auth_session_fixture, presentation_fixture, ver_config_fixture, monkeypatch
+):
+    by_format = presentation_fixture["by_format"]
+    revealed = by_format["pres"]["indy"]["requested_proof"]["revealed_attr_groups"]
+    # A raw value that is not a string fails validation and would be echoed back.
+    secret = {"secret-credential-value": 1}
+    for group in revealed.values():
+        for value in group["values"].values():
+            value["raw"] = secret
+    auth_session_fixture = auth_session_fixture.model_copy(
+        update={"presentation_exchange": by_format}
+    )
+    logger = MagicMock()
+    monkeypatch.setattr(issue_token_service, "logger", logger)
+
+    with pytest.raises(RuntimeError) as excinfo:
+        Token.get_claims(auth_session_fixture, ver_config_fixture, "indy")
+
+    assert excinfo.value.__cause__ is None
+    assert excinfo.value.__suppress_context__
+    assert "secret-credential-value" not in str(excinfo.value)
+    assert "secret-credential-value" not in str(logger.error.call_args)
 
 
 @pytest.mark.asyncio
@@ -277,7 +316,9 @@ async def test_valid_presentation_with_matching_subject_identifier_in_claims_sub
     presentation_fixture["by_format"]["pres"]["indy"]["requested_proof"][
         "revealed_attr_groups"
     ] = basic_valid_revealed_attr_groups
-    auth_session_fixture.presentation_exchange = presentation_fixture["by_format"]
+    auth_session_fixture = auth_session_fixture.model_copy(
+        update={"presentation_exchange": presentation_fixture["by_format"]}
+    )
     claims = Token.get_claims(auth_session_fixture, ver_config_fixture, "indy")
     print(claims)
     assert claims["sub"] == "test@email.com@verified-email"
@@ -293,7 +334,9 @@ async def test_valid_pres_with_non_matching_subj_id_gen_consistent_id_missing_no
     presentation_fixture["by_format"]["pres"]["indy"]["requested_proof"][
         "revealed_attr_groups"
     ] = basic_valid_revealed_attr_groups
-    auth_session_fixture.presentation_exchange = presentation_fixture["by_format"]
+    auth_session_fixture = auth_session_fixture.model_copy(
+        update={"presentation_exchange": presentation_fixture["by_format"]}
+    )
     ver_config_fixture = ver_config_fixture.model_copy(
         update={"subject_identifier": "not-email"}
     )
@@ -312,7 +355,9 @@ async def test_valid_pres_non_matching_subj_id_gen_consistent_id_false_has_no_su
     presentation_fixture["by_format"]["pres"]["indy"]["requested_proof"][
         "revealed_attr_groups"
     ] = basic_valid_revealed_attr_groups
-    auth_session_fixture.presentation_exchange = presentation_fixture["by_format"]
+    auth_session_fixture = auth_session_fixture.model_copy(
+        update={"presentation_exchange": presentation_fixture["by_format"]}
+    )
     ver_config_fixture = ver_config_fixture.model_copy(
         update={
             "subject_identifier": "not-email",
@@ -333,7 +378,9 @@ async def test_valid_pres_non_matching_subj_id_gen_consistent_id_true_has_sub(
     presentation_fixture["by_format"]["pres"]["indy"]["requested_proof"][
         "revealed_attr_groups"
     ] = basic_valid_revealed_attr_groups
-    auth_session_fixture.presentation_exchange = presentation_fixture["by_format"]
+    auth_session_fixture = auth_session_fixture.model_copy(
+        update={"presentation_exchange": presentation_fixture["by_format"]}
+    )
     ver_config_fixture = ver_config_fixture.model_copy(
         update={
             "subject_identifier": "not-email",
@@ -387,8 +434,8 @@ async def test_get_claims_happy_path_anoncreds(
 ):
     """Test extracting claims when config is anoncreds and data matches."""
     # Arrange: Data has 'anoncreds' key
-    auth_session_fixture.presentation_exchange = create_mock_presentation_exchange(
-        "anoncreds"
+    auth_session_fixture = auth_session_fixture.model_copy(
+        update={"presentation_exchange": create_mock_presentation_exchange("anoncreds")}
     )
 
     # Act: Config is 'anoncreds'
@@ -408,8 +455,8 @@ async def test_get_claims_fallback_migration_logic(
     Config is set to 'anoncreds' (new), but DB record has 'indy' (old).
     """
     # Arrange: Data only has 'indy' key (simulating old record in DB)
-    auth_session_fixture.presentation_exchange = create_mock_presentation_exchange(
-        "indy"
+    auth_session_fixture = auth_session_fixture.model_copy(
+        update={"presentation_exchange": create_mock_presentation_exchange("indy")}
     )
 
     # Act: Config is set to 'anoncreds' (simulating new deployment)
@@ -430,8 +477,8 @@ async def test_get_claims_fallback_reverse_migration_logic(
     This covers the 'elif "anoncreds" in pres_request' branch.
     """
     # Arrange: Data has 'anoncreds' key
-    auth_session_fixture.presentation_exchange = create_mock_presentation_exchange(
-        "anoncreds"
+    auth_session_fixture = auth_session_fixture.model_copy(
+        update={"presentation_exchange": create_mock_presentation_exchange("anoncreds")}
     )
 
     # Act: Config is set to 'indy' (simulating default/legacy config)
@@ -459,7 +506,9 @@ async def test_get_claims_no_nonce_success(
     presentation_fixture["by_format"]["pres"]["indy"]["requested_proof"][
         "revealed_attr_groups"
     ] = basic_valid_revealed_attr_groups
-    auth_session_fixture.presentation_exchange = presentation_fixture["by_format"]
+    auth_session_fixture = auth_session_fixture.model_copy(
+        update={"presentation_exchange": presentation_fixture["by_format"]}
+    )
 
     # Act
     claims = Token.get_claims(auth_session_fixture, ver_config_fixture, "indy")
@@ -488,7 +537,9 @@ async def test_get_claims_with_nonce_success(
     presentation_fixture["by_format"]["pres"]["indy"]["requested_proof"][
         "revealed_attr_groups"
     ] = basic_valid_revealed_attr_groups
-    auth_session_fixture.presentation_exchange = presentation_fixture["by_format"]
+    auth_session_fixture = auth_session_fixture.model_copy(
+        update={"presentation_exchange": presentation_fixture["by_format"]}
+    )
 
     # Act
     claims = Token.get_claims(auth_session_fixture, ver_config_fixture, "indy")
@@ -504,8 +555,10 @@ async def test_get_claims_raises_error_on_missing_format(
 ):
     """Test that get_claims raises ValueError if no valid proof format is found."""
     # Arrange: Data has only 'unknown_format' key
-    auth_session_fixture.presentation_exchange = create_mock_presentation_exchange(
-        "unknown_format"
+    auth_session_fixture = auth_session_fixture.model_copy(
+        update={
+            "presentation_exchange": create_mock_presentation_exchange("unknown_format")
+        }
     )
 
     # Act & Assert

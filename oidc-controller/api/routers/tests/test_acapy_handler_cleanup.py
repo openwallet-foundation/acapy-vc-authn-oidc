@@ -5,7 +5,6 @@ from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
-from bson import ObjectId
 from fastapi import Request
 
 from api.authSessions.models import AuthSession, AuthSessionState
@@ -23,27 +22,15 @@ class TestAcapyHandlerCleanup:
     @pytest.fixture
     def mock_auth_session(self):
         """Mock auth session fixture."""
-        auth_session = MagicMock(spec=AuthSession)
-        auth_session.id = ObjectId()
-        auth_session.pres_exch_id = "test-pres-ex-id"
-        auth_session.connection_id = "test-connection-id"
-        auth_session.proof_status = AuthSessionState.NOT_STARTED
-        auth_session.expired_timestamp = datetime.now(UTC) + timedelta(seconds=3600)
-        auth_session.multi_use = False
-        auth_session.ver_config_id = "test-ver-config-id"
-        auth_session.model_dump.return_value = {
-            "id": str(auth_session.id),
-            "pres_exch_id": auth_session.pres_exch_id,
-            "connection_id": auth_session.connection_id,
-            "proof_status": AuthSessionState.VERIFIED,
-            "presentation_exchange": {},
-            "ver_config_id": "test-ver-config-id",
-            "request_parameters": {"test": "params"},
-            "pyop_auth_code": "test-auth-code",
-            "response_url": "http://test.com/callback",
-            "multi_use": False,
-        }
-        return auth_session
+        return AuthSession(
+            pres_exch_id="test-pres-ex-id",
+            connection_id="test-connection-id",
+            expired_timestamp=datetime.now(UTC) + timedelta(seconds=3600),
+            ver_config_id="test-ver-config-id",
+            request_parameters={"test": "params"},
+            pyop_auth_code="test-auth-code",
+            response_url="http://test.com/callback",
+        )
 
     @pytest.fixture
     def mock_request(self):
@@ -107,7 +94,8 @@ class TestAcapyHandlerCleanup:
         mock_client_instance.delete_presentation_record.assert_not_called()
 
         # Verify auth session was marked as failed
-        assert mock_auth_session.proof_status == AuthSessionState.FAILED
+        saved = mock_crud_instance.patch.call_args.args[1]
+        assert saved.proof_status == AuthSessionState.FAILED
 
         # Verify SSE notification was sent for failure
         mock_notify.assert_awaited_once_with(str(mock_auth_session.id), "failed")

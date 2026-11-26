@@ -757,6 +757,28 @@ class TestPresentationRequestURL:
         session = db.get_collection(COLLECTION_NAMES.AUTH_SESSION).find_one({})
         assert session["proof_status"] == AuthSessionState.PENDING
 
+    def test_wallet_fetch_handles_a_null_presentation_exchange(
+        self, integration_client, oob_mode, monkeypatch
+    ):
+        """A stored null presentation_exchange doesn't fail the scan."""
+        from api.authSessions.models import AuthSessionState
+        from api.db.collections import COLLECTION_NAMES
+
+        client, db = integration_client
+        _, pres_exch_id = self._setup(client, oob_mode, monkeypatch)
+        col = db.get_collection(COLLECTION_NAMES.AUTH_SESSION)
+        col.update_one({}, {"$set": {"presentation_exchange": None}})
+
+        resp = client.get(
+            f"/url/pres_exch/{pres_exch_id}",
+            headers={"Accept": "application/json"},
+        )
+
+        assert resp.status_code == 200
+        session = col.find_one({})
+        assert session["proof_status"] == AuthSessionState.PENDING
+        assert session["presentation_exchange"] is None
+
     def test_wallet_fetch_fires_pending_sse_notification(
         self, integration_client, oob_mode, monkeypatch
     ):

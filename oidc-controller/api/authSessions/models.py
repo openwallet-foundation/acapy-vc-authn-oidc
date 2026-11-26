@@ -1,9 +1,9 @@
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum, auto
 
-from pydantic import BaseModel, ConfigDict, Field  # noqa: TID251 - routers mutate sessions
+from pydantic import ConfigDict, Field
 
-from api.core.models import UUIDModel
+from api.core.models import FrozenModel, UUIDModel
 
 from ..config import settings
 
@@ -17,7 +17,7 @@ class AuthSessionState(StrEnum):
     ABANDONED = auto()
 
 
-class AuthSessionBase(BaseModel):
+class AuthSessionBase(FrozenModel):
     pres_exch_id: str | None = None  # Optional for connection-based flow
     expired_timestamp: datetime = Field(
         default_factory=lambda: (

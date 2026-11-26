@@ -13,6 +13,8 @@ import structlog
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from .core.acapy.presentation import ProofFormat
+
 
 # Removed in later versions of python
 def strtobool(val: str | bool) -> bool:
@@ -229,7 +231,7 @@ class GlobalConfig(BaseSettings, frozen=True):  # pyright: ignore[reportGeneralT
 
     ACAPY_ADMIN_URL: str = os.environ.get("ACAPY_ADMIN_URL", "http://localhost:8031")
 
-    ACAPY_PROOF_FORMAT: str = os.environ.get("ACAPY_PROOF_FORMAT", "indy")
+    ACAPY_PROOF_FORMAT: ProofFormat = "indy"
 
     # Unified Tenant Configuration with Legacy Fallback
     # 1. Try unified variable
@@ -317,6 +319,15 @@ class GlobalConfig(BaseSettings, frozen=True):  # pyright: ignore[reportGeneralT
     REDIS_PASSWORD: str | None = os.environ.get("REDIS_PASSWORD")
     REDIS_DB: int = int(os.environ.get("REDIS_DB", 0))
 
+    @field_validator("ACAPY_PROOF_FORMAT", mode="before")
+    @classmethod
+    def validate_proof_format(cls, v: object) -> object:
+        if v not in ("indy", "anoncreds"):
+            raise ValueError(
+                f"ACAPY_PROOF_FORMAT must be 'indy' or 'anoncreds', got '{v}'"
+            )
+        return v
+
     @field_validator("REDIS_MODE", mode="before")
     @classmethod
     def normalize_redis_mode(cls, v: object) -> object:
@@ -367,12 +378,6 @@ def get_configuration() -> GlobalConfig:
 
 
 settings = get_configuration()
-
-# Startup validation for ACAPY_PROOF_FORMAT
-if settings.ACAPY_PROOF_FORMAT not in ["indy", "anoncreds"]:
-    raise ValueError(
-        f"ACAPY_PROOF_FORMAT must be 'indy' or 'anoncreds', got '{settings.ACAPY_PROOF_FORMAT}'"
-    )
 
 # Startup validation for CONTROLLER_WEB_HOOK_URL in Multi-Tenant mode
 if (

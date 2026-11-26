@@ -1,11 +1,9 @@
-import contextlib
-import json
 import time
 from datetime import UTC, datetime
-from typing import Any
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import ValidationError
 from pymongo.database import Database
 
 from ..adapters.acapy.client import AcapyClient
@@ -17,8 +15,20 @@ from ..adapters.siem_audit import (
     audit_webhook_received,
 )
 from ..authSessions.crud import AuthSessionCRUD
-from ..authSessions.models import AuthSession, AuthSessionPatch, AuthSessionState
+from ..authSessions.models import AuthSession, AuthSessionPatch
 from ..config import settings
+from ..core.acapy.presentation import Presentations
+from ..core.acapy.webhooks import ConnectionWebhook, PresentProofWebhook
+from ..core.auth_session import (
+    Abandoned,
+    Expired,
+    Failed,
+    RequestSent,
+    Verified,
+    apply,
+    has_expired,
+)
+from ..core.models import FrozenModel
 from ..db.session import get_db
 from ..routers.sse import notify
 
@@ -27,71 +37,20 @@ logger: structlog.typing.FilteringBoundLogger = structlog.getLogger(__name__)
 router = APIRouter()
 
 
-def _extract_credential_schemas(presentation_data: dict) -> list[str]:
-    """
-    Extract schema names from verified presentation data.
-
-    Safe to log - schema names are public metadata, not PII.
-    """
-    schemas = set()
+def _audit_presentations(by_format: object) -> Presentations:
+    """Credential identifiers for the audit log. Schema names and issuer DIDs
+    are public metadata, not PII. Never raises, so a bad record can't fail a
+    login that ACA-Py already verified."""
+    pres = by_format.get("pres") if isinstance(by_format, dict) else None
     try:
-        # Try to extract from various proof formats
-        by_format = presentation_data.get("by_format", {})
-        for format_key in ["indy", "anoncreds"]:
-            if format_key in by_format:
-                pres = by_format[format_key].get("pres", {})
-                identifiers = pres.get("identifiers", [])
-                for identifier in identifiers:
-                    if schema_id := identifier.get("schema_id"):
-                        # schema_id format: <issuer_did>:2:<schema_name>:<version>
-                        # The issuer DID may itself contain colons (e.g. did:sov:ABC),
-                        # so we locate the ":2:" marker to split reliably.
-                        marker = ":2:"
-                        marker_pos = schema_id.find(marker)
-                        if marker_pos != -1:
-                            remainder = schema_id[marker_pos + len(marker) :]
-                            # remainder is "<schema_name>:<version>"
-                            rem_parts = remainder.split(":")
-                            if len(rem_parts) >= 2:
-                                schemas.add(rem_parts[0])
-                            else:
-                                schemas.add(remainder)
-                        else:
-                            schemas.add(schema_id)
-    except Exception as e:
-        # Return empty list if extraction fails
-        logger.debug(f"Failed to extract schemas from presentation data: {e}")
-    return sorted(schemas)
-
-
-def _extract_issuer_dids(presentation_data: dict) -> list[str]:
-    """
-    Extract issuer DIDs from verified presentation data.
-
-    Safe to log - DIDs are public identifiers, not PII.
-    """
-    issuers = set()
-    try:
-        by_format = presentation_data.get("by_format", {})
-        for format_key in ["indy", "anoncreds"]:
-            if format_key in by_format:
-                pres = by_format[format_key].get("pres", {})
-                identifiers = pres.get("identifiers", [])
-                for identifier in identifiers:
-                    if cred_def_id := identifier.get("cred_def_id"):
-                        # cred_def_id format: <issuer_did>:3:CL:<schema_seq_no>:<tag>
-                        # The issuer DID may itself contain colons (e.g. did:sov:ABC),
-                        # so we locate the ":3:CL:" marker to extract the DID prefix.
-                        marker = ":3:CL:"
-                        marker_pos = cred_def_id.find(marker)
-                        if marker_pos != -1:
-                            issuers.add(cred_def_id[:marker_pos])
-                        else:
-                            issuers.add(cred_def_id)
-    except Exception as e:
-        # Return empty list if extraction fails
-        logger.debug(f"Failed to extract issuer DIDs from presentation data: {e}")
-    return sorted(issuers)
+        return Presentations.model_validate(pres or {})
+    except ValidationError as e:
+        # The error count only: the errors themselves can echo credential values.
+        logger.warning(
+            "Could not read credential identifiers for the audit log",
+            error_count=e.error_count(),
+        )
+        return Presentations()
 
 
 async def _send_problem_report_safely(
@@ -141,8 +100,15 @@ async def _update_auth_session(db: Database, auth_session: AuthSession) -> None:
     )
 
 
-async def _parse_webhook_body(request: Request) -> dict[Any, Any]:
-    return json.loads((await request.body()).decode("ascii"))
+async def _parse_webhook[M: FrozenModel](request: Request, model: type[M]) -> M:
+    try:
+        return model.model_validate_json(await request.body())
+    except ValidationError as e:
+        # Leave the input out of the error: it can hold presentation data.
+        raise HTTPException(
+            status_code=422,
+            detail=e.errors(include_input=False, include_url=False),
+        ) from e
 
 
 @router.post("/topic/{topic}/")
@@ -158,33 +124,27 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
     match topic:
         case "connections":
             if settings.USE_CONNECTION_BASED_VERIFICATION:
-                webhook_body = await _parse_webhook_body(request)
-                logger.info(f">>>> connection_id: {webhook_body.get('connection_id')}")
-                logger.info(f">>>> connection state: {webhook_body.get('state')}")
+                connection = await _parse_webhook(request, ConnectionWebhook)
+                logger.info(f">>>> connection_id: {connection.connection_id}")
+                logger.info(f">>>> connection state: {connection.state}")
 
                 # Log request state for debugging but don't act on it yet
-                if webhook_body.get("state") == "request":
+                if connection.state == "request":
                     logger.info(
-                        f"Connection {webhook_body.get('connection_id')} is in request state, waiting for active/completed"
+                        f"Connection {connection.connection_id} is in request state, waiting for active/completed"
                     )
 
-                if webhook_body.get("state") in [
-                    "active",
-                    "completed",
-                ] and isinstance(webhook_body.get("connection_id"), str):
+                if (
+                    connection.state in ["active", "completed"]
+                    and connection.connection_id is not None
+                ):
                     # Connection established, now send presentation request
-                    connection_id = webhook_body["connection_id"]
-                    invitation_msg_id = webhook_body.get("invitation_msg_id")
+                    connection_id = connection.connection_id
 
-                    logger.debug(f"Full webhook body: {webhook_body}")
-                    logger.debug(f"Available keys: {list(webhook_body.keys())}")
+                    logger.debug(f"Full webhook body: {connection}")
 
                     # Try multiple possible fields for invitation message ID
-                    search_id = (
-                        invitation_msg_id
-                        or webhook_body.get("invi_msg_id")
-                        or webhook_body.get("invitation_id")
-                    )
+                    search_id = connection.invitation_search_id()
 
                     # Find the auth session by invitation message ID (stored as connection_id initially)
                     logger.info(f"Looking for auth session with search_id: {search_id}")
@@ -208,11 +168,14 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                         logger.info(
                             f"Trying to find auth session by pres_exch_id pattern: {search_id}"
                         )
-                        # This lookup might fail if the pattern doesn't match
-                        with contextlib.suppress(Exception):
+                        try:
                             auth_session = await AuthSessionCRUD(
                                 db
-                            ).get_by_pres_exch_id(f"{search_id}")
+                            ).get_by_pres_exch_id(search_id)
+                        except HTTPException as e:
+                            # Not found is expected; anything else is a real failure.
+                            if e.status_code != 404:
+                                raise
 
                     if auth_session:
                         logger.info(f"Found auth session: {auth_session.id}")
@@ -233,12 +196,13 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                                 )
 
                                 # Update auth session with presentation exchange details and real connection ID
-                                auth_session.pres_exch_id = pres_response.pres_ex_id
-                                auth_session.presentation_exchange = (
-                                    pres_response.model_dump()
-                                )
-                                auth_session.connection_id = (
-                                    connection_id  # Update with real connection ID
+                                auth_session = apply(
+                                    auth_session,
+                                    RequestSent(
+                                        pres_response.pres_ex_id,
+                                        pres_response.model_dump(),
+                                        connection_id,  # the real connection ID
+                                    ),
                                 )
                                 await _update_auth_session(db, auth_session)
 
@@ -250,7 +214,7 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                                     f"Failed to send presentation request: {e}"
                                 )
                                 # Set auth session to failed state
-                                auth_session.proof_status = AuthSessionState.FAILED
+                                auth_session = apply(auth_session, Failed())
                                 await _update_auth_session(db, auth_session)
 
                                 # Send problem report if we have a presentation exchange ID
@@ -269,15 +233,15 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                             )
                     else:
                         logger.debug(
-                            f"No auth session found for invitation_msg_id: {invitation_msg_id}"
+                            f"No auth session found for invitation_msg_id: {connection.invitation_msg_id}"
                         )
 
         case "present_proof_v2_0":
-            webhook_body = await _parse_webhook_body(request)
+            webhook_body = await _parse_webhook(request, PresentProofWebhook)
 
-            pres_ex_id = str(webhook_body.get("pres_ex_id"))
-            state = webhook_body.get("state")
-            role = webhook_body.get("role")
+            pres_ex_id = webhook_body.pres_ex_id
+            state = webhook_body.state
+            role = webhook_body.role
 
             # Emitted by ACA-Py for every record removal (auto-remove, cleanup)
             if state == "deleted":
@@ -293,16 +257,13 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                 role=role,
             )
 
-            logger.info(
-                f">>>> pres_exch_id: {webhook_body['pres_ex_id']}, state: {state}"
-            )
+            logger.info(f">>>> pres_exch_id: {pres_ex_id}, state: {state}")
 
             # Check for prover-role (issue #898)
 
             if role == "prover":
                 # Handle prover-role separately - VC-AuthN is responding to a proof request
-                connection_id = webhook_body.get("connection_id")
-                state = webhook_body.get("state")
+                connection_id = webhook_body.connection_id
 
                 logger.info(
                     f"Prover-role webhook received: {state}",
@@ -318,9 +279,7 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
 
             # Existing verifier-role code continues below...
             try:
-                auth_session = await AuthSessionCRUD(db).get_by_pres_exch_id(
-                    webhook_body["pres_ex_id"]
-                )
+                auth_session = await AuthSessionCRUD(db).get_by_pres_exch_id(pres_ex_id)
             except HTTPException as e:
                 if e.status_code != 404:
                     raise
@@ -332,23 +291,23 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                 )
                 return {"status": "unknown presentation exchange"}
 
-            if webhook_body["state"] == "presentation-received":
+            if state == "presentation-received":
                 logger.info("presentation-received")
 
-            if webhook_body["state"] == "done":
+            if state == "done":
                 duration_ms = int((time.time() - webhook_start_time) * 1000)
 
-                if webhook_body["verified"] == "true":
+                if webhook_body.is_verified:
                     logger.info("VERIFIED")
 
-                    by_format = webhook_body.get("by_format")
+                    by_format = webhook_body.by_format
                     if not by_format:
                         logger.error(
                             "Missing by_format in webhook body — cannot extract proof claims. "
                             "Ensure ACA-Py is configured with --debug-webhooks.",
-                            pres_ex_id=webhook_body["pres_ex_id"],
+                            pres_ex_id=pres_ex_id,
                         )
-                        auth_session.proof_status = AuthSessionState.FAILED
+                        auth_session = apply(auth_session, Failed())
                         await _update_auth_session(db, auth_session)
                         await notify(str(auth_session.id), "failed")
                         await _cleanup__connection(
@@ -359,16 +318,16 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                         )
                         return {"status": "missing by_format"}
 
-                    auth_session.proof_status = AuthSessionState.VERIFIED
-                    auth_session.presentation_exchange = by_format
+                    auth_session = apply(auth_session, Verified(by_format))
                     logger.debug(
-                        f"Retrieved presentation data via API for {webhook_body['pres_ex_id']}"
+                        f"Retrieved presentation data via API for {pres_ex_id}"
                     )
 
                     # SIEM Audit: Log successful verification (metadata only, no PII)
                     # Extract schema names from presentation for audit
-                    credential_schemas = _extract_credential_schemas(webhook_body)
-                    issuer_dids = _extract_issuer_dids(webhook_body)
+                    presentations = _audit_presentations(by_format)
+                    credential_schemas = presentations.schema_names()
+                    issuer_dids = presentations.issuer_dids()
 
                     audit_proof_verified(
                         session_id=str(auth_session.id),
@@ -382,7 +341,7 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                     await notify(str(auth_session.id), "verified")
                 else:
                     logger.info("VERIFICATION FAILED")
-                    auth_session.proof_status = AuthSessionState.FAILED
+                    auth_session = apply(auth_session, Failed())
 
                     # SIEM Audit: Log failed verification
                     audit_proof_verification_failed(
@@ -402,7 +361,7 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                         await _send_problem_report_safely(
                             client,
                             auth_session.pres_exch_id,
-                            f"Presentation verification failed: {webhook_body.get('error_msg', 'Unknown error')}",
+                            f"Presentation verification failed: {webhook_body.error_msg or 'Unknown error'}",
                         )
 
                 await _update_auth_session(db, auth_session)
@@ -411,13 +370,13 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                 )
 
                 # Connection cleanup is now handled above in the combined cleanup operation
-            if webhook_body["state"] == "abandoned":
+            if state == "abandoned":
                 logger.info("ABANDONED")
                 # Note: error_msg may contain sensitive info, log at debug level only
                 logger.debug(
-                    f"Abandonment reason: {webhook_body.get('error_msg', 'No reason provided')}"
+                    f"Abandonment reason: {webhook_body.error_msg or 'No reason provided'}"
                 )
-                auth_session.proof_status = AuthSessionState.ABANDONED
+                auth_session = apply(auth_session, Abandoned())
 
                 # SIEM Audit: Log session abandonment
                 duration_ms = int((time.time() - webhook_start_time) * 1000)
@@ -438,7 +397,7 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                     await _send_problem_report_safely(
                         client,
                         auth_session.pres_exch_id,
-                        f"Presentation abandoned: {webhook_body.get('error_msg', 'Unknown error')}",
+                        f"Presentation abandoned: {webhook_body.error_msg or 'Unknown error'}",
                     )
                 await _update_auth_session(db, auth_session)
                 await _cleanup__connection(
@@ -446,18 +405,9 @@ async def post_topic(request: Request, topic: str, db: Database = Depends(get_db
                 )
 
             # Check if expired. But only if the proof has not been started.
-            # Handle comparison between timezone-aware and naive datetimes
-            expired_time = auth_session.expired_timestamp
-            now_time = (
-                datetime.now(UTC) if expired_time.tzinfo is not None else datetime.now()
-            )
-
-            if (
-                expired_time < now_time
-                and auth_session.proof_status == AuthSessionState.NOT_STARTED
-            ):
+            if has_expired(auth_session, datetime.now(UTC)):
                 logger.info("EXPIRED")
-                auth_session.proof_status = AuthSessionState.EXPIRED
+                auth_session = apply(auth_session, Expired())
 
                 # SIEM Audit: Log session expiration
                 audit_session_expired(

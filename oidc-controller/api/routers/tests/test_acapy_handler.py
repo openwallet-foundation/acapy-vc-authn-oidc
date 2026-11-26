@@ -9,11 +9,12 @@ from bson import ObjectId
 from fastapi import HTTPException
 from pymongo.database import Database
 
-from api.authSessions.models import AuthSession, AuthSessionState
+from api.authSessions.models import AuthSession, AuthSessionPatch, AuthSessionState
 from api.config import settings
+from api.core.models import PyObjectId
+from api.core.oidc.tests.__mocks__ import presentation as mock_presentation
 from api.routers.acapy_handler import (
-    _extract_credential_schemas,
-    _extract_issuer_dids,
+    _audit_presentations,
     post_topic,
 )
 
@@ -24,38 +25,27 @@ def mock_db():
     return MagicMock(spec=Database)
 
 
+SESSION_ID = "507f1f77bcf86cd799439011"
+
+
 @pytest.fixture
 def mock_auth_session():
-    """Mock auth session fixture."""
-    auth_session = MagicMock(spec=AuthSession)
-    auth_session.id = "test-session-id"
-    auth_session.pres_exch_id = "test-pres-ex-id"
-    auth_session.connection_id = "test-connection-id"
-    auth_session.proof_request = {"test": "proof_request"}
-    auth_session.proof_status = AuthSessionState.NOT_STARTED
-    auth_session.expired_timestamp = datetime.now(UTC) + timedelta(seconds=3600)
-    auth_session.ver_config_id = "test-ver-config-id"
-    auth_session.request_parameters = {"test": "params"}
-    auth_session.pyop_auth_code = "test-auth-code"
-    auth_session.response_url = "http://test.com/callback"
-    auth_session.presentation_exchange = {}
-    auth_session.multi_use = False
-    auth_session.model_dump = MagicMock(
-        return_value={
-            "id": "test-session-id",
-            "pres_exch_id": "test-pres-ex-id",
-            "connection_id": "test-connection-id",
-            "proof_request": {"test": "proof_request"},
-            "proof_status": AuthSessionState.NOT_STARTED,
-            "ver_config_id": "test-ver-config-id",
-            "request_parameters": {"test": "params"},
-            "pyop_auth_code": "test-auth-code",
-            "response_url": "http://test.com/callback",
-            "presentation_exchange": {},
-            "multi_use": False,
-        }
+    """Auth session fixture."""
+    return AuthSession(
+        _id=PyObjectId(SESSION_ID),
+        pres_exch_id="test-pres-ex-id",
+        connection_id="test-connection-id",
+        proof_request={"test": "proof_request"},
+        expired_timestamp=datetime.now(UTC) + timedelta(seconds=3600),
+        ver_config_id="test-ver-config-id",
+        request_parameters={"test": "params"},
+        pyop_auth_code="test-auth-code",
+        response_url="http://test.com/callback",
     )
-    return auth_session
+
+
+def _saved_session(mock_auth_session_crud: MagicMock) -> AuthSessionPatch:
+    return mock_auth_session_crud.return_value.patch.call_args.args[1]
 
 
 @pytest.fixture
@@ -165,7 +155,7 @@ class TestConnectionBasedVerificationWebhooks:
         mock_client_instance.send_problem_report.assert_called_once_with(
             "test-pres-ex-id", "Failed to send presentation request: Connection error"
         )
-        mock_notify.assert_awaited_once_with("test-session-id", "failed")
+        mock_notify.assert_awaited_once_with(SESSION_ID, "failed")
 
     @pytest.mark.asyncio
     @patch("api.routers.acapy_handler.settings.USE_CONNECTION_BASED_VERIFICATION", True)
@@ -209,7 +199,7 @@ class TestConnectionBasedVerificationWebhooks:
         mock_client_instance.send_problem_report.assert_called_once_with(
             "test-pres-ex-id", "Presentation verification failed: Verification failed"
         )
-        mock_notify.assert_awaited_once_with("test-session-id", "failed")
+        mock_notify.assert_awaited_once_with(SESSION_ID, "failed")
 
     @pytest.mark.asyncio
     @patch("api.routers.acapy_handler.settings.USE_CONNECTION_BASED_VERIFICATION", True)
@@ -237,22 +227,7 @@ class TestConnectionBasedVerificationWebhooks:
         mock_request.body.return_value = json.dumps(webhook_body).encode("ascii")
 
         # Configure auth session as multi-use
-        mock_auth_session.multi_use = True
-        mock_auth_session.model_dump = MagicMock(
-            return_value={
-                "id": "test-session-id",
-                "pres_exch_id": "test-pres-ex-id",
-                "connection_id": "test-connection-id",
-                "proof_request": {"test": "proof_request"},
-                "proof_status": AuthSessionState.NOT_STARTED,
-                "ver_config_id": "test-ver-config-id",
-                "request_parameters": {"test": "params"},
-                "pyop_auth_code": "test-auth-code",
-                "response_url": "http://test.com/callback",
-                "presentation_exchange": {},
-                "multi_use": True,
-            }
-        )
+        mock_auth_session = mock_auth_session.model_copy(update={"multi_use": True})
 
         mock_auth_session_crud.return_value.get_by_pres_exch_id = AsyncMock(
             return_value=mock_auth_session
@@ -275,7 +250,7 @@ class TestConnectionBasedVerificationWebhooks:
         assert result == {}
         # Verify connection was NOT deleted
         mock_client_instance.delete_connection.assert_not_called()
-        mock_notify.assert_awaited_once_with("test-session-id", "verified")
+        mock_notify.assert_awaited_once_with(SESSION_ID, "verified")
 
     @pytest.mark.asyncio
     @patch("api.routers.acapy_handler.settings.USE_CONNECTION_BASED_VERIFICATION", True)
@@ -318,7 +293,7 @@ class TestConnectionBasedVerificationWebhooks:
         mock_client_instance.send_problem_report.assert_called_once_with(
             "test-pres-ex-id", "Presentation abandoned: Presentation abandoned by user"
         )
-        mock_notify.assert_awaited_once_with("test-session-id", "abandoned")
+        mock_notify.assert_awaited_once_with(SESSION_ID, "abandoned")
 
     @pytest.mark.asyncio
     @patch("api.routers.acapy_handler.settings.USE_CONNECTION_BASED_VERIFICATION", True)
@@ -347,8 +322,12 @@ class TestConnectionBasedVerificationWebhooks:
 
         mock_request.body.return_value = json.dumps(webhook_body).encode("ascii")
 
-        mock_auth_session.proof_status = AuthSessionState.NOT_STARTED
-        mock_auth_session.expired_timestamp = datetime.now(UTC) - timedelta(seconds=60)
+        mock_auth_session = mock_auth_session.model_copy(
+            update={
+                "proof_status": AuthSessionState.NOT_STARTED,
+                "expired_timestamp": datetime.now(UTC) - timedelta(seconds=60),
+            }
+        )
         mock_auth_session_crud.return_value.get_by_pres_exch_id = AsyncMock(
             return_value=mock_auth_session
         )
@@ -362,12 +341,15 @@ class TestConnectionBasedVerificationWebhooks:
         result = await post_topic(mock_request, "present_proof_v2_0", mock_db)
 
         assert result == {}
-        assert mock_auth_session.proof_status == AuthSessionState.EXPIRED
+        assert (
+            _saved_session(mock_auth_session_crud).proof_status
+            == AuthSessionState.EXPIRED
+        )
         mock_client_instance.send_problem_report.assert_called_once_with(
             "test-pres-ex-id",
             f"Presentation expired: timeout after {settings.CONTROLLER_PRESENTATION_EXPIRE_TIME} seconds",
         )
-        mock_notify.assert_awaited_once_with("test-session-id", "expired")
+        mock_notify.assert_awaited_once_with(SESSION_ID, "expired")
         # Verify single-use connection was cleaned up
         mock_client_instance.delete_connection.assert_called_once_with(
             "test-connection-id"
@@ -396,7 +378,7 @@ class TestConnectionBasedVerificationWebhooks:
         }
         mock_request.body.return_value = json.dumps(webhook_body).encode("ascii")
 
-        mock_auth_session.multi_use = False
+        mock_auth_session = mock_auth_session.model_copy(update={"multi_use": False})
         mock_auth_session_crud.return_value.get_by_pres_exch_id = AsyncMock(
             return_value=mock_auth_session
         )
@@ -447,8 +429,11 @@ class TestConnectionBasedVerificationWebhooks:
         result = await post_topic(mock_request, "present_proof_v2_0", mock_db)
 
         assert result == {"status": "missing by_format"}
-        assert mock_auth_session.proof_status == AuthSessionState.FAILED
-        mock_notify.assert_awaited_once_with("test-session-id", "failed")
+        assert (
+            _saved_session(mock_auth_session_crud).proof_status
+            == AuthSessionState.FAILED
+        )
+        mock_notify.assert_awaited_once_with(SESSION_ID, "failed")
 
     @pytest.mark.asyncio
     @patch(
@@ -509,27 +494,13 @@ class TestConnectionBasedVerificationWebhooks:
         mock_request.body.return_value = json.dumps(webhook_body).encode("ascii")
 
         # Mock auth session without pres_exch_id
-        mock_auth_session_no_pres_id = MagicMock(spec=AuthSession)
-        mock_auth_session_no_pres_id.id = "test-session-id"
-        mock_auth_session_no_pres_id.pres_exch_id = None
-        mock_auth_session_no_pres_id.connection_id = "test-connection-id"
-        mock_auth_session_no_pres_id.multi_use = False
-        mock_auth_session_no_pres_id.expired_timestamp = datetime.now(UTC) + timedelta(
-            seconds=3600
-        )
-        mock_auth_session_no_pres_id.ver_config_id = "test-ver-config-id"
-        mock_auth_session_no_pres_id.model_dump = MagicMock(
-            return_value={
-                "id": "test-session-id",
-                "pres_exch_id": None,
-                "connection_id": "test-connection-id",
-                "ver_config_id": "test-ver-config-id",
-                "request_parameters": {"test": "params"},
-                "pyop_auth_code": "test-auth-code",
-                "response_url": "http://test.com/callback",
-                "presentation_exchange": {},
-                "multi_use": False,
-            }
+        mock_auth_session_no_pres_id = AuthSession(
+            _id=PyObjectId(SESSION_ID),
+            connection_id="test-connection-id",
+            ver_config_id="test-ver-config-id",
+            request_parameters={"test": "params"},
+            pyop_auth_code="test-auth-code",
+            response_url="http://test.com/callback",
         )
 
         mock_auth_session_crud.return_value.get_by_pres_exch_id = AsyncMock(
@@ -682,7 +653,7 @@ class TestConnectionBasedVerificationIntegration:
         mock_request,
         mock_db,
     ):
-        """Test that exceptions during pres_exch_id lookup are handled gracefully."""
+        """A pres_exch_id lookup that finds nothing is not an error."""
         # Setup mocks
         webhook_body = {
             "connection_id": "test-connection-id",
@@ -696,7 +667,9 @@ class TestConnectionBasedVerificationIntegration:
 
         # All lookups fail
         mock_crud_instance.get_by_connection_id.side_effect = [None, None]
-        mock_crud_instance.get_by_pres_exch_id.side_effect = Exception("Database error")
+        mock_crud_instance.get_by_pres_exch_id.side_effect = HTTPException(
+            status_code=404
+        )
 
         # Execute - should not raise exception
         result = await post_topic(mock_request, "connections", mock_db)
@@ -706,6 +679,27 @@ class TestConnectionBasedVerificationIntegration:
         mock_crud_instance.get_by_pres_exch_id.assert_called_once_with(
             "test-invitation-id"
         )
+
+    @pytest.mark.asyncio
+    @patch("api.routers.acapy_handler.settings.USE_CONNECTION_BASED_VERIFICATION", True)
+    @patch("api.routers.acapy_handler.AuthSessionCRUD")
+    async def test_connection_webhook_pres_exch_id_lookup_database_error_propagates(
+        self, mock_auth_session_crud, mock_request, mock_db
+    ):
+        """A database failure must not look like "no session found"."""
+        webhook_body = {
+            "connection_id": "test-connection-id",
+            "invitation_msg_id": "test-invitation-id",
+            "state": "active",
+        }
+        mock_request.body.return_value = json.dumps(webhook_body).encode()
+        mock_crud_instance = AsyncMock()
+        mock_auth_session_crud.return_value = mock_crud_instance
+        mock_crud_instance.get_by_connection_id.side_effect = [None, None]
+        mock_crud_instance.get_by_pres_exch_id.side_effect = RuntimeError("db down")
+
+        with pytest.raises(RuntimeError, match="db down"):
+            await post_topic(mock_request, "connections", mock_db)
 
     @pytest.mark.asyncio
     @patch("api.routers.acapy_handler.settings.USE_CONNECTION_BASED_VERIFICATION", True)
@@ -821,9 +815,12 @@ class TestConnectionBasedVerificationIntegration:
 
         # Verify auth session was set to failed
         assert result == {}
-        assert mock_auth_session.proof_status == AuthSessionState.FAILED
+        assert (
+            _saved_session(mock_auth_session_crud).proof_status
+            == AuthSessionState.FAILED
+        )
         mock_auth_session_crud.return_value.patch.assert_called()
-        mock_notify.assert_awaited_once_with("test-session-id", "failed")
+        mock_notify.assert_awaited_once_with(SESSION_ID, "failed")
 
 
 class TestProverRoleWebhooks:
@@ -1179,55 +1176,65 @@ class TestMiscWebhookCoverage:
         result = await post_topic(mock_request, "connections", mock_db)
 
         assert result == {}
-        assert mock_auth_session.pres_exch_id == "new-pres-ex-id"
-        assert mock_auth_session.connection_id == "test-connection-id"
         mock_auth_session_crud.return_value.patch.assert_called_once()
+        saved = _saved_session(mock_auth_session_crud)
+        assert saved.pres_exch_id == "new-pres-ex-id"
+        assert saved.connection_id == "test-connection-id"
 
 
 # ===================================================================
-# Tests for _extract_credential_schemas / _extract_issuer_dids
+# Tests for _audit_presentations
 # ===================================================================
 
 
 def _make_presentation_data(identifiers, format_key="indy"):
     """Helper to build a minimal presentation_data dict."""
-    return {
-        "by_format": {
-            format_key: {
-                "pres": {
-                    "identifiers": identifiers,
-                }
-            }
-        }
-    }
+    return {"by_format": {"pres": {format_key: {"identifiers": identifiers}}}}
+
+
+def _schemas(data):
+    return _audit_presentations(data.get("by_format")).schema_names()
+
+
+def _issuers(data):
+    return _audit_presentations(data.get("by_format")).issuer_dids()
+
+
+@patch("api.routers.acapy_handler.logger")
+def test_unreadable_identifiers_warn_without_values(mock_logger):
+    data = _make_presentation_data([{"schema_id": ["secret-value"]}])
+
+    assert _schemas(data) == []
+    mock_logger.warning.assert_called_once()
+    assert "secret-value" not in str(mock_logger.warning.call_args)
 
 
 class TestExtractCredentialSchemas:
-    """Tests for _extract_credential_schemas from presentation data."""
+    """Schema names for the audit log."""
 
     def test_empty_data(self):
-        assert _extract_credential_schemas({}) == []
+        assert _schemas({}) == []
 
     def test_unqualified_did_schema_id(self):
         """Legacy unqualified DID: DXzMEuV1efR3RbU8vSkMbN:2:Person:1.0"""
         data = _make_presentation_data(
             [{"schema_id": "DXzMEuV1efR3RbU8vSkMbN:2:Person:1.0"}]
         )
-        assert _extract_credential_schemas(data) == ["Person"]
+        assert _schemas(data) == ["Person"]
 
     def test_qualified_did_schema_id(self):
         """Fully-qualified DID: did:sov:DXzMEuV1efR3RbU8vSkMbN:2:Person:1.0"""
         data = _make_presentation_data(
             [{"schema_id": "did:sov:DXzMEuV1efR3RbU8vSkMbN:2:Person:1.0"}]
         )
-        assert _extract_credential_schemas(data) == ["Person"]
+        assert _schemas(data) == ["Person"]
 
     def test_qualified_did_indy_schema_id(self):
         """did:indy:sovrin:ABC123:2:HealthCard:2.1"""
         data = _make_presentation_data(
             [{"schema_id": "did:indy:sovrin:ABC123:2:HealthCard:2.1"}]
         )
-        assert _extract_credential_schemas(data) == ["HealthCard"]
+        assert _schemas(data) == ["HealthCard"]
 
     def test_multiple_schemas_deduped_and_sorted(self):
         data = _make_presentation_data(
@@ -1237,68 +1244,71 @@ class TestExtractCredentialSchemas:
                 {"schema_id": "IssuerC:2:Zebra:1.0"},
             ]
         )
-        assert _extract_credential_schemas(data) == ["Alpha", "Zebra"]
+        assert _schemas(data) == ["Alpha", "Zebra"]
 
     def test_anoncreds_format(self):
         data = _make_presentation_data(
             [{"schema_id": "IssuerA:2:Person:1.0"}], format_key="anoncreds"
         )
-        assert _extract_credential_schemas(data) == ["Person"]
+        assert _schemas(data) == ["Person"]
 
     def test_no_marker_falls_back_to_raw(self):
         """When schema_id has no :2: marker, return the raw value."""
         data = _make_presentation_data([{"schema_id": "some-opaque-id"}])
-        assert _extract_credential_schemas(data) == ["some-opaque-id"]
+        assert _schemas(data) == ["some-opaque-id"]
 
     def test_missing_identifiers_key(self):
-        data = {"by_format": {"indy": {"pres": {}}}}
-        assert _extract_credential_schemas(data) == []
+        data = {"by_format": {"pres": {"indy": {}}}}
+        assert _schemas(data) == []
 
     def test_missing_schema_id_key(self):
         data = _make_presentation_data([{"cred_def_id": "something"}])
-        assert _extract_credential_schemas(data) == []
+        assert _schemas(data) == []
 
     def test_malformed_by_format(self):
-        assert _extract_credential_schemas({"by_format": "bad"}) == []
+        assert _schemas({"by_format": "bad"}) == []
+
+    def test_real_acapy_record(self):
+        """by_format nests the format under "pres", as ACA-Py sends it."""
+        assert _schemas(mock_presentation) == ["Person"]
 
     def test_schema_name_only_after_marker(self):
         """schema_id with only one part after :2: (no version)."""
         data = _make_presentation_data([{"schema_id": "DID:2:SchemaOnly"}])
-        assert _extract_credential_schemas(data) == ["SchemaOnly"]
+        assert _schemas(data) == ["SchemaOnly"]
 
     def test_exception_in_extraction_returns_empty(self):
         """When the by_format value is not dict-like, the exception is caught."""
-        # by_format value is a string, so .get("pres") raises AttributeError
-        data = {"by_format": {"indy": "not-a-dict"}}
-        assert _extract_credential_schemas(data) == []
+        data = {"by_format": {"pres": {"indy": "not-a-dict"}}}
+        assert _schemas(data) == []
 
 
 class TestExtractIssuerDids:
-    """Tests for _extract_issuer_dids from presentation data."""
+    """Issuer DIDs for the audit log."""
 
     def test_empty_data(self):
-        assert _extract_issuer_dids({}) == []
+        assert _issuers({}) == []
 
     def test_unqualified_did(self):
         """Legacy unqualified DID: DXzMEuV1efR3RbU8vSkMbN:3:CL:123:default"""
         data = _make_presentation_data(
             [{"cred_def_id": "DXzMEuV1efR3RbU8vSkMbN:3:CL:123:default"}]
         )
-        assert _extract_issuer_dids(data) == ["DXzMEuV1efR3RbU8vSkMbN"]
+        assert _issuers(data) == ["DXzMEuV1efR3RbU8vSkMbN"]
 
     def test_qualified_did_sov(self):
         """Fully-qualified DID: did:sov:DXzMEuV1efR3RbU8vSkMbN:3:CL:123:default"""
         data = _make_presentation_data(
             [{"cred_def_id": "did:sov:DXzMEuV1efR3RbU8vSkMbN:3:CL:123:default"}]
         )
-        assert _extract_issuer_dids(data) == ["did:sov:DXzMEuV1efR3RbU8vSkMbN"]
+        assert _issuers(data) == ["did:sov:DXzMEuV1efR3RbU8vSkMbN"]
 
     def test_qualified_did_indy(self):
         """did:indy:sovrin:ABC123:3:CL:456:latest"""
         data = _make_presentation_data(
             [{"cred_def_id": "did:indy:sovrin:ABC123:3:CL:456:latest"}]
         )
-        assert _extract_issuer_dids(data) == ["did:indy:sovrin:ABC123"]
+        assert _issuers(data) == ["did:indy:sovrin:ABC123"]
 
     def test_multiple_issuers_deduped_and_sorted(self):
         data = _make_presentation_data(
@@ -1308,45 +1318,73 @@ class TestExtractIssuerDids:
                 {"cred_def_id": "did:sov:ZZZ:3:CL:3:other"},
             ]
         )
-        assert _extract_issuer_dids(data) == ["did:sov:AAA", "did:sov:ZZZ"]
+        assert _issuers(data) == ["did:sov:AAA", "did:sov:ZZZ"]
 
     def test_anoncreds_format(self):
         data = _make_presentation_data(
             [{"cred_def_id": "IssuerA:3:CL:99:default"}], format_key="anoncreds"
         )
-        assert _extract_issuer_dids(data) == ["IssuerA"]
+        assert _issuers(data) == ["IssuerA"]
 
     def test_no_marker_falls_back_to_raw(self):
         """When cred_def_id has no :3:CL: marker, return the raw value."""
         data = _make_presentation_data([{"cred_def_id": "some-opaque-id"}])
-        assert _extract_issuer_dids(data) == ["some-opaque-id"]
+        assert _issuers(data) == ["some-opaque-id"]
 
     def test_missing_identifiers_key(self):
-        data = {"by_format": {"indy": {"pres": {}}}}
-        assert _extract_issuer_dids(data) == []
+        data = {"by_format": {"pres": {"indy": {}}}}
+        assert _issuers(data) == []
 
     def test_missing_cred_def_id_key(self):
         data = _make_presentation_data([{"schema_id": "something"}])
-        assert _extract_issuer_dids(data) == []
+        assert _issuers(data) == []
 
     def test_malformed_by_format(self):
-        assert _extract_issuer_dids({"by_format": "bad"}) == []
+        assert _issuers({"by_format": "bad"}) == []
+
+    def test_real_acapy_record(self):
+        assert _issuers(mock_presentation) == ["QEquAHkM35w4XVT3Ku5yat"]
 
     def test_both_formats_combined(self):
         """Identifiers present under both indy and anoncreds."""
         data = {
             "by_format": {
-                "indy": {
-                    "pres": {"identifiers": [{"cred_def_id": "did:sov:A:3:CL:1:t"}]}
-                },
-                "anoncreds": {
-                    "pres": {"identifiers": [{"cred_def_id": "did:sov:B:3:CL:2:t"}]}
-                },
+                "pres": {
+                    "indy": {"identifiers": [{"cred_def_id": "did:sov:A:3:CL:1:t"}]},
+                    "anoncreds": {
+                        "identifiers": [{"cred_def_id": "did:sov:B:3:CL:2:t"}]
+                    },
+                }
             }
         }
-        assert _extract_issuer_dids(data) == ["did:sov:A", "did:sov:B"]
+        assert _issuers(data) == ["did:sov:A", "did:sov:B"]
 
     def test_exception_in_extraction_returns_empty(self):
         """When the by_format value is not dict-like, the exception is caught."""
-        data = {"by_format": {"indy": "not-a-dict"}}
-        assert _extract_issuer_dids(data) == []
+        data = {"by_format": {"pres": {"indy": "not-a-dict"}}}
+        assert _issuers(data) == []
+
+
+class TestMalformedWebhookBodies:
+    @pytest.mark.asyncio
+    @patch("api.routers.acapy_handler.AuthSessionCRUD")
+    @patch("api.routers.acapy_handler.AcapyClient")
+    @pytest.mark.parametrize(
+        "body",
+        [
+            {"state": "done", "verified": "true"},
+            {"pres_ex_id": "pex-1", "state": "done", "by_format": "secret-value"},
+            {"pres_ex_id": "pex-1", "state": "done", "verified": True},
+        ],
+    )
+    async def test_rejected_with_422_without_echoing_input(
+        self, mock_acapy_client, mock_crud, body, mock_request, mock_db
+    ):
+        mock_request.body.return_value = json.dumps(body).encode()
+
+        with pytest.raises(HTTPException) as exc:
+            await post_topic(mock_request, "present_proof_v2_0", mock_db)
+
+        assert exc.value.status_code == 422
+        assert "secret-value" not in str(exc.value.detail)
+        mock_crud.assert_not_called()

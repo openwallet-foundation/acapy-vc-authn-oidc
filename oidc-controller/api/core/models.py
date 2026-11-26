@@ -1,10 +1,10 @@
 from datetime import UTC, datetime
-from typing import Required, TypedDict, dataclass_transform
+from typing import dataclass_transform
 
 import structlog
 from bson import ObjectId
 from pydantic import (
-    BaseModel,  # noqa: TID251 - base of FrozenModel and UUIDModel
+    BaseModel,  # noqa: TID251 - base of FrozenModel
     ConfigDict,
     Field,
     PrivateAttr,
@@ -62,10 +62,8 @@ class StatusMessage(FrozenModel):
     message: str
 
 
-class UUIDModel(BaseModel):
+class UUIDModel(FrozenModel):
     id: PyObjectId = Field(default_factory=PyObjectId, alias="_id")
-
-    model_config = ConfigDict()
 
     @field_serializer("id")
     def serialize_id(self, value: PyObjectId) -> str:
@@ -79,14 +77,6 @@ class TimestampModel(FrozenModel):
 
 class GenericErrorMessage(FrozenModel):
     detail: str
-
-
-# Currently used as a TypedDict since it can be used as a part of a
-# Pydantic class but a Pydantic class can not inherit from TypedDict
-# and and BaseModel
-class RevealedAttribute(TypedDict, total=False):
-    sub_proof_index: int
-    values: Required[dict]
 
 
 class VCUserinfo(Userinfo):

@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from api.authSessions.models import AuthSession
 from api.verificationConfigs.models import (
@@ -1325,7 +1325,7 @@ presentation = {
 
 auth_session = AuthSession(
     pres_exch_id="e444bc3e-346d-47d1-882d-39c014b8978c",
-    expired_timestamp=datetime.now() + timedelta(seconds=3000),
+    expired_timestamp=datetime.now(UTC) + timedelta(seconds=3000),
     ver_config_id="showcase-person",
     request_parameters={
         "scope": "openid vc_authn",
