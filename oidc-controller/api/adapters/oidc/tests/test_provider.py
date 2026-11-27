@@ -548,6 +548,39 @@ class TestHelperFunctions:
             assert f.read() == f"key-{won.index(True)}".encode()
         assert os.listdir(tmp_path) == ["key.pem"]
 
+    def test_ensure_signing_key_creates_a_missing_key(self, tmp_path):
+        from api.adapters.oidc.provider import ensure_signing_key
+
+        path = tmp_path / "key.pem"
+        ensure_signing_key(str(path), 2048)
+        assert path.read_bytes().startswith(b"-----BEGIN PRIVATE KEY-----")
+
+    def test_ensure_signing_key_leaves_an_existing_key(self, tmp_path):
+        from api.adapters.oidc.provider import ensure_signing_key
+
+        path = tmp_path / "key.pem"
+        path.write_bytes(b"existing")
+        ensure_signing_key(str(path), 2048)
+        assert path.read_bytes() == b"existing"
+
+    def test_ensure_signing_key_uses_the_key_another_process_published(self, tmp_path):
+        """The file appears between the existence check and the publish."""
+        from api.adapters.oidc.provider import ensure_signing_key
+
+        path = tmp_path / "key.pem"
+
+        def other_process_wins(key_size: int) -> bytes:
+            path.write_bytes(b"theirs")
+            return b"ours"
+
+        with patch(
+            "api.adapters.oidc.provider.generate_signing_key_pem",
+            side_effect=other_process_wins,
+        ):
+            ensure_signing_key(str(path), 2048)
+        assert path.read_bytes() == b"theirs"
+        assert os.listdir(tmp_path) == ["key.pem"]
+
 
 class TestInitProvider:
     """Test init_provider function."""

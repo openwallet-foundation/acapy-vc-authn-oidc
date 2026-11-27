@@ -70,6 +70,16 @@ def publish_signing_key(path: str, pem: bytes) -> bool:
         os.unlink(tmp_path)
 
 
+def ensure_signing_key(path: str, key_size: int) -> None:
+    """Create a signing key at path if there isn't one yet."""
+    if os.path.isfile(path):
+        logger.info("pem file already exists")
+    elif publish_signing_key(path, generate_signing_key_pem(key_size)):
+        logger.info("created new pem file")
+    else:
+        logger.info("another process created the pem file first")
+
+
 if settings.TESTING:
     # Test pem file location /vc-authn-oidc/test-signing-keys.
     SIGNING_KEY_FILEPATH = get_signing_key_dir_path(
@@ -91,14 +101,7 @@ else:
             f"SIGNING_KEY_FILEPATH {SIGNING_KEY_FILEPATH} env variable provided."
         )
 
-if os.path.isfile(SIGNING_KEY_FILEPATH):
-    logger.info("pem file already exists")
-elif publish_signing_key(
-    SIGNING_KEY_FILEPATH, generate_signing_key_pem(settings.SIGNING_KEY_SIZE)
-):
-    logger.info("created new pem file")
-else:
-    logger.info("another process created the pem file first")
+ensure_signing_key(SIGNING_KEY_FILEPATH, settings.SIGNING_KEY_SIZE)
 logger.info(f"pem file located at {SIGNING_KEY_FILEPATH}.")
 
 issuer_url = settings.CONTROLLER_URL
