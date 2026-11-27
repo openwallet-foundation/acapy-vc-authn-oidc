@@ -1,5 +1,6 @@
 import os
 import secrets
+import tempfile
 from urllib.parse import urlparse
 
 import structlog
@@ -29,20 +30,54 @@ DIR_PATH = os.path.dirname(os.path.realpath(__file__))
 def get_signing_key_dir_path(to_replace_str, replacement_str, filename_str) -> str:
     """Get signing key directory."""
     file_path = DIR_PATH.replace(to_replace_str, replacement_str)
-    if not os.path.exists(file_path):
-        os.makedirs(file_path)
+    os.makedirs(file_path, exist_ok=True)
     return os.path.join(file_path, filename_str)
 
 
-def save_pem_file(filename, content):
-    """Save the pem file in oidc-controller dir."""
-    with open(filename, "wb") as f:
-        f.write(content)
+def generate_signing_key_pem(key_size: int) -> bytes:
+    """Generate an RSA private key as unencrypted PKCS8 PEM."""
+    private_key = rsa.generate_private_key(
+        public_exponent=65537,
+        key_size=key_size,
+        backend=default_backend(),
+    )
+    return private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
 
 
-def pem_file_exists(filepath) -> bool:
-    """Check if pem file exists."""
-    return os.path.isfile(filepath)
+def publish_signing_key(path: str, pem: bytes) -> bool:
+    """Create the key file at path unless it already exists.
+
+    Replicas sharing a volume can start at the same time. Writing to a
+    temporary file and hard-linking it into place means a reader never sees
+    a partly written key, and only the first replica's key is kept. Returns
+    False if another process created the file first.
+    """
+    fd, tmp_path = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".signing-key-")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(pem)
+            f.flush()
+            os.fsync(f.fileno())
+        os.link(tmp_path, path)
+        return True
+    except FileExistsError:
+        return False
+    finally:
+        os.unlink(tmp_path)
+
+
+def ensure_signing_key(path: str, key_size: int) -> None:
+    """Create a signing key at path if there isn't one yet."""
+    if os.path.isfile(path):
+        logger.info("pem file already exists")
+    elif publish_signing_key(path, generate_signing_key_pem(key_size)):
+        logger.info("created new pem file")
+    else:
+        logger.info("another process created the pem file first")
 
 
 if settings.TESTING:
@@ -66,21 +101,7 @@ else:
             f"SIGNING_KEY_FILEPATH {SIGNING_KEY_FILEPATH} env variable provided."
         )
 
-if not pem_file_exists(SIGNING_KEY_FILEPATH):
-    logger.info("creating new pem file")
-    private_key = rsa.generate_private_key(
-        public_exponent=65537,
-        key_size=settings.SIGNING_KEY_SIZE,
-        backend=default_backend(),
-    )
-    pem = private_key.private_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PrivateFormat.PKCS8,
-        encryption_algorithm=serialization.NoEncryption(),
-    )
-    save_pem_file(SIGNING_KEY_FILEPATH, pem)
-else:
-    logger.info("pem file already exists")
+ensure_signing_key(SIGNING_KEY_FILEPATH, settings.SIGNING_KEY_SIZE)
 logger.info(f"pem file located at {SIGNING_KEY_FILEPATH}.")
 
 issuer_url = settings.CONTROLLER_URL

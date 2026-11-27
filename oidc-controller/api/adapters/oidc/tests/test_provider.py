@@ -1,6 +1,9 @@
 import importlib
+import os
 import secrets
-from unittest.mock import MagicMock, Mock, patch
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from unittest.mock import Mock, patch
 
 import pytest
 from api.adapters.oidc import provider as provider_module
@@ -506,38 +509,77 @@ class TestHelperFunctions:
         result = get_signing_key_dir_path("/api/adapters/oidc", "/test", "key.pem")
         assert result.endswith(os.path.join("/test", "key.pem"))
 
-    @patch("api.adapters.oidc.provider.os.path.isfile")
-    def test_pem_file_exists_true(self, mock_isfile):
-        """Test pem file existence check when file exists."""
-        from api.adapters.oidc.provider import pem_file_exists
+    def test_publish_signing_key_creates_a_private_key_file(self, tmp_path):
+        from api.adapters.oidc.provider import publish_signing_key
 
-        mock_isfile.return_value = True
-        assert pem_file_exists("/path/to/key.pem") is True
-        mock_isfile.assert_called_once_with("/path/to/key.pem")
+        path = tmp_path / "key.pem"
+        assert publish_signing_key(str(path), b"key") is True
+        assert path.read_bytes() == b"key"
+        assert path.stat().st_mode & 0o777 == 0o600
+        assert os.listdir(tmp_path) == ["key.pem"]
 
-    @patch("api.adapters.oidc.provider.os.path.isfile")
-    def test_pem_file_exists_false(self, mock_isfile):
-        """Test pem file existence check when file does not exist."""
-        from api.adapters.oidc.provider import pem_file_exists
+    def test_publish_signing_key_keeps_the_existing_key(self, tmp_path):
+        from api.adapters.oidc.provider import publish_signing_key
 
-        mock_isfile.return_value = False
-        assert pem_file_exists("/path/to/key.pem") is False
-        mock_isfile.assert_called_once_with("/path/to/key.pem")
+        path = tmp_path / "key.pem"
+        publish_signing_key(str(path), b"first")
+        assert publish_signing_key(str(path), b"second") is False
+        assert path.read_bytes() == b"first"
+        assert os.listdir(tmp_path) == ["key.pem"]
 
-    @patch("builtins.open", create=True)
-    def test_save_pem_file(self, mock_open):
-        """Test saving PEM file."""
-        from api.adapters.oidc.provider import save_pem_file
+    def test_racing_replicas_all_end_up_with_one_key(self, tmp_path):
+        """Each replica reads the key back from the path after publishing, so
+        they agree only if exactly one publish wins and its key stays put."""
+        from api.adapters.oidc.provider import publish_signing_key
 
-        mock_file = MagicMock()
-        mock_open.return_value.__enter__.return_value = mock_file
+        path = str(tmp_path / "key.pem")
+        writers = 16
+        barrier = threading.Barrier(writers)
 
-        content = b"test pem content"
-        save_pem_file("/path/to/key.pem", content)
+        def publish(i: int) -> bool:
+            barrier.wait()
+            return publish_signing_key(path, f"key-{i}".encode())
 
-        mock_open.assert_called_once_with("/path/to/key.pem", "wb")
-        mock_file.write.assert_called_once_with(content)
-        mock_open.return_value.__exit__.assert_called_once()
+        with ThreadPoolExecutor(writers) as pool:
+            won = list(pool.map(publish, range(writers)))
+
+        assert won.count(True) == 1
+        with open(path, "rb") as f:
+            assert f.read() == f"key-{won.index(True)}".encode()
+        assert os.listdir(tmp_path) == ["key.pem"]
+
+    def test_ensure_signing_key_creates_a_missing_key(self, tmp_path):
+        from api.adapters.oidc.provider import ensure_signing_key
+
+        path = tmp_path / "key.pem"
+        ensure_signing_key(str(path), 2048)
+        assert path.read_bytes().startswith(b"-----BEGIN PRIVATE KEY-----")
+
+    def test_ensure_signing_key_leaves_an_existing_key(self, tmp_path):
+        from api.adapters.oidc.provider import ensure_signing_key
+
+        path = tmp_path / "key.pem"
+        path.write_bytes(b"existing")
+        ensure_signing_key(str(path), 2048)
+        assert path.read_bytes() == b"existing"
+
+    def test_ensure_signing_key_uses_the_key_another_process_published(self, tmp_path):
+        """The file appears between the existence check and the publish."""
+        from api.adapters.oidc.provider import ensure_signing_key
+
+        path = tmp_path / "key.pem"
+
+        def other_process_wins(key_size: int) -> bytes:
+            path.write_bytes(b"theirs")
+            return b"ours"
+
+        with patch(
+            "api.adapters.oidc.provider.generate_signing_key_pem",
+            side_effect=other_process_wins,
+        ):
+            ensure_signing_key(str(path), 2048)
+        assert path.read_bytes() == b"theirs"
+        assert os.listdir(tmp_path) == ["key.pem"]
 
 
 class TestInitProvider:
